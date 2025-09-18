@@ -1,0 +1,9 @@
+# Core PyQt5 requirements (already installed)
+PyQt5>=5.15.0
+
+# Optional: Additional fonts for better Persian support
+# Install system fonts like Tahoma, B Nazanin, etc. manually if needed
+
+# For development and testing
+pytest>=7.0.0
+pytest-qt>=4.0.0
