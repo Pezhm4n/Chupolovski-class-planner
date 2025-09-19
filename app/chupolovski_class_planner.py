@@ -33,8 +33,10 @@ def setup_logging():
 # Initialize logger
 logger = setup_logging()
 
-USER_DATA_FILE = 'user_data.json'
-COURSES_DATA_FILE = 'courses_data.json'
+# Get script directory for absolute paths
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+USER_DATA_FILE = os.path.join(SCRIPT_DIR, 'user_data.json')
+COURSES_DATA_FILE = os.path.join(SCRIPT_DIR, 'courses_data.json')
 
 # Global COURSES dictionary - will be loaded from JSON
 COURSES = {}
@@ -42,7 +44,7 @@ COURSES = {}
 # ---------------------- ذخیره و بارگذاری داده‌های درس ----------------------
 
 def load_courses_from_json():
-    """Load all courses from JSON file"""
+    """Load all courses from JSON file with enhanced error handling"""
     global COURSES
     logger.info(f"Loading courses from {COURSES_DATA_FILE}")
     
@@ -55,11 +57,62 @@ def load_courses_from_json():
     try:
         with open(COURSES_DATA_FILE, 'r', encoding='utf-8') as f:
             data = json.load(f)
-            COURSES = data.get('courses', {})
-            logger.info(f"Successfully loaded {len(COURSES)} courses from {COURSES_DATA_FILE}")
-            print(f"Loaded {len(COURSES)} courses from {COURSES_DATA_FILE}")
-    except (json.JSONDecodeError, IOError) as e:
-        logger.error(f"Error loading courses from {COURSES_DATA_FILE}: {e}", exc_info=True)
+            
+        # Validate JSON structure
+        if not isinstance(data, dict):
+            raise ValueError("Invalid JSON structure: Root must be a dictionary")
+            
+        courses_data = data.get('courses', {})
+        if not isinstance(courses_data, dict):
+            raise ValueError("Invalid JSON structure: 'courses' must be a dictionary")
+            
+        # Validate each course entry
+        valid_courses = {}
+        invalid_count = 0
+        
+        for course_id, course_info in courses_data.items():
+            try:
+                # Check required fields
+                required_fields = ['code', 'name', 'credits', 'instructor', 'schedule']
+                for field in required_fields:
+                    if field not in course_info:
+                        raise ValueError(f"Missing required field '{field}'")
+                        
+                # Validate schedule structure
+                if not isinstance(course_info['schedule'], list):
+                    raise ValueError("Schedule must be a list")
+                    
+                for schedule_item in course_info['schedule']:
+                    if not isinstance(schedule_item, dict):
+                        raise ValueError("Schedule item must be a dictionary")
+                    if 'day' not in schedule_item or 'start' not in schedule_item or 'end' not in schedule_item:
+                        raise ValueError("Schedule item missing required fields")
+                        
+                valid_courses[course_id] = course_info
+                logger.debug(f"Successfully validated course: {course_id}")
+                
+            except Exception as e:
+                logger.warning(f"Invalid course data for {course_id}: {e}")
+                invalid_count += 1
+                continue
+                
+        COURSES = valid_courses
+        logger.info(f"Successfully loaded {len(COURSES)} valid courses from {COURSES_DATA_FILE}")
+        if invalid_count > 0:
+            logger.warning(f"Skipped {invalid_count} invalid course entries")
+            print(f"Warning: Skipped {invalid_count} invalid course entries")
+        print(f"Loaded {len(COURSES)} courses from {COURSES_DATA_FILE}")
+        
+    except json.JSONDecodeError as e:
+        logger.error(f"JSON decode error in {COURSES_DATA_FILE}: {e}", exc_info=True)
+        print(f"Error: Invalid JSON format in {COURSES_DATA_FILE}: {e}")
+        COURSES = {}
+    except (IOError, OSError) as e:
+        logger.error(f"File I/O error loading {COURSES_DATA_FILE}: {e}", exc_info=True)
+        print(f"Error: Cannot read {COURSES_DATA_FILE}: {e}")
+        COURSES = {}
+    except Exception as e:
+        logger.error(f"Unexpected error loading courses from {COURSES_DATA_FILE}: {e}", exc_info=True)
         print(f"Error loading courses from {COURSES_DATA_FILE}: {e}")
         COURSES = {}
 
@@ -946,6 +999,23 @@ class DetailedInfoWindow(QtWidgets.QMainWindow):
         
         exam_layout.addWidget(self.exam_table)
         
+        # Add statistics panel
+        self.stats_label = QtWidgets.QLabel()
+        self.stats_label.setStyleSheet("""
+            QLabel {
+                background: qlineargradient(x1: 0, y1: 0, x2: 1, y2: 0,
+                                          stop: 0 #3498db, stop: 1 #2980b9);
+                color: white;
+                padding: 12px;
+                border-radius: 8px;
+                font-weight: bold;
+                font-size: 14px;
+                margin: 10px 0;
+            }
+        """)
+        self.stats_label.setAlignment(QtCore.Qt.AlignCenter)
+        exam_layout.addWidget(self.stats_label)
+        
         # Add bottom separator and spacing
         bottom_separator = QtWidgets.QFrame()
         bottom_separator.setFrameShape(QtWidgets.QFrame.HLine)
@@ -1242,6 +1312,34 @@ class DetailedInfoWindow(QtWidgets.QMainWindow):
                         if current_bg == QtGui.QColor():
                             item.setBackground(QtGui.QBrush(QtGui.QColor('#f8f9fa')))
         
+        # Calculate and display statistics
+        if hasattr(self, 'stats_label'):
+            if placed_courses:
+                # Calculate total units
+                total_units = 0
+                days_used = set()
+                total_sessions = len(self.parent_window.placed) if hasattr(self.parent_window, 'placed') else 0
+                
+                for course_key in placed_courses:
+                    course = COURSES.get(course_key, {})
+                    total_units += course.get('credits', 0)
+                    # Get days from schedule
+                    for session in course.get('schedule', []):
+                        days_used.add(session.get('day', ''))
+                
+                # Create statistics text
+                stats_text = f"📊 آمار برنامه: دروس: {len(placed_courses)} | جلسات: {total_sessions} | واحدها: {total_units} | روزهای حضور: {len(days_used)}"
+                
+                if days_used:
+                    days_list = ', '.join(sorted([day for day in days_used if day]))
+                    stats_text += f" ({days_list})"
+                
+                self.stats_label.setText(stats_text)
+                self.stats_label.setVisible(True)
+            else:
+                self.stats_label.setText("📊 هیچ درسی انتخاب نشده است")
+                self.stats_label.setVisible(True)
+        
         # Update section title with count
         if hasattr(self, 'parent') and self.parent():
             exam_count = len(exam_data)
@@ -1283,7 +1381,7 @@ class DetailedInfoWindow(QtWidgets.QMainWindow):
             self.export_as_pdf()
     
     def export_as_text(self):
-        """Export exam schedule as plain text"""
+        """Export exam schedule as plain text with comprehensive information"""
         filename, _ = QtWidgets.QFileDialog.getSaveFileName(
             self, 'ذخیره برنامه امتحانات', 'exam_schedule.txt', 'Text Files (*.txt)'
         )
@@ -1291,30 +1389,119 @@ class DetailedInfoWindow(QtWidgets.QMainWindow):
             return
             
         try:
+            from datetime import datetime
+            current_date = datetime.now().strftime('%Y/%m/%d - %H:%M')
+            
             with open(filename, 'w', encoding='utf-8') as f:
-                f.write('🗓️ برنامه امتحانات\n')
-                f.write('='*50 + '\n\n')
+                f.write('📅 برنامه امتحانات دانشگاهی\n')
+                f.write('='*60 + '\n\n')
+                f.write(f'🕒 تاریخ تولید: {current_date}\n')
+                f.write(f'📚 تولید شده توسط: برنامه‌ریز انتخاب واحد v2.0\n\n')
+                
+                # Calculate and display statistics
+                total_courses = self.exam_table.rowCount()
+                total_units = 0
+                total_sessions = 0
+                days_used = set()
+                instructors = set()
+                
+                # Get placed courses for statistics
+                if hasattr(self.parent_window, 'placed'):
+                    placed_courses = set()
+                    for info in self.parent_window.placed.values():
+                        placed_courses.add(info['course'])
+                    
+                    for course_key in placed_courses:
+                        course = COURSES.get(course_key, {})
+                        total_units += course.get('credits', 0)
+                        instructors.add(course.get('instructor', 'نامشخص'))
+                        for session in course.get('schedule', []):
+                            days_used.add(session.get('day', ''))
+                    
+                    total_sessions = len(self.parent_window.placed)
+                
+                f.write('📊 خلاصه اطلاعات برنامه:\n')
+                f.write('-' * 40 + '\n')
+                f.write(f'• تعداد دروس: {total_courses}\n')
+                f.write(f'• مجموع واحدها: {total_units}\n')
+                f.write(f'• تعداد جلسات: {total_sessions}\n')
+                f.write(f'• روزهای حضور: {len(days_used)} روز\n')
+                f.write(f'• تعداد اساتید: {len(instructors)}\n\n')
+                
+                if days_used:
+                    days_list = ', '.join(sorted([day for day in days_used if day]))
+                    f.write(f'• روزهای حضور: {days_list}\n\n')
+                
+                f.write('📄 جزئیات برنامه امتحانات:\n')
+                f.write('='*60 + '\n\n')
                 
                 for row in range(self.exam_table.rowCount()):
-                    name = self.exam_table.item(row, 0).text()
-                    code = self.exam_table.item(row, 1).text()
-                    instructor = self.exam_table.item(row, 2).text()
-                    exam_time = self.exam_table.item(row, 3).text()
-                    location = self.exam_table.item(row, 4).text()
+                    name = self.exam_table.item(row, 0).text() if self.exam_table.item(row, 0) else ''
+                    code = self.exam_table.item(row, 1).text() if self.exam_table.item(row, 1) else ''
+                    instructor = self.exam_table.item(row, 2).text() if self.exam_table.item(row, 2) else ''
+                    exam_time = self.exam_table.item(row, 3).text() if self.exam_table.item(row, 3) else ''
+                    location = self.exam_table.item(row, 4).text() if self.exam_table.item(row, 4) else ''
                     
-                    f.write(f'📚 درس: {name}\n')
-                    f.write(f'🔢 کد: {code}\n')
-                    f.write(f'👨‍🏫 استاد: {instructor}\n')
-                    f.write(f'⏰ زمان امتحان: {exam_time}\n')
-                    f.write(f'📍 محل: {location}\n')
-                    f.write('-'*30 + '\n\n')
+                    # Get additional course information
+                    course_credits = 0
+                    parity_info = 'همه هفته‌ها'
+                    schedule_info = []
+                    
+                    # Find course by code to get additional info
+                    for key, course in COURSES.items():
+                        if course.get('code') == code:
+                            course_credits = course.get('credits', 0)
+                            # Check for parity and schedule from course data
+                            for session in course.get('schedule', []):
+                                day = session.get('day', '')
+                                start = session.get('start', '')
+                                end = session.get('end', '')
+                                parity = session.get('parity', '')
+                                
+                                if parity == 'ز':
+                                    parity_text = ' (زوج)'
+                                    if parity_info == 'همه هفته‌ها':
+                                        parity_info = 'زوج'
+                                elif parity == 'ف':
+                                    parity_text = ' (فرد)'
+                                    if parity_info == 'همه هفته‌ها':
+                                        parity_info = 'فرد'
+                                else:
+                                    parity_text = ''
+                                
+                                schedule_info.append(f'{day} {start}-{end}{parity_text}')
+                            break
+                    
+                    f.write(f'📚 درس {row + 1}:\n')
+                    f.write(f'   نام: {name}\n')
+                    f.write(f'   کد: {code}\n')
+                    f.write(f'   استاد: {instructor}\n')
+                    f.write(f'   تعداد واحد: {course_credits}\n')
+                    f.write(f'   نوع هفته: {parity_info}\n')
+                    f.write(f'   زمان امتحان: {exam_time}\n')
+                    f.write(f'   محل برگزاری: {location}\n')
+                    
+                    if schedule_info:
+                        f.write(f'   جلسات درس:\n')
+                        for session in schedule_info:
+                            f.write(f'     • {session}\n')
+                    
+                    f.write('-'*50 + '\n\n')
+                
+                f.write('\n' + '='*60 + '\n')
+                f.write('📝 توضیحات علائم:\n')
+                f.write('• زوج: دروس هفته‌های زوج (در جدول با علامت ز نشان داده شده)\n')
+                f.write('• فرد: دروس هفته‌های فرد (در جدول با علامت ف نشان داده شده)\n')
+                f.write('• همه هفته‌ها: دروسی که هر هفته تشکیل می‌شوند\n\n')
+                
+                f.write(f'💡 این برنامه با استفاده از فناوری PyQt5 و Python توسعه یافته است\n')
                     
             QtWidgets.QMessageBox.information(self, 'صدور موفق', f'برنامه امتحانات در فایل زیر ذخیره شد:\n{filename}')
         except Exception as e:
             QtWidgets.QMessageBox.critical(self, 'خطا', f'خطا در ذخیره فایل:\n{str(e)}')
     
     def export_as_html(self):
-        """Export exam schedule as HTML"""
+        """Export exam schedule as HTML with improved styling and complete information"""
         filename, _ = QtWidgets.QFileDialog.getSaveFileName(
             self, 'ذخیره برنامه امتحانات', 'exam_schedule.html', 'HTML Files (*.html)'
         )
@@ -1330,55 +1517,276 @@ class DetailedInfoWindow(QtWidgets.QMainWindow):
                 <meta name="viewport" content="width=device-width, initial-scale=1.0">
                 <title>برنامه امتحانات</title>
                 <style>
-                    body { font-family: 'Segoe UI', Tahoma, Arial, sans-serif; margin: 20px; background: #f5f5f5; }
-                    .container { max-width: 800px; margin: 0 auto; background: white; padding: 30px; border-radius: 10px; box-shadow: 0 0 20px rgba(0,0,0,0.1); }
-                    h1 { color: #d35400; text-align: center; margin-bottom: 30px; }
-                    table { width: 100%; border-collapse: collapse; margin-top: 20px; }
-                    th, td { padding: 12px; text-align: center; border: 1px solid #ddd; }
-                    th { background: #f39c12; color: white; font-weight: bold; }
-                    tr:nth-child(even) { background: #f8f9fa; }
-                    .exam-time { font-weight: bold; color: #e74c3c; }
-                    .footer { text-align: center; margin-top: 30px; color: #7f8c8d; font-size: 12px; }
+                    @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+Arabic:wght@400;700&display=swap');
+                    body { 
+                        font-family: 'Nazanin', 'Noto Sans Arabic', 'Tahoma', Arial, sans-serif; 
+                        margin: 20px; 
+                        background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+                        min-height: 100vh;
+                        color: #2c3e50;
+                    }
+                    .container { 
+                        max-width: 900px; 
+                        margin: 0 auto; 
+                        background: white; 
+                        padding: 40px; 
+                        border-radius: 15px; 
+                        box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+                    }
+                    h1 { 
+                        color: #d35400; 
+                        text-align: center; 
+                        margin-bottom: 30px;
+                        font-size: 28px;
+                        text-shadow: 2px 2px 4px rgba(0,0,0,0.1);
+                    }
+                    .info-section {
+                        background: linear-gradient(135deg, #e8f6f3 0%, #d5f4e6 100%);
+                        padding: 20px;
+                        border-radius: 10px;
+                        margin-bottom: 25px;
+                        border-left: 5px solid #27ae60;
+                    }
+                    .stats {
+                        display: flex;
+                        justify-content: space-around;
+                        margin: 20px 0;
+                        flex-wrap: wrap;
+                    }
+                    .stat-item {
+                        text-align: center;
+                        margin: 10px;
+                        padding: 15px;
+                        background: white;
+                        border-radius: 10px;
+                        box-shadow: 0 2px 10px rgba(0,0,0,0.1);
+                        min-width: 120px;
+                    }
+                    .stat-number {
+                        font-size: 24px;
+                        font-weight: bold;
+                        color: #e74c3c;
+                        margin-bottom: 5px;
+                    }
+                    .stat-label {
+                        font-size: 12px;
+                        color: #7f8c8d;
+                        font-weight: normal;
+                    }
+                    table { 
+                        width: 100%; 
+                        border-collapse: collapse; 
+                        margin-top: 20px;
+                        box-shadow: 0 4px 15px rgba(0,0,0,0.1);
+                        border-radius: 10px;
+                        overflow: hidden;
+                    }
+                    th, td { 
+                        padding: 15px 10px; 
+                        text-align: center; 
+                        border-bottom: 1px solid #ecf0f1;
+                        font-size: 13px;
+                    }
+                    th { 
+                        background: linear-gradient(135deg, #f39c12 0%, #e67e22 100%);
+                        color: white; 
+                        font-weight: bold;
+                        font-size: 14px;
+                        text-shadow: 1px 1px 2px rgba(0,0,0,0.2);
+                    }
+                    tr:nth-child(even) { 
+                        background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+                    }
+                    tr:hover {
+                        background: linear-gradient(135deg, #fff3cd 0%, #ffeaa7 100%);
+                        transform: scale(1.01);
+                        transition: all 0.2s ease;
+                    }
+                    .course-name {
+                        font-weight: bold;
+                        color: #2c3e50;
+                        font-size: 14px;
+                    }
+                    .course-code {
+                        font-family: 'Courier New', monospace;
+                        background: #e8f4fd;
+                        padding: 4px 8px;
+                        border-radius: 4px;
+                        font-weight: bold;
+                        color: #2980b9;
+                    }
+                    .exam-time { 
+                        font-weight: bold; 
+                        color: #e74c3c;
+                        background: #fff5f5;
+                        padding: 6px;
+                        border-radius: 4px;
+                    }
+                    .instructor {
+                        color: #34495e;
+                        font-size: 12px;
+                    }
+                    .location {
+                        color: #7f8c8d;
+                        font-size: 11px;
+                        font-style: italic;
+                    }
+                    .parity {
+                        font-weight: bold;
+                        padding: 2px 6px;
+                        border-radius: 12px;
+                        font-size: 10px;
+                        color: white;
+                    }
+                    .parity-even {
+                        background: #27ae60;
+                    }
+                    .parity-odd {
+                        background: #3498db;
+                    }
+                    .parity-all {
+                        background: #95a5a6;
+                    }
+                    .footer { 
+                        text-align: center; 
+                        margin-top: 40px; 
+                        color: #7f8c8d; 
+                        font-size: 12px;
+                        padding: 20px;
+                        background: #ecf0f1;
+                        border-radius: 8px;
+                        border-top: 3px solid #3498db;
+                    }
+                    @media print {
+                        body { background: white !important; }
+                        .container { box-shadow: none !important; }
+                    }
                 </style>
             </head>
             <body>
                 <div class="container">
-                    <h1>📅 برنامه امتحانات</h1>
+                    <h1>📅 برنامه امتحانات دانشگاهی</h1>
+                    
+                    <div class="info-section">
+                        <h3 style="color: #27ae60; margin-top: 0;">📊 خلاصه اطلاعات برنامه</h3>
+                        <div class="stats">
+            """
+            
+            # Calculate comprehensive statistics
+            total_courses = self.exam_table.rowCount()
+            total_units = 0
+            total_sessions = 0
+            days_used = set()
+            instructors = set()
+            
+            # Get placed courses for statistics
+            if hasattr(self.parent_window, 'placed'):
+                placed_courses = set()
+                for info in self.parent_window.placed.values():
+                    placed_courses.add(info['course'])
+                
+                for course_key in placed_courses:
+                    course = COURSES.get(course_key, {})
+                    total_units += course.get('credits', 0)
+                    instructors.add(course.get('instructor', 'نامشخص'))
+                    for session in course.get('schedule', []):
+                        days_used.add(session.get('day', ''))
+                
+                total_sessions = len(self.parent_window.placed)
+            
+            # Add statistics
+            html_content += f"""
+                            <div class="stat-item">
+                                <div class="stat-number">{total_courses}</div>
+                                <div class="stat-label">تعداد دروس</div>
+                            </div>
+                            <div class="stat-item">
+                                <div class="stat-number">{total_units}</div>
+                                <div class="stat-label">مجموع واحدها</div>
+                            </div>
+                            <div class="stat-item">
+                                <div class="stat-number">{total_sessions}</div>
+                                <div class="stat-label">تعداد جلسات</div>
+                            </div>
+                            <div class="stat-item">
+                                <div class="stat-number">{len(days_used)}</div>
+                                <div class="stat-label">روزهای حضور</div>
+                            </div>
+                            <div class="stat-item">
+                                <div class="stat-number">{len(instructors)}</div>
+                                <div class="stat-label">تعداد اساتید</div>
+                            </div>
+                        </div>
+                    </div>
+                    
                     <table>
                         <thead>
                             <tr>
                                 <th>نام درس</th>
                                 <th>کد درس</th>
                                 <th>استاد</th>
+                                <th>واحد</th>
                                 <th>زمان امتحان</th>
                                 <th>محل برگزاری</th>
+                                <th>نوع هفته</th>
                             </tr>
                         </thead>
                         <tbody>
             """
             
             for row in range(self.exam_table.rowCount()):
-                name = self.exam_table.item(row, 0).text()
-                code = self.exam_table.item(row, 1).text()
-                instructor = self.exam_table.item(row, 2).text()
-                exam_time = self.exam_table.item(row, 3).text()
-                location = self.exam_table.item(row, 4).text()
+                name = self.exam_table.item(row, 0).text() if self.exam_table.item(row, 0) else ''
+                code = self.exam_table.item(row, 1).text() if self.exam_table.item(row, 1) else ''
+                instructor = self.exam_table.item(row, 2).text() if self.exam_table.item(row, 2) else ''
+                exam_time = self.exam_table.item(row, 3).text() if self.exam_table.item(row, 3) else ''
+                location = self.exam_table.item(row, 4).text() if self.exam_table.item(row, 4) else ''
+                
+                # Get additional course information
+                course_key = None
+                course_credits = 0
+                parity_info = 'همه هفته‌ها'
+                parity_class = 'parity-all'
+                
+                # Find course by code to get additional info
+                for key, course in COURSES.items():
+                    if course.get('code') == code:
+                        course_key = key
+                        course_credits = course.get('credits', 0)
+                        # Check for parity from schedule
+                        for session in course.get('schedule', []):
+                            if session.get('parity') == 'ز':
+                                parity_info = 'زوج'
+                                parity_class = 'parity-even'
+                                break
+                            elif session.get('parity') == 'ف':
+                                parity_info = 'فرد'
+                                parity_class = 'parity-odd'
+                                break
+                        break
                 
                 html_content += f"""
                             <tr>
-                                <td>{name}</td>
-                                <td>{code}</td>
-                                <td>{instructor}</td>
+                                <td class="course-name">{name}</td>
+                                <td class="course-code">{code}</td>
+                                <td class="instructor">{instructor}</td>
+                                <td style="font-weight: bold; color: #e67e22;">{course_credits}</td>
                                 <td class="exam-time">{exam_time}</td>
-                                <td>{location}</td>
+                                <td class="location">{location}</td>
+                                <td><span class="parity {parity_class}">{parity_info}</span></td>
                             </tr>
                 """
             
-            html_content += """
+            from datetime import datetime
+            current_date = datetime.now().strftime('%Y/%m/%d - %H:%M')
+            
+            html_content += f"""
                         </tbody>
                     </table>
+                    
                     <div class="footer">
-                        تولید شده توسط برنامه‌ریز انتخاب واحد - Schedule Planner v2.0
+                        <strong>📚 برنامه‌ریز انتخاب واحد - Schedule Planner v2.0</strong><br>
+                        🕒 تاریخ و زمان تولید: {current_date}<br>
+                        💡 این برنامه با استفاده از فناوری PyQt5 و Python توسعه یافته است
                     </div>
                 </div>
             </body>
@@ -1393,7 +1801,7 @@ class DetailedInfoWindow(QtWidgets.QMainWindow):
             QtWidgets.QMessageBox.critical(self, 'خطا', f'خطا در ذخیره فایل:\n{str(e)}')
     
     def export_as_csv(self):
-        """Export exam schedule as CSV"""
+        """Export exam schedule as CSV with comprehensive course information"""
         filename, _ = QtWidgets.QFileDialog.getSaveFileName(
             self, 'ذخیره برنامه امتحانات', 'exam_schedule.csv', 'CSV Files (*.csv)'
         )
@@ -1405,16 +1813,74 @@ class DetailedInfoWindow(QtWidgets.QMainWindow):
             with open(filename, 'w', encoding='utf-8-sig', newline='') as f:
                 writer = csv.writer(f)
                 
-                # Write header
-                writer.writerow(['نام درس', 'کد درس', 'استاد', 'زمان امتحان', 'محل برگزاری'])
+                # Enhanced header with more information
+                writer.writerow([
+                    'نام درس', 
+                    'کد درس', 
+                    'استاد', 
+                    'تعداد واحد',
+                    'زمان امتحان', 
+                    'محل برگزاری',
+                    'نوع هفته',
+                    'جلسات درس',
+                    'توضیحات'
+                ])
                 
-                # Write data
+                # Write enhanced data
                 for row in range(self.exam_table.rowCount()):
-                    row_data = []
-                    for col in range(5):
-                        item = self.exam_table.item(row, col)
-                        row_data.append(item.text() if item else '')
-                    writer.writerow(row_data)
+                    name = self.exam_table.item(row, 0).text() if self.exam_table.item(row, 0) else ''
+                    code = self.exam_table.item(row, 1).text() if self.exam_table.item(row, 1) else ''
+                    instructor = self.exam_table.item(row, 2).text() if self.exam_table.item(row, 2) else ''
+                    exam_time = self.exam_table.item(row, 3).text() if self.exam_table.item(row, 3) else ''
+                    location = self.exam_table.item(row, 4).text() if self.exam_table.item(row, 4) else ''
+                    
+                    # Get additional course information
+                    course_credits = 0
+                    parity_info = 'همه هفته‌ها'
+                    schedule_info = []
+                    description = ''
+                    
+                    # Find course by code to get additional info
+                    for key, course in COURSES.items():
+                        if course.get('code') == code:
+                            course_credits = course.get('credits', 0)
+                            description = course.get('description', '')
+                            
+                            # Check for parity and schedule from course data
+                            for session in course.get('schedule', []):
+                                day = session.get('day', '')
+                                start = session.get('start', '')
+                                end = session.get('end', '')
+                                parity = session.get('parity', '')
+                                
+                                if parity == 'ز':
+                                    parity_text = ' (زوج)'
+                                    if parity_info == 'همه هفته‌ها':
+                                        parity_info = 'زوج'
+                                elif parity == 'ف':
+                                    parity_text = ' (فرد)'
+                                    if parity_info == 'همه هفته‌ها':
+                                        parity_info = 'فرد'
+                                else:
+                                    parity_text = ''
+                                
+                                schedule_info.append(f'{day} {start}-{end}{parity_text}')
+                            break
+                    
+                    # Combine schedule info
+                    schedule_text = '; '.join(schedule_info) if schedule_info else 'اطلاعی موجود نیست'
+                    
+                    writer.writerow([
+                        name,
+                        code, 
+                        instructor,
+                        course_credits,
+                        exam_time,
+                        location,
+                        parity_info,
+                        schedule_text,
+                        description[:100] + '...' if len(description) > 100 else description
+                    ])
                     
             QtWidgets.QMessageBox.information(self, 'صدور موفق', f'برنامه امتحانات در فایل زیر ذخیره شد:\n{filename}')
         except Exception as e:
@@ -1543,32 +2009,90 @@ class DetailedInfoWindow(QtWidgets.QMainWindow):
             raise
     
     def _generate_pdf_html(self, exam_count):
-        """Generate HTML content optimized for PDF export with Persian support"""
+        """Generate HTML content optimized for PDF export with Persian support and comprehensive information"""
         from datetime import datetime
         current_date = datetime.now().strftime('%Y/%m/%d - %H:%M')
         
-        # Collect exam data
+        # Collect comprehensive exam data
         exam_data = []
+        total_units = 0
+        total_sessions = 0
+        days_used = set()
+        instructors = set()
+        
         for row in range(exam_count):
-            exam_data.append({
+            base_data = {
                 'name': self.exam_table.item(row, 0).text() if self.exam_table.item(row, 0) else '',
                 'code': self.exam_table.item(row, 1).text() if self.exam_table.item(row, 1) else '',
                 'instructor': self.exam_table.item(row, 2).text() if self.exam_table.item(row, 2) else '',
                 'exam_time': self.exam_table.item(row, 3).text() if self.exam_table.item(row, 3) else '',
-                'location': self.exam_table.item(row, 4).text() if self.exam_table.item(row, 4) else ''
-            })
+                'location': self.exam_table.item(row, 4).text() if self.exam_table.item(row, 4) else '',
+                'credits': 0,
+                'parity': 'همه هفته‌ها',
+                'schedule': []
+            }
+            
+            # Get additional course information
+            for key, course in COURSES.items():
+                if course.get('code') == base_data['code']:
+                    base_data['credits'] = course.get('credits', 0)
+                    total_units += base_data['credits']
+                    instructors.add(base_data['instructor'])
+                    
+                    # Check for parity and schedule from course data
+                    for session in course.get('schedule', []):
+                        days_used.add(session.get('day', ''))
+                        day = session.get('day', '')
+                        start = session.get('start', '')
+                        end = session.get('end', '')
+                        parity = session.get('parity', '')
+                        
+                        if parity == 'ز':
+                            parity_text = ' (زوج)'
+                            if base_data['parity'] == 'همه هفته‌ها':
+                                base_data['parity'] = 'زوج'
+                        elif parity == 'ف':
+                            parity_text = ' (فرد)'
+                            if base_data['parity'] == 'همه هفته‌ها':
+                                base_data['parity'] = 'فرد'
+                        else:
+                            parity_text = ''
+                        
+                        base_data['schedule'].append(f'{day} {start}-{end}{parity_text}')
+                    break
+            
+            exam_data.append(base_data)
         
-        # Generate table rows
+        # Get placed courses for additional statistics
+        if hasattr(self.parent_window, 'placed'):
+            total_sessions = len(self.parent_window.placed)
+        
+        # Generate table rows with enhanced information
         table_rows = ""
         for i, exam in enumerate(exam_data):
             row_class = "even-row" if i % 2 == 0 else "odd-row"
+            
+            # Determine parity styling
+            parity_class = 'parity-all'
+            if exam['parity'] == 'زوج':
+                parity_class = 'parity-even'
+            elif exam['parity'] == 'فرد':
+                parity_class = 'parity-odd'
+            
+            schedule_text = '<br>'.join(exam['schedule'][:3])  # Show first 3 sessions
+            if len(exam['schedule']) > 3:
+                schedule_text += f'<br><small>+{len(exam["schedule"])-3} جلسه دیگر</small>'
+            
             table_rows += f"""
                 <tr class="{row_class}">
                     <td class="course-name">{exam['name']}</td>
                     <td class="course-code">{exam['code']}</td>
                     <td class="instructor">{exam['instructor']}</td>
+                    <td class="credits">{exam['credits']}</td>
                     <td class="exam-time">{exam['exam_time']}</td>
                     <td class="location">{exam['location']}</td>
+                    <td><span class="parity {parity_class}">{exam['parity']}</span></td>
+                    <td class="schedule">{schedule_text}</td>
                 </tr>
             """
         
@@ -1581,7 +2105,7 @@ class DetailedInfoWindow(QtWidgets.QMainWindow):
             <title>برنامه امتحانات - Schedule Planner</title>
             <style>
                 @page {{
-                    size: A4;
+                    size: A4 landscape;
                     margin: 15mm;
                     @bottom-center {{
                         content: "صفحه " counter(page) " از " counter(pages);
@@ -1595,18 +2119,18 @@ class DetailedInfoWindow(QtWidgets.QMainWindow):
                 }}
                 
                 body {{
-                    font-family: 'Tahoma', 'Arial Unicode MS', 'Segoe UI', sans-serif;
+                    font-family: 'Nazanin', 'Tahoma', 'Arial Unicode MS', 'Segoe UI', sans-serif;
                     background: white;
                     color: #2c3e50;
-                    line-height: 1.6;
+                    line-height: 1.4;
                     margin: 0;
-                    padding: 20px;
-                    font-size: 14px;
+                    padding: 15px;
+                    font-size: 12px;
                 }}
                 
                 .header {{
                     text-align: center;
-                    margin-bottom: 30px;
+                    margin-bottom: 25px;
                     padding: 20px;
                     background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
                     color: white;
@@ -1616,14 +2140,40 @@ class DetailedInfoWindow(QtWidgets.QMainWindow):
                 
                 .header h1 {{
                     margin: 0 0 10px 0;
-                    font-size: 24px;
+                    font-size: 22px;
                     font-weight: bold;
                 }}
                 
                 .header p {{
                     margin: 5px 0;
-                    font-size: 16px;
+                    font-size: 14px;
                     opacity: 0.9;
+                }}
+                
+                .stats {{
+                    display: flex;
+                    justify-content: space-around;
+                    margin: 15px 0;
+                    padding: 15px;
+                    background: #e8f6f3;
+                    border-radius: 8px;
+                    border: 2px solid #1abc9c;
+                }}
+                
+                .stat-item {{
+                    text-align: center;
+                }}
+                
+                .stat-number {{
+                    font-size: 18px;
+                    font-weight: bold;
+                    color: #1abc9c;
+                }}
+                
+                .stat-label {{
+                    font-size: 10px;
+                    color: #2c3e50;
+                    margin-top: 3px;
                 }}
                 
                 .exam-table {{
@@ -1633,20 +2183,21 @@ class DetailedInfoWindow(QtWidgets.QMainWindow):
                     box-shadow: 0 2px 8px rgba(0,0,0,0.1);
                     border-radius: 8px;
                     overflow: hidden;
+                    font-size: 10px;
                 }}
                 
                 .exam-table th {{
                     background: linear-gradient(135deg, #f39c12 0%, #e67e22 100%);
                     color: white;
-                    padding: 15px 12px;
+                    padding: 12px 8px;
                     text-align: center;
                     font-weight: bold;
-                    font-size: 14px;
+                    font-size: 11px;
                     border: none;
                 }}
                 
                 .exam-table td {{
-                    padding: 12px;
+                    padding: 8px 6px;
                     text-align: center;
                     border-bottom: 1px solid #ecf0f1;
                     vertical-align: middle;
@@ -1664,15 +2215,16 @@ class DetailedInfoWindow(QtWidgets.QMainWindow):
                     font-weight: bold;
                     color: #2c3e50;
                     text-align: right;
-                    padding-right: 15px;
+                    font-size: 11px;
                 }}
                 
                 .course-code {{
                     font-family: 'Courier New', monospace;
                     background: #ecf0f1;
                     border-radius: 4px;
-                    padding: 4px 8px;
+                    padding: 4px 6px;
                     font-weight: bold;
+                    font-size: 9px;
                 }}
                 
                 .exam-time {{
@@ -1680,53 +2232,62 @@ class DetailedInfoWindow(QtWidgets.QMainWindow):
                     color: #e74c3c;
                     background: #fff5f5;
                     border-radius: 4px;
-                    padding: 6px;
+                    padding: 4px;
+                    font-size: 9px;
                 }}
                 
                 .instructor {{
                     color: #34495e;
+                    font-size: 10px;
                 }}
                 
                 .location {{
                     color: #7f8c8d;
-                    font-size: 12px;
+                    font-size: 9px;
+                }}
+                
+                .credits {{
+                    font-weight: bold;
+                    color: #e67e22;
+                    font-size: 11px;
+                }}
+                
+                .schedule {{
+                    font-size: 8px;
+                    color: #34495e;
+                    text-align: right;
+                    line-height: 1.2;
+                }}
+                
+                .parity {{
+                    font-weight: bold;
+                    padding: 2px 6px;
+                    border-radius: 10px;
+                    font-size: 8px;
+                    color: white;
+                }}
+                
+                .parity-even {{
+                    background: #27ae60;
+                }}
+                
+                .parity-odd {{
+                    background: #3498db;
+                }}
+                
+                .parity-all {{
+                    background: #95a5a6;
                 }}
                 
                 .footer {{
-                    margin-top: 40px;
+                    margin-top: 30px;
                     padding: 15px;
                     text-align: center;
                     background: #ecf0f1;
                     border-radius: 8px;
                     color: #7f8c8d;
-                    font-size: 12px;
+                    font-size: 10px;
                     border-top: 3px solid #3498db;
-                }}
-                
-                .stats {{
-                    display: flex;
-                    justify-content: space-around;
-                    margin: 20px 0;
-                    padding: 15px;
-                    background: #e8f6f3;
-                    border-radius: 8px;
-                    border: 2px solid #1abc9c;
-                }}
-                
-                .stat-item {{
-                    text-align: center;
-                }}
-                
-                .stat-number {{
-                    font-size: 20px;
-                    font-weight: bold;
-                    color: #1abc9c;
-                }}
-                
-                .stat-label {{
-                    font-size: 12px;
-                    color: #2c3e50;
-                    margin-top: 5px;
                 }}
                 
                 @media print {{
@@ -1744,7 +2305,7 @@ class DetailedInfoWindow(QtWidgets.QMainWindow):
         </head>
         <body>
             <div class="header">
-                <h1>📅 برنامه امتحانات</h1>
+                <h1>📅 برنامه امتحانات دانشگاهی</h1>
                 <p>برنامه‌ریز انتخاب واحد - Schedule Planner v2.0</p>
             </div>
             
@@ -1752,6 +2313,22 @@ class DetailedInfoWindow(QtWidgets.QMainWindow):
                 <div class="stat-item">
                     <div class="stat-number">{exam_count}</div>
                     <div class="stat-label">تعداد دروس</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-number">{total_units}</div>
+                    <div class="stat-label">مجموع واحدها</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-number">{total_sessions}</div>
+                    <div class="stat-label">تعداد جلسات</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-number">{len(days_used)}</div>
+                    <div class="stat-label">روزهای حضور</div>
+                </div>
+                <div class="stat-item">
+                    <div class="stat-number">{len(instructors)}</div>
+                    <div class="stat-label">تعداد اساتید</div>
                 </div>
                 <div class="stat-item">
                     <div class="stat-number">{current_date}</div>
@@ -1765,8 +2342,11 @@ class DetailedInfoWindow(QtWidgets.QMainWindow):
                         <th>نام درس</th>
                         <th>کد درس</th>
                         <th>استاد</th>
+                        <th>واحد</th>
                         <th>زمان امتحان</th>
-                        <th>محل برگزاری</th>
+                        <th>محل</th>
+                        <th>نوع هفته</th>
+                        <th>جلسات</th>
                     </tr>
                 </thead>
                 <tbody>
@@ -1775,9 +2355,10 @@ class DetailedInfoWindow(QtWidgets.QMainWindow):
             </table>
             
             <div class="footer">
-                <strong>تولید شده توسط برنامه‌ریز انتخاب واحد</strong><br>
-                Schedule Planner v2.0 - Course Selection System<br>
-                تاریخ و زمان تولید: {current_date}
+                <strong>📚 برنامه‌ریز انتخاب واحد</strong><br>
+                Schedule Planner v2.0 - University Course Selection System<br>
+                🕒 تاریخ و زمان تولید: {current_date}<br>
+                💡 توسعه یافته با PyQt5 و Python
             </div>
         </body>
         </html>
@@ -1836,16 +2417,6 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         # File menu
         file_menu = menubar.addMenu('📁 فایل')
         
-        import_action = QtWidgets.QAction('📎 بارگذاری داده‌ها', self)
-        import_action.triggered.connect(self.import_json)
-        file_menu.addAction(import_action)
-        
-        export_action = QtWidgets.QAction('📎 صدور داده‌ها', self)
-        export_action.triggered.connect(self.export_json)
-        file_menu.addAction(export_action)
-        
-        file_menu.addSeparator()
-        
         save_image_action = QtWidgets.QAction('🖼️ ذخیره تصویر جدول', self)
         save_image_action.triggered.connect(self.save_table_image)
         file_menu.addAction(save_image_action)
@@ -1874,6 +2445,214 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         clear_table_action = QtWidgets.QAction('🧹 پاک کردن جدول', self)
         clear_table_action.triggered.connect(self.clear_table)
         course_menu.addAction(clear_table_action)
+        
+        # Help menu
+        help_menu = menubar.addMenu('❓ راهنما')
+        
+        user_guide_action = QtWidgets.QAction('📚 راهنمای کاربر', self)
+        user_guide_action.triggered.connect(self.show_user_guide)
+        help_menu.addAction(user_guide_action)
+        
+        auto_arrangement_action = QtWidgets.QAction('🤖 راهنمای چیدمان خودکار', self)
+        auto_arrangement_action.triggered.connect(self.show_auto_arrangement_help)
+        help_menu.addAction(auto_arrangement_action)
+        
+        help_menu.addSeparator()
+        
+        about_action = QtWidgets.QAction('ℹ️ درباره برنامه', self)
+        about_action.triggered.connect(self.show_about)
+        help_menu.addAction(about_action)
+    
+    def show_user_guide(self):
+        """Show user guide dialog"""
+        guide_dialog = QtWidgets.QDialog(self)
+        guide_dialog.setWindowTitle('📚 راهنمای کاربر - برنامه‌ریز انتخاب واحد')
+        guide_dialog.setModal(True)
+        guide_dialog.resize(700, 500)
+        
+        layout = QtWidgets.QVBoxLayout(guide_dialog)
+        
+        guide_text = """
+        <html><body style="font-family: Tahoma, Arial; line-height: 1.6; direction: rtl;">
+        <h2 style="color: #2c3e50; text-align: center;">🎓 راهنمای کاربر برنامه‌ریز انتخاب واحد</h2>
+        
+        <h3 style="color: #e74c3c;">🔍 افزودن دروس به جدول:</h3>
+        <ul>
+            <li>برای اضافه کردن درس، روی نام درس در لیست کلیک کنید</li>
+            <li>می‌توانید درس را از لیست به جدول بکشید (Drag & Drop)</li>
+            <li>اگر تداخلی وجود داشته باشد، گزینه‌های حل تداخل نمایش داده می‌شود</li>
+        </ul>
+        
+        <h3 style="color: #e74c3c;">❌ حذف دروس:</h3>
+        <ul>
+            <li>برای حذف درس، روی علامت "X" قرمز در گوشه راست بالای درس کلیک کنید</li>
+            <li>تمام جلسات درس به طور خودکار حذف می‌شود</li>
+        </ul>
+        
+        <h3 style="color: #e74c3c;">🔍 جستجو و فیلتر:</h3>
+        <ul>
+            <li>از باکس جستجو برای پیدا کردن دروس بر اساس نام، کد یا استاد استفاده کنید</li>
+            <li>جستجو به صورت زنده انجام می‌شود</li>
+        </ul>
+        
+        <h3 style="color: #e74c3c;">📊 مشاهده جزییات:</h3>
+        <ul>
+            <li>برای مشاهده جزییات درس، روی درس در جدول کلیک کنید</li>
+            <li>پنجره جزییات شامل نام، کد، استاد، واحد، مکان و توضیحات درس است</li>
+            <li>امکان کپی کد درس به کلیپبورد</li>
+        </ul>
+        
+        <h3 style="color: #e74c3c;">📁 ذخیره و بارگذاری ترکیبات:</h3>
+        <ul>
+            <li>می‌توانید ترکیب فعلی خود را با نام دلخواه ذخیره کنید</li>
+            <li>برای بارگذاری ترکیب ذخیره شده، روی آن دوبار کلیک کنید</li>
+            <li>برنامه از نام‌های تکراری جلوگیری می‌کند</li>
+        </ul>
+        
+        <h3 style="color: #e74c3c;">📊 اطلاعات تفصیلی:</h3>
+        <ul>
+            <li>در نوار پایین تعداد دروس، جلسات، واحدها و روزهای حضور نمایش داده می‌شود</li>
+            <li>از منوی "نمایش" برای باز کردن پنجره اطلاعات تفصیلی و برنامه امتحانات استفاده کنید</li>
+        </ul>
+        
+        <h3 style="color: #e74c3c;">🔄 نمایش دروس زوج/فرد:</h3>
+        <ul>
+            <li>دروس زوج با حاشیه نقطه‌چین نمایش داده می‌شوند</li>
+            <li>دروس فرد با حاشیه خط‌چین نمایش داده می‌شوند</li>
+            <li>دروس همه هفته با حاشیه پیوسته نمایش داده می‌شوند</li>
+        </ul>
+        
+        <p style="color: #7f8c8d; font-style: italic; text-align: center; margin-top: 20px;">
+        💡 نکته: برای مشاهده پیش‌نمایش درس در جدول، موس را روی نام درس نگه دارید.
+        </p>
+        </body></html>
+        """
+        
+        text_widget = QtWidgets.QTextEdit()
+        text_widget.setHtml(guide_text)
+        text_widget.setReadOnly(True)
+        layout.addWidget(text_widget)
+        
+        close_button = QtWidgets.QPushButton('بستن')
+        close_button.clicked.connect(guide_dialog.close)
+        layout.addWidget(close_button)
+        
+        guide_dialog.exec_()
+    
+    def show_auto_arrangement_help(self):
+        """Show automatic arrangement help dialog"""
+        auto_dialog = QtWidgets.QDialog(self)
+        auto_dialog.setWindowTitle('🤖 راهنمای چیدمان خودکار')
+        auto_dialog.setModal(True)
+        auto_dialog.resize(700, 450)
+        
+        layout = QtWidgets.QVBoxLayout(auto_dialog)
+        
+        auto_text = """
+        <html><body style="font-family: Tahoma, Arial; line-height: 1.6; direction: rtl;">
+        <h2 style="color: #2c3e50; text-align: center;">🤖 راهنمای چیدمان خودکار</h2>
+        
+        <h3 style="color: #27ae60;">🎯 هدف چیدمان خودکار:</h3>
+        <p>سیستم به طور خودکار بهترین ترکیبات دروس را بر اساس کمترین تعداد روز حضور و کمترین زمان خالی بین جلسات محاسبه می‌کند.</p>
+        
+        <h3 style="color: #27ae60;">🛠️ نحوه استفاده:</h3>
+        <ol>
+            <li><strong>انتخاب دروس:</strong> از لیست دروس سمت راست، دروس مورد نظر را انتخاب کنید</li>
+            <li><strong>اضافه به لیست:</strong> دکمه "افزودن به لیست خودکار" را کلیک کنید</li>
+            <li><strong>تولید ترکیبات:</strong> دکمه "تولید بهترین برنامه" را کلیک کنید</li>
+            <li><strong>اعمال گزینه:</strong> از بین گزینه‌های پیشنهادی، گزینه مناسب را انتخاب کنید</li>
+        </ol>
+        
+        <h3 style="color: #27ae60;">📊 معیارهای بهینه‌سازی:</h3>
+        <ol>
+            <li><strong>کمترین روز حضور:</strong> در اولویت اول قرار دارد</li>
+            <li><strong>کمترین زمان خالی:</strong> بین جلسات محاسبه می‌شود</li>
+            <li><strong>فاقد تداخل:</strong> تمام ترکیبات بدون تداخل زمانی هستند</li>
+        </ol>
+        
+        <h3 style="color: #27ae60;">📝 گزینه‌های پیشنهادی:</h3>
+        <p>پس از تولید ترکیبات، بهترین گزینه‌ها در بالای پنجره به صورت دکمه نمایش داده می‌شوند.</p>
+        <ul>
+            <li><strong>گزینه 1:</strong> بهترین ترکیب (کمترین روز)</li>
+            <li><strong>گزینه 2-4:</strong> بقیه گزینه‌ها به ترتیب بهینه</li>
+        </ul>
+        
+        <h3 style="color: #27ae60;">⚠️ نکات مهم:</h3>
+        <ul>
+            <li>اگر دروس انتخابی تداخل داشته باشند، ترکیبی تولید نمی‌شود</li>
+            <li>برای بهترین نتیجه، دروس مختلف انتخاب کنید</li>
+            <li>گزینه‌های پیشنهادی خودکار به‌روزرسانی می‌شوند</li>
+        </ul>
+        
+        <p style="color: #7f8c8d; font-style: italic; text-align: center; margin-top: 20px;">
+        💡 نکته: برای دسترسی سریع به گزینه‌های پیشنهادی، نیازی به تکرار فرایند نیست.
+        </p>
+        </body></html>
+        """
+        
+        text_widget = QtWidgets.QTextEdit()
+        text_widget.setHtml(auto_text)
+        text_widget.setReadOnly(True)
+        layout.addWidget(text_widget)
+        
+        close_button = QtWidgets.QPushButton('بستن')
+        close_button.clicked.connect(auto_dialog.close)
+        layout.addWidget(close_button)
+        
+        auto_dialog.exec_()
+    
+    def show_about(self):
+        """Show about dialog"""
+        about_dialog = QtWidgets.QDialog(self)
+        about_dialog.setWindowTitle('ℹ️ درباره برنامه')
+        about_dialog.setModal(True)
+        about_dialog.resize(500, 400)
+        
+        layout = QtWidgets.QVBoxLayout(about_dialog)
+        
+        about_text = """
+        <html><body style="font-family: Tahoma, Arial; line-height: 1.6; direction: rtl; text-align: center;">
+        <h1 style="color: #2c3e50;">🎓 برنامه‌ریز انتخاب واحد</h1>
+        <h2 style="color: #3498db;">Schedule Planner v2.0</h2>
+        
+        <p style="font-size: 16px; color: #34495e; margin: 20px 0;">
+        ابزاری پیشرفته برای برنامه‌ریزی بهینه دروس دانشگاهی
+        </p>
+        
+        <div style="background: #ecf0f1; padding: 20px; border-radius: 10px; margin: 20px 0;">
+            <h3 style="color: #e74c3c; margin-top: 0;">🎆 ویژگی‌های اصلی:</h3>
+            <ul style="text-align: right; font-size: 14px;">
+                <li>چیدمان خودکار بهینه</li>
+                <li>مدیریت تداخلات هوشمند</li>
+                <li>ذخیره و بازیابی ترکیبات</li>
+                <li>نمایش اطلاعات تفصیلی</li>
+                <li>پشتیبانی از دروس زوج/فرد</li>
+                <li>رابط کاربری زیبا و آسان</li>
+            </ul>
+        </div>
+        
+        <div style="background: #d5e8d4; padding: 15px; border-radius: 8px; margin: 20px 0;">
+            <p style="color: #27ae60; margin: 0; font-weight: bold;">
+            💻 توسعه یافته با PyQt5 و Python
+            </p>
+        </div>
+        
+        <p style="color: #7f8c8d; font-size: 12px; margin-top: 30px;">
+        © 2025 - تمام حقوق محفوظ است
+        </p>
+        </body></html>
+        """
+        
+        text_widget = QtWidgets.QTextEdit()
+        text_widget.setHtml(about_text)
+        text_widget.setReadOnly(True)
+        layout.addWidget(text_widget)
+        
+        close_button = QtWidgets.QPushButton('بستن')
+        close_button.clicked.connect(about_dialog.close)
+        layout.addWidget(close_button)
+        
+        about_dialog.exec_()
         
     def open_detailed_info_window(self):
         """Open the detailed information window"""
@@ -2011,7 +2790,38 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         self.course_list.setMouseTracking(True)
         self.course_list.viewport().installEventFilter(self)
         self.course_list.installEventFilter(self)  # Also install on the widget itself
+        
+        # Add search functionality
+        search_layout = QtWidgets.QHBoxLayout()
+        search_label = QtWidgets.QLabel('🔍 جستجو:')
+        self.search_box = QtWidgets.QLineEdit()
+        self.search_box.setPlaceholderText('جستجو بر اساس نام، کد یا استاد...')
+        self.search_box.textChanged.connect(self.on_search_changed)
+        
+        # Clear search button
+        clear_search_btn = QtWidgets.QPushButton('✖')
+        clear_search_btn.setFixedSize(25, 25)
+        clear_search_btn.setToolTip('پاک کردن جستجو')
+        clear_search_btn.clicked.connect(self.clear_search)
+        clear_search_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #ff6b6b;
+                color: white;
+                border: none;
+                border-radius: 12px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background-color: #ff5252;
+            }
+        """)
+        
+        search_layout.addWidget(search_label)
+        search_layout.addWidget(self.search_box)
+        search_layout.addWidget(clear_search_btn)
+        
         right_v.addWidget(QtWidgets.QLabel('<b>لیست دروس (Hover=پیش‌نمایش, Click=اضافه)</b>'))
+        right_v.addLayout(search_layout)
         right_v.addWidget(self.course_list, 2)
 
         # table
@@ -2020,7 +2830,8 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         self.table.setVerticalHeaderLabels(TIME_SLOTS)
         self.table.verticalHeader().setDefaultSectionSize(28)
         self.table.horizontalHeader().setSectionResizeMode(QtWidgets.QHeaderView.Stretch)
-        self.table.cellDoubleClicked.connect(self.on_table_double_clicked)
+        # Remove double-click functionality - now using X button for deletion
+        # self.table.cellDoubleClicked.connect(self.on_table_double_clicked)
         right_v.addWidget(self.table, 4)
 
         main_layout.addLayout(left_v, 0)
@@ -2158,13 +2969,18 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         # Calculate schedule statistics
         unique_courses = set(info['course'] for info in self.placed.values())
         total_credits = sum(COURSES.get(course, {}).get('credits', 0) for course in unique_courses)
+        total_sessions = len(self.placed)
+        
+        # Calculate days used more accurately
         days_used = set()
-        for course_key in unique_courses:
-            course = COURSES.get(course_key, {})
-            for sess in course.get('schedule', []):
-                days_used.add(sess['day'])
-                
-        status_text = f'دروس: {len(unique_courses)} | واحدها: {total_credits} | روزهای حضور: {len(days_used)}'
+        for (row, col), info in self.placed.items():
+            if col < len(DAYS):
+                days_used.add(DAYS[col])
+        
+        # Create detailed status text
+        days_list = ', '.join(sorted(days_used)) if days_used else 'هیچ'
+        status_text = f'دروس: {len(unique_courses)} | جلسات: {total_sessions} | واحدها: {total_credits} | روزهای حضور: {len(days_used)} ({days_list})'
+        
         self.status_bar.showMessage(status_text)
 
     # ---------------------- presets ----------------------
@@ -2328,45 +3144,107 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         return super().eventFilter(obj, event)
 
     # ---------------------- populate UI ----------------------
-    def populate_course_list(self):
-        """Populate the course list with all available courses"""
+    def populate_course_list(self, filter_text=""):
+        """Populate the course list with all available courses - fixed widget lifecycle management"""
+        # Clear existing widgets and cache when repopulating to prevent deleted widget issues
         self.course_list.clear()
+        
+        # Clear widget cache to prevent using deleted widgets
+        if hasattr(self, '_course_widgets_cache'):
+            self._course_widgets_cache.clear()
+        else:
+            self._course_widgets_cache = {}
+        
+        # Filter courses if search text provided
+        courses_to_show = COURSES
+        if filter_text.strip():
+            filter_text = filter_text.strip().lower()
+            courses_to_show = {
+                key: course for key, course in COURSES.items()
+                if (filter_text in course.get('name', '').lower() or
+                    filter_text in course.get('code', '').lower() or
+                    filter_text in course.get('instructor', '').lower())
+            }
+            
+        # Process courses and create widgets
         used = 0
         
-        for key, course in COURSES.items():
-            # Create list item
-            item = QtWidgets.QListWidgetItem()
-            item.setData(QtCore.Qt.UserRole, key)
+        for key, course in courses_to_show.items():
+            try:
+                # Create list item
+                item = QtWidgets.QListWidgetItem()
+                item.setData(QtCore.Qt.UserRole, key)
+                
+                # Set background color
+                color = COLOR_MAP[used % len(COLOR_MAP)]
+                item.setBackground(QtGui.QBrush(color))
+                
+                # Create tooltip with detailed info
+                tooltip = f"نام: {course['name']}\nکد: {course['code']}\nاستاد: {course.get('instructor', 'نامشخص')}\nمحل: {course.get('location', 'نامشخص')}\nواحد: {course.get('credits', 'نامشخص')}"
+                if course.get('schedule'):
+                    tooltip += "\nجلسات:"
+                    for sess in course['schedule']:
+                        parity_text = ''
+                        if sess.get('parity') == 'ز':
+                            parity_text = ' (زوج)'
+                        elif sess.get('parity') == 'ف':
+                            parity_text = ' (فرد)'
+                        tooltip += f"\n  {sess['day']}: {sess['start']}-{sess['end']}{parity_text}"
+                
+                item.setToolTip(tooltip)
+                
+                # Add item to list first
+                self.course_list.addItem(item)
+                
+                # Create new custom widget for this item (no caching to avoid deleted widget issues)
+                course_widget = CourseListWidget(key, course, self.course_list, self)
+                course_widget.setStyleSheet(f"background-color: rgba({color.red()},{color.green()},{color.blue()},100);")
+                
+                # Set the custom widget for this item
+                item.setSizeHint(course_widget.sizeHint())
+                self.course_list.setItemWidget(item, course_widget)
+                
+                # Cache tooltip only (not the widget)
+                tooltip_key = f"{key}_tooltip"
+                self._course_widgets_cache[tooltip_key] = tooltip
+                
+                used += 1
+                
+            except Exception as e:
+                logger.error(f"Error creating widget for course {key}: {e}", exc_info=True)
+                print(f"Warning: Could not create widget for course {key}: {e}")
+                continue
             
-            # Set background color
-            color = COLOR_MAP[used % len(COLOR_MAP)]
-            item.setBackground(QtGui.QBrush(color))
+        # Update status with count
+        total_courses = len(COURSES)
+        shown_courses = len(courses_to_show)
+        if filter_text.strip():
+            # Update status bar to show filtered results
+            search_status = f"نمایش {shown_courses} از {total_courses} درس (فیلتر: '{filter_text}')"
+            self.status_bar.showMessage(search_status)
+        else:
+            # Regular status update
+            self.update_status()
             
-            # Create tooltip with detailed info
-            tooltip = f"نام: {course['name']}\nکد: {course['code']}\nاستاد: {course.get('instructor', 'نامشخص')}\nمحل: {course.get('location', 'نامشخص')}\nواحد: {course.get('credits', 'نامشخص')}"
-            if course.get('schedule'):
-                tooltip += "\nجلسات:"
-                for sess in course['schedule']:
-                    parity_text = ''
-                    if sess.get('parity') == 'ز':
-                        parity_text = ' (زوج)'
-                    elif sess.get('parity') == 'ف':
-                        parity_text = ' (فرد)'
-                    tooltip += f"\n  {sess['day']}: {sess['start']}-{sess['end']}{parity_text}"
-            item.setToolTip(tooltip)
+        logger.info(f"Populated course list with {shown_courses} courses (filtered: {bool(filter_text.strip())})")
             
-            # Add item to list
-            self.course_list.addItem(item)
-            
-            # Create custom widget for the item
-            course_widget = CourseListWidget(key, course, self.course_list, self)
-            course_widget.setStyleSheet(f"background-color: rgba({color.red()},{color.green()},{color.blue()},100);")
-            
-            # Set the custom widget for this item
-            item.setSizeHint(course_widget.sizeHint())
-            self.course_list.setItemWidget(item, course_widget)
-            
-            used += 1
+    def on_search_changed(self):
+        """Handle search box text changes with debouncing for performance"""
+        search_text = self.search_box.text()
+        
+        # Use a timer to debounce search for better performance
+        if hasattr(self, '_search_timer'):
+            self._search_timer.stop()
+        
+        self._search_timer = QtCore.QTimer()
+        self._search_timer.timeout.connect(lambda: self.populate_course_list(search_text))
+        self._search_timer.setSingleShot(True)
+        self._search_timer.start(300)  # 300ms delay
+    
+    def clear_search(self):
+        """Clear the search box and reset the course list"""
+        self.search_box.clear()
+        self.populate_course_list()
 
     # ---------------------- saved combos management ----------------------
     def load_saved_combos_ui(self):
@@ -2383,14 +3261,51 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         if not keys:
             QtWidgets.QMessageBox.information(self, 'ذخیره', 'هیچ درسی در جدول قرار داده نشده است.')
             return
-        name, ok = QtWidgets.QInputDialog.getText(self, 'نام ترکیب', 'نام ترکیب را وارد کنید:')
-        if not ok or not name.strip():
-            return
-        sc = {'name': name.strip(), 'courses': keys}
+            
+        # Get existing combo names for duplicate checking
+        existing_names = [combo.get('name', '') for combo in self.user_data.get('saved_combos', [])]
+        
+        while True:
+            name, ok = QtWidgets.QInputDialog.getText(self, 'نام ترکیب', 'نام ترکیب را وارد کنید:')
+            if not ok:
+                return
+            
+            name = name.strip()
+            if not name:
+                QtWidgets.QMessageBox.warning(self, 'خطا', 'لطفا نامی وارد کنید.')
+                continue
+                
+            # Check for duplicate names
+            if name in existing_names:
+                msg = QtWidgets.QMessageBox()
+                msg.setIcon(QtWidgets.QMessageBox.Warning)
+                msg.setWindowTitle('نام تکراری')
+                msg.setText(f'ترکیبی با نام "{name}" قبلاً ذخیره شده است.')
+                msg.setInformativeText('لطفا نام دیگری انتخاب کنید یا برای جایگزینی تأیید کنید.')
+                msg.setStandardButtons(QtWidgets.QMessageBox.Retry | QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.Cancel)
+                msg.setDefaultButton(QtWidgets.QMessageBox.Retry)
+                msg.button(QtWidgets.QMessageBox.Retry).setText('نام جدید')
+                msg.button(QtWidgets.QMessageBox.Yes).setText('جایگزینی')
+                msg.button(QtWidgets.QMessageBox.Cancel).setText('لغو')
+                
+                result = msg.exec_()
+                if result == QtWidgets.QMessageBox.Retry:
+                    continue  # Ask for new name
+                elif result == QtWidgets.QMessageBox.Yes:
+                    # Replace existing combo
+                    self.user_data['saved_combos'] = [combo for combo in self.user_data.get('saved_combos', []) if combo.get('name') != name]
+                    break  # Proceed with saving
+                else:
+                    return  # Cancel
+            else:
+                break  # Name is unique, proceed
+        
+        # Save the combination
+        sc = {'name': name, 'courses': keys}
         self.user_data.setdefault('saved_combos', []).append(sc)
         save_user_data(self.user_data)
         self.load_saved_combos_ui()
-        QtWidgets.QMessageBox.information(self, 'ذخیره', 'ترکیب شما ذخیره شد.')
+        QtWidgets.QMessageBox.information(self, 'ذخیره', f'ترکیب "{name}" ذخیره شد.')
 
     def delete_selected_saved_combo(self):
         item = self.saved_combos_list.currentItem()
@@ -2589,7 +3504,7 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         return True
 
     def preview_course(self, course_key):
-        """Show enhanced preview of course schedule with grey dashed borders"""
+        """Show enhanced preview of course schedule with improved styling"""
         course = COURSES.get(course_key)
         if not course:
             return
@@ -2606,36 +3521,107 @@ class SchedulerWindow(QtWidgets.QMainWindow):
             span = max(1, erow - srow)
             
             if self.can_place_preview(srow, col, span):
-                # Create preview label with enhanced styling
-                parity_text = ''
-                if sess.get('parity') == 'ز':
-                    parity_text = 'زوج'
-                elif sess.get('parity') == 'ف':
-                    parity_text = 'فرد'
-                else:
-                    parity_text = 'همه هفته‌ها'
+                # Create preview with improved layout matching main course cells
+                preview_widget = QtWidgets.QWidget()
+                preview_layout = QtWidgets.QVBoxLayout(preview_widget)
+                preview_layout.setContentsMargins(4, 2, 4, 2)
+                preview_layout.setSpacing(1)
                 
-                preview_text = f"{course['name']}\n{course.get('instructor', 'نامشخص')}\n{parity_text}\n{course.get('code', '')}\n{course.get('location', '')}"
-                
-                lbl = QtWidgets.QLabel(preview_text)
-                lbl.setAlignment(QtCore.Qt.AlignCenter)
-                lbl.setWordWrap(True)
-                lbl.setAutoFillBackground(True)
-                
-                # Enhanced preview styling - grey with dashed borders and semi-transparency
-                lbl.setStyleSheet("""
+                # Course Name (Bold)
+                course_name_label = QtWidgets.QLabel(course['name'])
+                course_name_label.setAlignment(QtCore.Qt.AlignCenter)
+                course_name_label.setWordWrap(True)
+                course_name_label.setStyleSheet("""
                     QLabel {
-                        background-color: rgba(180, 180, 180, 120);
-                        border: 3px dashed rgba(100, 100, 100, 180);
-                        border-radius: 8px;
-                        padding: 6px;
-                        font-size: 9px;
                         font-weight: bold;
+                        font-size: 12px;
                         color: rgba(50, 50, 50, 200);
+                        border: none;
+                        margin: 0px;
+                        padding: 1px;
+                        font-family: 'Nazanin', 'Tahoma', sans-serif;
                     }
                 """)
                 
-                self.table.setCellWidget(srow, col, lbl)
+                # Professor Name
+                professor_label = QtWidgets.QLabel(course.get('instructor', 'نامشخص'))
+                professor_label.setAlignment(QtCore.Qt.AlignCenter)
+                professor_label.setWordWrap(True)
+                professor_label.setStyleSheet("""
+                    QLabel {
+                        font-weight: normal;
+                        font-size: 10px;
+                        color: rgba(52, 73, 94, 180);
+                        border: none;
+                        margin: 0px;
+                        padding: 1px;
+                        font-family: 'Nazanin', 'Tahoma', sans-serif;
+                    }
+                """)
+                
+                # Course Code
+                code_label = QtWidgets.QLabel(course.get('code', ''))
+                code_label.setAlignment(QtCore.Qt.AlignCenter)
+                code_label.setWordWrap(True)
+                code_label.setStyleSheet("""
+                    QLabel {
+                        font-weight: normal;
+                        font-size: 12px;
+                        color: rgba(127, 140, 141, 180);
+                        border: none;
+                        margin: 0px;
+                        padding: 1px;
+                        font-family: 'Nazanin', 'Tahoma', sans-serif;
+                    }
+                """)
+                
+                preview_layout.addWidget(course_name_label)
+                preview_layout.addWidget(professor_label)
+                preview_layout.addWidget(code_label)
+                
+                # Parity indicator if applicable
+                parity_indicator = ''
+                parity_color = '#2c3e50'
+                if sess.get('parity') == 'ز':
+                    parity_indicator = 'ز'
+                    parity_color = '#27ae60'
+                elif sess.get('parity') == 'ف':
+                    parity_indicator = 'ف'
+                    parity_color = '#3498db'
+                
+                if parity_indicator:
+                    bottom_layout = QtWidgets.QHBoxLayout()
+                    parity_label = QtWidgets.QLabel(parity_indicator)
+                    parity_label.setAlignment(QtCore.Qt.AlignLeft)
+                    parity_label.setStyleSheet(f"""
+                        QLabel {{
+                            font-weight: bold;
+                            font-size: 16px;
+                            color: {parity_color};
+                            border: none;
+                            padding: 1px 2px;
+                            margin: 0px;
+                            font-family: 'Nazanin', 'Tahoma', sans-serif;
+                        }}
+                    """)
+                    bottom_layout.addWidget(parity_label)
+                    bottom_layout.addStretch()
+                    preview_layout.addLayout(bottom_layout)
+                
+                preview_widget.setAutoFillBackground(True)
+                
+                # Enhanced preview styling - grey with dashed borders and semi-transparency
+                preview_widget.setStyleSheet("""
+                    QWidget {
+                        background-color: rgba(180, 180, 180, 120);
+                        border: 3px dashed rgba(100, 100, 100, 180);
+                        border-radius: 8px;
+                        padding: 2px;
+                        font-family: 'Nazanin', 'Tahoma', sans-serif;
+                    }
+                """)
+                
+                self.table.setCellWidget(srow, col, preview_widget)
                 if span > 1:
                     self.table.setSpan(srow, col, span, 1)
                 self.preview_cells.append((srow, col, span))
@@ -2649,34 +3635,32 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         self.preview_cells.clear()
 
     def on_course_clicked(self, item):
-        """Handle course selection from the list"""
+        """Handle course selection from the list with enhanced debugging"""
         if item is None:
+            logger.warning("on_course_clicked called with None item")
             return
+            
         key = item.data(QtCore.Qt.UserRole)
+        logger.debug(f"Course clicked - item: {item}, key: {key}")
+        
         if key:
+            logger.info(f"User clicked on course with key: {key}")
             self.clear_preview()
             self.add_course_to_table(key, ask_on_conflict=True)
+        else:
+            logger.warning(f"Course item clicked but no key found in UserRole data")
+            QtWidgets.QMessageBox.warning(
+                self, 'خطا', 
+                'خطا در تشخیص درس انتخابی. لطفا دوباره تلاش کنید.'
+            )
 
-    def on_course_double_clicked(self, item):
-        """Handle double-click on course (same as single click)"""
-        if item is None:
-            return
-        key = item.data(QtCore.Qt.UserRole)
-        if key:
-            self.clear_preview()
-            self.add_course_to_table(key, ask_on_conflict=True)
+    # Double-click functionality removed as per user request - only single click and X button deletion
 
     def add_course_to_table(self, course_key, ask_on_conflict=True):
         """Add a course to the schedule table"""
         course = COURSES.get(course_key)
         if not course:
             QtWidgets.QMessageBox.warning(self, 'خطا', f'درس با کلید {course_key} یافت نشد.')
-            return
-            
-        # Check if course is already placed
-        already_placed = any(info['course'] == course_key for info in self.placed.values())
-        if already_placed:
-            QtWidgets.QMessageBox.information(self, 'اطلاع', f'درس "{course["name"]}" قبلاً در جدول قرار داده شده است.')
             return
         
         placements = []
@@ -2698,6 +3682,9 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         for (srow, col, span, sess) in placements:
             for (prow, pcol), info in list(self.placed.items()):
                 if pcol != col:
+                    continue
+                # Skip conflict check with the same course
+                if info['course'] == course_key:
                     continue
                 prow_start = prow
                 prow_span = info['rows']
@@ -2737,39 +3724,190 @@ class SchedulerWindow(QtWidgets.QMainWindow):
                 return
             
             # Remove conflicting courses if user confirmed
+            conflicting_courses = set()
             for conf in conflicts:
                 (_, _), (rstart, rcol), rcourse, _ = conf
-                self.remove_placed_by_start((rstart, rcol))
+                conflicting_courses.add(rcourse)
+            
+            # Remove entire conflicting courses
+            for conflicting_course_key in conflicting_courses:
+                self.remove_course_from_schedule(conflicting_course_key)
 
         # Clear preview
         self.clear_preview()
 
-        # Place course sessions
+        # Place course sessions with improved layout and styling
+        # This section implements the new course cell design with:
+        # - Reorganized information: Course Name (bold), Professor, Course Code
+        # - Parity indicators with color coding: ز (green) for even, ف (blue) for odd
+        # - Nazanin font for better Persian text rendering
+        # - Optimized hover effects with original style preservation
         color_idx = len(self.placed) % len(COLOR_MAP)
         bg = COLOR_MAP[color_idx]
         for (srow, col, span, sess) in placements:
-            parity_text = ''
+            # Determine parity information and styling
+            parity_indicator = ''
+            parity_color = '#2c3e50'  # Default color
+            parity_style = 'border-style: solid; border-width: 2px;'
+            
             if sess.get('parity') == 'ز':
-                parity_text = 'زوج'
+                parity_indicator = 'ز'
+                parity_color = '#271ef0'  # Green for even weeks (زوج)
             elif sess.get('parity') == 'ف':
-                parity_text = 'فرد'
-            else:
-                parity_text = 'همه هفته‌ها'
-                
-            text = f"{course['name']}\n{course.get('instructor', 'نامشخص')}\n{parity_text}\n{course.get('code', '')}\n{course.get('location', '')}"
-            lbl = QtWidgets.QLabel(text)
-            lbl.setAlignment(QtCore.Qt.AlignCenter)
-            lbl.setWordWrap(True)
-            lbl.setAutoFillBackground(True)
-            lbl.setStyleSheet(
-                f"background-color: rgba({bg.red()},{bg.green()},{bg.blue()},230); "
-                f"border: 2px solid rgba({bg.red()//2},{bg.green()//2},{bg.blue()//2},255); "
-                f"border-radius: 8px; padding: 6px; font-size: 10px; font-weight: bold;"
-            )
-            self.table.setCellWidget(srow, col, lbl)
+                parity_indicator = 'ف'
+                parity_color = '#349fa2'  # Blue for odd weeks (فرد)
+            
+            # Create course cell widget with improved layout
+            cell_widget = QtWidgets.QWidget()
+            cell_widget.setObjectName(f"course_cell_{course_key}_{srow}_{col}")  # For CSS targeting
+            cell_layout = QtWidgets.QVBoxLayout(cell_widget)
+            cell_layout.setContentsMargins(4, 2, 4, 2)
+            cell_layout.setSpacing(1)
+            
+            # Top row with X button
+            top_row = QtWidgets.QHBoxLayout()
+            top_row.setContentsMargins(0, 0, 0, 0)
+            
+            # X button for course removal
+            x_button = QtWidgets.QPushButton('✕')
+            x_button.setFixedSize(16, 16)
+            x_button.setStyleSheet("""
+                QPushButton {
+                    background-color: rgba(255, 0, 0, 180);
+                    color: white;
+                    border: none;
+                    border-radius: 8px;
+                    font-weight: bold;
+                    font-size: 10px;
+                    font-family: 'Arial', sans-serif;
+                }
+                QPushButton:hover {
+                    background-color: rgba(255, 0, 0, 255);
+                }
+            """)
+            x_button.clicked.connect(lambda checked, ck=course_key: self.remove_course_with_confirmation(ck))
+            
+            top_row.addStretch()
+            top_row.addWidget(x_button)
+            cell_layout.addLayout(top_row)
+            
+            # Course information with improved layout
+            # Course Name (Bold)
+            course_name_label = QtWidgets.QLabel(course['name'])
+            course_name_label.setAlignment(QtCore.Qt.AlignCenter)
+            course_name_label.setWordWrap(True)
+            course_name_label.setStyleSheet("""
+                QLabel {
+                    font-weight: bold;
+                    font-size: 12px;
+                    color: #2c3e50;
+                    border: none;
+                    margin: 0px;
+                    padding: 1px;
+                }
+            """)
+            
+            # Professor Name (Regular, increased size)
+            professor_label = QtWidgets.QLabel(course.get('instructor', 'نامشخص'))
+            professor_label.setAlignment(QtCore.Qt.AlignCenter)
+            professor_label.setWordWrap(True)
+            professor_label.setStyleSheet("""
+                QLabel {
+                    font-weight: normal;
+                    font-size: 10px;
+                    color: #34495e;
+                    border: none;
+                    margin: 0px;
+                    padding: 1px;
+                }
+            """)
+            
+            # Course Code (Regular, increased size)
+            code_label = QtWidgets.QLabel(course.get('code', ''))
+            code_label.setAlignment(QtCore.Qt.AlignCenter)
+            code_label.setWordWrap(True)
+            code_label.setStyleSheet("""
+                QLabel {
+                    font-weight: normal;
+                    font-size: 12px;
+                    color: #7f8c8d;
+                    border: none;
+                    margin: 0px;
+                    padding: 1px;
+                }
+            """)
+            
+            # Add labels to layout
+            cell_layout.addWidget(course_name_label)
+            cell_layout.addWidget(professor_label)
+            cell_layout.addWidget(code_label)
+            
+            # Bottom row for parity indicator
+            bottom_row = QtWidgets.QHBoxLayout()
+            bottom_row.setContentsMargins(0, 0, 0, 0)
+            
+            # Parity indicator (bottom-left corner)
+            if parity_indicator:
+                parity_label = QtWidgets.QLabel(parity_indicator)
+                parity_label.setAlignment(QtCore.Qt.AlignLeft | QtCore.Qt.AlignBottom)
+                parity_label.setStyleSheet(f"""
+                    QLabel {{
+                        font-weight: bold;
+                        font-size: 16px;
+                        color: {parity_color};
+                        border: none;
+                        padding: 2px 4px;
+                        margin: 0px;
+                    }}
+                """)
+                bottom_row.addWidget(parity_label)
+            
+            bottom_row.addStretch()
+            cell_layout.addLayout(bottom_row)
+            
+            # Store original styling for hover reset
+            original_style = f"""
+                QWidget {{
+                    background-color: rgba({bg.red()},{bg.green()},{bg.blue()},230);
+                    border: 2px solid rgba({bg.red()//2},{bg.green()//2},{bg.blue()//2},255);
+                    {parity_style}
+                    border-radius: 4px;
+                    padding: 2px;
+                    font-family: 'Nazanin', 'Tahoma', sans-serif;
+                }}
+            """
+            
+            # Apply initial styling
+            cell_widget.setStyleSheet(original_style)
+            
+            # Store references for hover effects and course operations
+            cell_widget.course_key = course_key
+            cell_widget.original_style = original_style
+            
+            # Enable hover effects with optimized event handling
+            def enter_event(event, widget=cell_widget):
+                self.highlight_course_sessions(widget.course_key)
+            
+            def leave_event(event, widget=cell_widget):
+                self.clear_course_highlights()
+            
+            def mouse_press_event(event, widget=cell_widget):
+                if event.button() == QtCore.Qt.LeftButton:
+                    self.show_course_details(widget.course_key)
+            
+            cell_widget.enterEvent = enter_event
+            cell_widget.leaveEvent = leave_event
+            cell_widget.mousePressEvent = mouse_press_event
+            
+            self.table.setCellWidget(srow, col, cell_widget)
             if span > 1:
                 self.table.setSpan(srow, col, span, 1)
-            self.placed[(srow, col)] = {'course': course_key, 'rows': span, 'widget': lbl}
+            self.placed[(srow, col)] = {
+                'course': course_key, 
+                'rows': span, 
+                'widget': cell_widget,
+                'original_style': original_style
+            }
             
         # Update status after adding course
         self.update_status()
@@ -2800,33 +3938,174 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         self.table.setSpan(srow, col, 1, 1)
         del self.placed[start_tuple]
 
-    def on_table_double_clicked(self, row, col):
-        """Handle double-click on table cells to remove entire courses"""
-        found = None
-        course_key = None
+    def remove_course_with_confirmation(self, course_key):
+        """Remove course with user confirmation"""
+        course = COURSES.get(course_key, {})
+        course_name = course.get('name', 'نامشخص')
+        instructor = course.get('instructor', 'نامشخص')
         
-        # Find which course this cell belongs to
-        for (srow, scol), info in list(self.placed.items()):
-            if scol != col:
-                continue
-            if srow <= row < srow + info['rows']:
-                found = (srow, scol)
-                course_key = info['course']
-                break
-                
-        if found and course_key:
-            course_name = COURSES.get(course_key, {}).get('name', 'نامشخص')
-            instructor = COURSES.get(course_key, {}).get('instructor', 'نامشخص')
+        msg = QtWidgets.QMessageBox()
+        msg.setIcon(QtWidgets.QMessageBox.Question)
+        msg.setWindowTitle('حذف درس')
+        msg.setText(f'آیا مایل به حذف کل درس "{course_name}" هستید؟')
+        msg.setInformativeText(f'استاد: {instructor}\nتمام جلسات این درس از جدول حذف خواهد شد.')
+        msg.setStandardButtons(QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No)
+        msg.setDefaultButton(QtWidgets.QMessageBox.No)
+        
+        if msg.exec_() == QtWidgets.QMessageBox.Yes:
+            self.remove_course_from_schedule(course_key)
+            self.update_status()
+            self.update_detailed_info_if_open()
+    
+    def show_course_details(self, course_key):
+        """Show detailed course information in a dialog with easy code copying"""
+        course = COURSES.get(course_key, {})
+        if not course:
+            return
             
-            res = QtWidgets.QMessageBox.question(
-                self, 'حذف کل درس', 
-                f'آیا مایل به حذف کل درس "{course_name}" (استاد: {instructor}) هستید؟\n'
-                f'تمام جلسات این درس از جدول حذف خواهد شد.',
-                QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No
-            )
-            
-            if res == QtWidgets.QMessageBox.Yes:
-                self.remove_entire_course(course_key)
+        details_dialog = QtWidgets.QDialog(self)
+        details_dialog.setWindowTitle(f'جزییات درس: {course.get("name", "نامشخص")}')
+        details_dialog.setModal(True)
+        details_dialog.resize(500, 400)
+        
+        layout = QtWidgets.QVBoxLayout(details_dialog)
+        
+        # Course information with Nazanin font
+        info_text = f"""
+        <h2 style="color: #2c3e50; font-family: 'Nazanin', 'Tahoma', sans-serif;">{course.get('name', 'نامشخص')}</h2>
+        <p style="font-family: 'Nazanin', 'Tahoma', sans-serif;"><b>کد درس:</b> {course.get('code', 'نامشخص')}</p>
+        <p style="font-family: 'Nazanin', 'Tahoma', sans-serif;"><b>استاد:</b> {course.get('instructor', 'نامشخص')}</p>
+        <p style="font-family: 'Nazanin', 'Tahoma', sans-serif;"><b>تعداد واحد:</b> {course.get('credits', 0)}</p>
+        <p style="font-family: 'Nazanin', 'Tahoma', sans-serif;"><b>مکان برگزاری:</b> {course.get('location', 'نامشخص')}</p>
+        <p style="font-family: 'Nazanin', 'Tahoma', sans-serif;"><b>زمان امتحان:</b> {course.get('exam_time', 'اعلام نشده')}</p>
+        
+        <h3 style="font-family: 'Nazanin', 'Tahoma', sans-serif;">جلسات درس:</h3>
+        """
+        
+        for sess in course.get('schedule', []):
+            parity = ''
+            if sess.get('parity') == 'ز':
+                parity = ' (زوج) - <span style="color: #27ae60; font-weight: bold;">ز</span>'
+            elif sess.get('parity') == 'ف':
+                parity = ' (فرد) - <span style="color: #3498db; font-weight: bold;">ف</span>'
+            info_text += f"<p style='font-family: \"Nazanin\", \"Tahoma\", sans-serif;'>• {sess['day']} {sess['start']}-{sess['end']}{parity}</p>"
+        
+        info_text += f"""
+        <h3 style="font-family: 'Nazanin', 'Tahoma', sans-serif;">توضیحات درس:</h3>
+        <p style="background: #f8f9fa; padding: 10px; border-radius: 5px; font-family: 'Nazanin', 'Tahoma', sans-serif;">{course.get('description', 'توضیحی ارائه نشده')}</p>
+        """
+        
+        text_widget = QtWidgets.QTextEdit()
+        text_widget.setHtml(info_text)
+        text_widget.setReadOnly(True)
+        text_widget.setStyleSheet("""
+            QTextEdit {
+                font-family: 'Nazanin', 'Tahoma', sans-serif;
+                font-size: 12px;
+            }
+        """)
+        layout.addWidget(text_widget)
+        
+        # Enhanced copy course code button with better styling
+        copy_button = QtWidgets.QPushButton(f'📋 کپی کد درس: {course.get("code", "")}')
+        copy_button.clicked.connect(lambda: self.copy_to_clipboard(course.get('code', '')))
+        copy_button.setStyleSheet("""
+            QPushButton {
+                background-color: #3498db;
+                color: white;
+                border: none;
+                padding: 10px 15px;
+                border-radius: 6px;
+                font-weight: bold;
+                font-size: 12px;
+                font-family: 'Nazanin', 'Tahoma', sans-serif;
+            }
+            QPushButton:hover {
+                background-color: #2980b9;
+            }
+            QPushButton:pressed {
+                background-color: #21618c;
+            }
+        """)
+        layout.addWidget(copy_button)
+        
+        # Close button
+        close_button = QtWidgets.QPushButton('بستن')
+        close_button.clicked.connect(details_dialog.close)
+        close_button.setStyleSheet("""
+            QPushButton {
+                font-family: 'Nazanin', 'Tahoma', sans-serif;
+                font-size: 12px;
+                padding: 8px 15px;
+            }
+        """)
+        layout.addWidget(close_button)
+        
+        details_dialog.exec_()
+    
+    def copy_to_clipboard(self, text):
+        """Copy text to clipboard with enhanced user feedback"""
+        clipboard = QtWidgets.QApplication.clipboard()
+        clipboard.setText(text)
+        
+        # Enhanced feedback message with Nazanin font
+        msg = QtWidgets.QMessageBox(self)
+        msg.setIcon(QtWidgets.QMessageBox.Information)
+        msg.setWindowTitle('کپی شد')
+        msg.setText(f'کد درس "{text}" به کلیپبورد کپی شد.')
+        msg.setStandardButtons(QtWidgets.QMessageBox.Ok)
+        msg.setStyleSheet("""
+            QMessageBox {
+                font-family: 'Nazanin', 'Tahoma', sans-serif;
+                font-size: 12px;
+            }
+            QMessageBox QPushButton {
+                font-family: 'Nazanin', 'Tahoma', sans-serif;
+                min-width: 60px;
+                padding: 5px 10px;
+            }
+        """)
+        msg.exec_()
+    
+    def highlight_course_sessions(self, course_key):
+        """Highlight all sessions of a course with optimized red border hover effect
+        
+        This method implements an improved hover effect that:
+        - Displays a 2-pixel wide red border around all sessions of the hovered course
+        - Uses subtle box-shadow for better visual emphasis
+        - Maintains performance by only modifying border styles, not recreating widgets
+        - Ensures consistent visual feedback across all course sessions
+        """
+        # Clear any existing highlights first to prevent overlap
+        self.clear_course_highlights()
+        
+        # Apply red border to all sessions of the specified course
+        for (srow, scol), info in self.placed.items():
+            if info['course'] == course_key:
+                widget = info.get('widget')
+                if widget and hasattr(widget, 'original_style'):
+                    # Create hover style with 2px red border and subtle shadow
+                    hover_style = widget.original_style.replace(
+                        'border: 2px solid rgba(',
+                        'border: 2px solid #e74c3c; box-shadow: 0 0 5px rgba(231, 76, 60, 0.3); border-backup: 2px solid rgba('
+                    )
+                    widget.setStyleSheet(hover_style)
+    
+    def clear_course_highlights(self):
+        """Clear all course highlights and restore original appearance
+        
+        This method ensures complete restoration of original styling by:
+        - Using stored original styles rather than recalculating
+        - Preventing any residual hover effects
+        - Maintaining optimal performance by avoiding unnecessary style computations
+        """
+        # Restore original styling for all course widgets
+        for (srow, scol), info in self.placed.items():
+            widget = info.get('widget')
+            original_style = info.get('original_style')
+            if widget and original_style:
+                # Restore the exact original style to prevent any residual effects
+                widget.setStyleSheet(original_style)
 
     def remove_entire_course(self, course_key):
         """Remove all sessions of a specific course from the table"""
@@ -2971,33 +4250,7 @@ class SchedulerWindow(QtWidgets.QMainWindow):
             else:
                 QtWidgets.QMessageBox.warning(self, "خطا", "خطا در ذخیره تصویر.")
 
-    def export_json(self):
-        """Export user data to JSON file"""
-        path, _ = QtWidgets.QFileDialog.getSaveFileName(self, "Export JSON", "backup.json", "JSON Files (*.json)")
-        if path:
-            try:
-                with open(path, "w", encoding="utf-8") as f:
-                    json.dump(self.user_data, f, indent=2, ensure_ascii=False)
-                QtWidgets.QMessageBox.information(self, "خروجی", "فایل با موفقیت ذخیره شد.")
-            except Exception as e:
-                QtWidgets.QMessageBox.warning(self, "خطا", f"خطا در ذخیره فایل: {str(e)}")
 
-    def import_json(self):
-        """Import user data from JSON file"""
-        path, _ = QtWidgets.QFileDialog.getOpenFileName(self, "Import JSON", "", "JSON Files (*.json)")
-        if path:
-            try:
-                with open(path, "r", encoding="utf-8") as f:
-                    imported_data = json.load(f)
-                # Merge with existing data
-                self.user_data.update(imported_data)
-                save_user_data(self.user_data)
-                # Refresh UI
-                self.populate_course_list()
-                self.load_saved_combos_ui()
-                QtWidgets.QMessageBox.information(self, "ورودی", "فایل با موفقیت بارگذاری شد.")
-            except Exception as e:
-                QtWidgets.QMessageBox.warning(self, "خطا", f"خطا در بارگذاری فایل: {str(e)}")
 
 
 # ---------------------- اجرای برنامه ----------------------
@@ -3015,8 +4268,12 @@ def main():
     except:
         pass  # Icon file not found, continue without it
     
-    # Apply a modern stylesheet
+    # Apply a modern stylesheet with Nazanin font
     app.setStyleSheet("""
+        * {
+            font-family: 'Nazanin', 'Tahoma', 'Arial Unicode MS', sans-serif;
+            font-weight: normal;
+        }
         QMainWindow {
             background-color: #f0f0f0;
         }
@@ -3026,7 +4283,7 @@ def main():
             border: none;
             padding: 8px 16px;
             border-radius: 4px;
-            font-weight: bold;
+            font-weight: normal;
         }
         QPushButton:hover {
             background-color: #106ebe;

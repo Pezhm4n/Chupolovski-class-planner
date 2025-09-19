@@ -2,3 +2,7 @@
 app/app.log
 
 app/__pycache__/
+
+.idea/
+
+app/user_data.json
