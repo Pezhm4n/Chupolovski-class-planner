@@ -6,3 +6,5 @@ app/__pycache__/
 .idea/
 
 app/user_data.json
+
+app/courses_data.json
