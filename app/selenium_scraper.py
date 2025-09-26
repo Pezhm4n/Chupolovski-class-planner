@@ -9,6 +9,7 @@ import time
 from dotenv import load_dotenv
 import os
 from html_parser import parse_courses_from_html
+from Capcha_Solver_Model import predict_from_path
 
 def switch_to_frames(frame_names, driver, wait, max_attempts=3, delay=1):
     """
@@ -57,10 +58,6 @@ def download_captcha_base64(driver, wait):
     Download CAPTCHA as base64 with timestamp and optional user input
     """
     try:
-        if not switch_to_frames(["Faci1", "Master", "Form_Body"], driver, wait):
-            print("❌ Could not switch to CAPTCHA frame")
-            return False
-
         img = wait.until(EC.visibility_of_element_located((By.ID, "imgCaptcha")))
 
         # Use JavaScript to get image as base64
@@ -92,54 +89,6 @@ def download_captcha_base64(driver, wait):
         print(f"❌ Failed to download CAPTCHA: {e}")
         return False
 
-
-def wait_for_captcha_input_optimized(driver, wait, timeout=120):
-    """
-    Wait for user to enter CAPTCHA with better UX - stays in frame
-    """
-    try:
-        # Switch to CAPTCHA input frame ONCE
-        if not switch_to_frames(["Faci1", "Master", "Form_Body"], driver, wait):
-            print("❌ Could not switch to CAPTCHA input frame")
-            return False, None
-
-        # Get current CAPTCHA src while we're already in the frame
-        try:
-            img = wait.until(EC.visibility_of_element_located((By.ID, "imgCaptcha")))
-            current_captcha_src = img.get_attribute("src")
-        except Exception as e:
-            print(f"❌ Could not get CAPTCHA src: {e}")
-            current_captcha_src = None
-
-        captcha_input = wait.until(EC.visibility_of_element_located((By.ID, "F51701")))
-        print("✅ Found CAPTCHA input field!")
-
-        captcha_input.clear()
-        captcha_input.click()
-
-
-        print("📝 Please enter the 5-character CAPTCHA...")
-        print("   Waiting for exactly 5 characters...")
-
-        # Wait for user to enter exactly 5 characters with progress indicator
-        start_time = time.time()
-        while time.time() - start_time < timeout:
-            try:
-                current_value = driver.find_element(By.ID, "F51701").get_attribute("value")
-                if len(current_value) == 5:
-                    print("✅ 5 characters entered, proceeding...")
-                    return True, current_captcha_src
-            except:
-                time.sleep(.5)
-
-        print(f"⏰ Timeout after {timeout} seconds")
-        return False, None
-
-    except Exception as e:
-        print(f"❌ Error waiting for CAPTCHA input: {e}")
-        return False, None
-
-
 def wait_for_captcha_change_optimized(driver, wait, old_captcha_src, timeout=30):
     """
     Wait for CAPTCHA to change - assumes we're already in the correct frame
@@ -166,6 +115,33 @@ def wait_for_captcha_change_optimized(driver, wait, old_captcha_src, timeout=30)
     print(f"⏰ CAPTCHA didn't change within {timeout} seconds")
     return False
 
+def wait_for_loading(frame, driver, wait, messages=None):
+    if messages is None:
+        messages = ["لطفا صبر کنيد."]
+    try:
+        driver.switch_to.default_content()
+        WebDriverWait(driver, 15).until(
+            EC.frame_to_be_available_and_switch_to_it((By.NAME, frame))
+        )
+        WebDriverWait(driver, 15).until(
+            EC.frame_to_be_available_and_switch_to_it((By.NAME, "Message"))
+        )
+        print("✅ Switched to Message frame")
+
+        # Now safe to check loading table
+        table = wait.until(EC.visibility_of_element_located((By.ID, "tbl_Msg")))
+
+        for message in messages:
+            WebDriverWait(driver, 120).until(
+                lambda d: table.find_element(By.ID, "errtxt").text != message)
+
+        print("✅ Loading completed")
+        return True
+
+    except TimeoutException:
+        print(f"⚠️ loading didn’t finish")
+    except Exception as e:
+        print(f"❌ Unexpected error on attempt: {e}")
 
 def check_for_errors(driver, wait):
     """
@@ -184,10 +160,9 @@ def check_for_errors(driver, wait):
         err_txt = table.find_element(By.ID, "errtxt").text
         err_num = table.find_element(By.ID, "errcnt").text
 
-        print(f"📋 Error number: {err_num}")
-        print(f"📋 Error text: {err_txt}")
-
         if "پيغام" in err_num:
+            print(f"📋 Error number: {err_num}")
+            print(f"📋 Error text: {err_txt}")
             return True, err_txt
         else:
             return False, None
@@ -242,14 +217,42 @@ def perform_login_sequence(driver, wait, username, password, max_captcha_attempt
         captcha_attempt += 1
         print(f"\n🔐 CAPTCHA attempt {captcha_attempt}/{max_captcha_attempts}")
 
-        # Get CAPTCHA input and current src in one frame switch
-        captcha_success, current_captcha_src = wait_for_captcha_input_optimized(driver, wait)
-        if not captcha_success:
-            print("❌ Failed to get CAPTCHA input")
+        # Get current CAPTCHA src (we're already in Form_Body frame)
+        try:
+            img = wait.until(EC.visibility_of_element_located((By.ID, "imgCaptcha")))
+            current_captcha_src = img.get_attribute("src")
+        except Exception as e:
+            print(f"❌ Could not get CAPTCHA src: {e}")
+            current_captcha_src = None
+
+        # Get CAPTCHA text from model
+        captcha_text = predict_from_path('current_capcha.png')
+        print(f"🤖 Model predicted: '{captcha_text}' (length: {len(captcha_text)})")
+
+        # Validate CAPTCHA length
+        if len(captcha_text) != 5:
+            print(f"⚠️ Model returned {len(captcha_text)} characters instead of 5. Refreshing CAPTCHA...")
+
+            # Try manual refresh first
+            driver.execute_script("return oc();")
+            wait_for_captcha_change_optimized(driver, wait, current_captcha_src)
+            continue
+
+
+        # Fill CAPTCHA (we're still in Form_Body frame)
+        try:
+            captcha_input = wait.until(EC.visibility_of_element_located((By.ID, "F51701")))
+            print("✅ Found CAPTCHA input field!")
+            captcha_input.clear()
+            captcha_input.send_keys(captcha_text)
+            print(f"✅ Entered CAPTCHA: {captcha_text}")
+        except Exception as e:
+            print(f"❌ Could not fill CAPTCHA: {e}")
             continue
 
         # Click login button (we're still in the same frame)
         try:
+            driver.execute_script("F51601.value=1; F51601.UpdateSndData();")
             login_button = wait.until(EC.element_to_be_clickable((By.ID, "btnLog")))
             login_button.click()
             print("✅ Login button clicked")
@@ -262,7 +265,7 @@ def perform_login_sequence(driver, wait, username, password, max_captcha_attempt
         error_occurred, error_text = check_for_errors(driver, wait)
 
         if not error_occurred:
-            print("🎉 Login successful!")
+            wait_for_loading("Faci2", driver, wait)
             return True
 
         # Handle different types of errors
@@ -292,41 +295,34 @@ def perform_login_sequence(driver, wait, username, password, max_captcha_attempt
     print(f"❌ Failed after {max_captcha_attempts} CAPTCHA attempts")
     return False
 
-# print(f"📚 Saving incorrect CAPTCHA with user input '{captcha_input}' for training...")
-# timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-# dest_path = os.path.join('incorrect_captcha', f"{captcha_input}_{timestamp}.png")
-# shutil.copy2('current_capcha.png', dest_path)
-
 def click_ok_with_retry(driver, wait, max_attempts=3):
     """Click OK button and retry if Faci3 frame doesn't appear"""
 
     for attempt in range(max_attempts):
         print(f"Attempt {attempt + 1} to click OK button...")
 
-        # Switch to frame and click
-        if switch_to_frames(["Faci2", "Master", "Form_Body"], driver, wait):
-            try:
-                report_number = wait.until(EC.visibility_of_element_located((By.ID, "F20851")))
-                print("✅ Found report input!")
-                report_number.clear()  # Clear first to avoid duplicate values
-                report_number.send_keys("102")
-                print("✅ Sent report number successfully!")
-
-                # Call the JavaScript function directly
-                result = driver.execute_script("return dirok();")
-                print(f"JavaScript function result: {result}")
-
-            except Exception as e:
-                print(f"❌ Could not locate input: {e}")
-                continue
-        else:
+        # Step 1: Switch to frame (early return on failure)
+        if not switch_to_frames(["Faci2", "Master", "Form_Body"], driver, wait):
             print("❌ Frame switch failed.")
             continue
 
-        # Wait a moment for navigation to happen
-        time.sleep(3)
+        # Step 2: Execute operations (early return on failure)
+        try:
+            report_number = wait.until(EC.visibility_of_element_located((By.ID, "F20851")))
+            print("✅ Found report input!")
+            report_number.clear()
+            report_number.send_keys("102")
+            print("✅ Sent report number successfully!")
 
-        # Check if Faci3 frame appeared
+            result = driver.execute_script("return dirok();")
+            print(f"JavaScript function result: {result}")
+
+        except Exception as e:
+            print(f"❌ Could not locate input: {e}")
+            continue
+
+
+        # Step 4: Check for Faci3 frame
         driver.switch_to.default_content()
         try:
             WebDriverWait(driver, 5).until(
@@ -335,113 +331,99 @@ def click_ok_with_retry(driver, wait, max_attempts=3):
             print(f"✅ Success! Faci3 frame found on attempt {attempt + 1}")
             return True
 
-        except:
+        except TimeoutException:
             print(f"❌ Attempt {attempt + 1}: Faci3 frame not found")
-
-            # Check what frames are available for debugging
-            available_frames = [f.get_attribute("name") for f in driver.find_elements(By.TAG_NAME, "frame")]
-            print(f"Available frames: {available_frames}")
-
             if attempt < max_attempts - 1:
                 print("Retrying...")
-                time.sleep(2)  # Wait before retry
+                time.sleep(2)
 
-    print(f"❌ Failed to find Faci3 frame after {max_attempts} attempts")
-    return False
-
-def get_target_frameset_rows_direct(driver, wait):
-    """Direct navigation to the target frameset"""
-    try:
-        driver.switch_to.default_content()
-
-        # Navigate the full path in one go
-        frame_path = ["Faci3", "Master"]  # Adjust based on actual structure
-
-        for frame_name in frame_path:
-            try:
-                WebDriverWait(driver, 1).until(
-                    EC.frame_to_be_available_and_switch_to_it((By.NAME, frame_name))
-                )
-                print(f"✅ Switched to frame: {frame_name} for current rows")
-            except:
-                print(f"⚠️ Frame {frame_name} not found for finding current rows, continuing...")
-                continue
-
-        # Get the frameset rows
-        frameset = driver.find_element(By.TAG_NAME, "frameset")
-        rows = frameset.get_attribute("rows")
-        return rows
-
-    except Exception as e:
-        print(f"❌ Error in direct navigation: {e}")
-        return None
+    return False  # All attempts failed
 
 
-def ensure_on_result_page_with_retry(driver, wait, max_attempts=3):
-    """Ensure we're on result page - Click first, then wait for success"""
+def ensure_on_result_page_with_retry(driver, wait, course_status, max_attempts=3):
+    """Ensure we're on result page - Fill form, click View Report, then wait for success"""
 
     for attempt in range(max_attempts):
-        for attempt in range(max_attempts):
-            print(f"\n--- Navigation attempt {attempt + 1} ---")
+        print(f"\n--- Navigation attempt {attempt + 1} ---")
 
-            success = False  # track whether step 1 worked
+        # STEP 1: Fill the form with course status
+        print("📝 Filling course status in form...")
+        if switch_to_frames(["Faci3", "Master", "Form_Body"], driver, wait):
+            try:
+                # Wait for pubTbl table to be visible first
+                WebDriverWait(driver, 15).until(
+                    EC.visibility_of_element_located((By.ID, "pubTbl"))
+                )
+                print("✅ pubTbl table is visible! Form ready for input!")
 
-            # STEP 1: Always click View Report first
-            if switch_to_frames(["Faci3", "Commander"], driver, wait):
-                try:
-                    driver.execute_script("IM16_ViewRep_onclick();")
-                    print("✅ View Report button clicked!")
-                    success = True
-                except Exception as e:
-                    print(f"❌ Error clicking View Report: {e}")
-            else:
-                print("❌ Could not switch for finding View Report button")
+                # Fill course status input
+                input_1 = wait.until(EC.visibility_of_element_located((By.ID, "GF10956_0")))
+                input_1.clear()
+                input_1.send_keys(str(course_status))
+                print(f"✅ Course status '{course_status}' entered successfully!")
 
-            if not success:
-                # Skip Step 2 if Step 1 failed
+            except Exception as e:
+                print(f"❌ Error filling form: {e}")
                 if attempt < max_attempts - 1:
                     print("🔄 Retrying in 3 seconds...")
                     time.sleep(3)
                 continue
-
-            # STEP 2: Wait for Message frame after click
-            try:
-                driver.switch_to.default_content()
-                WebDriverWait(driver, 15).until(
-                    EC.frame_to_be_available_and_switch_to_it((By.NAME, "Faci3"))
-                )
-                WebDriverWait(driver, 15).until(
-                    EC.frame_to_be_available_and_switch_to_it((By.NAME, "Message"))
-                )
-                print("✅ Switched to Message frame")
-
-                # Now safe to check loading table
-                table = wait.until(EC.visibility_of_element_located((By.ID, "tbl_Msg")))
-                WebDriverWait(driver, 120).until(
-                    lambda d: table.find_element(By.ID, "errtxt").text != "لطفا صبر کنيد."
-                )
-                print("✅ Loading completed - 'لطفا صبر کنيد.' message cleared!")
-                return True
-
-            except TimeoutException:
-                print(f"⚠️ Attempt {attempt + 1}: Message frame or loading didn’t finish")
-            except Exception as e:
-                print(f"❌ Unexpected error on attempt {attempt + 1}: {e}")
-
-            # STEP 3: Verify we're actually on result page by checking frameset
-            target_rows = get_target_frameset_rows_direct()
-            print(f"Current frameset rows: {target_rows}")
-
-            if target_rows == "0,*,0,0":
-                print("✅ Successfully navigated to result page!")
-                return True
-            else:
-                print(f"⚠️ Click successful but wrong page state: {target_rows}")
-                # Continue to next attempt
-
+        else:
+            print("❌ Could not switch to form frame")
             if attempt < max_attempts - 1:
                 print("🔄 Retrying in 3 seconds...")
                 time.sleep(3)
+            continue
+
+        # STEP 2: Click View Report button
+        success = False
+        if switch_to_frames(["Faci3", "Commander"], driver, wait):
+            try:
+                driver.execute_script("IM16_ViewRep_onclick();")
+                print("✅ View Report button clicked!")
+                success = True
+            except Exception as e:
+                print(f"❌ Error clicking View Report: {e}")
+        else:
+            print("❌ Could not switch to Commander frame for View Report button")
+
+        if not success:
+            # Skip remaining steps if Step 2 failed
+            if attempt < max_attempts - 1:
+                print("🔄 Retrying in 3 seconds...")
+                time.sleep(3)
+            continue
+
+        # STEP 3: Wait for loading to complete
+        wait_for_loading("Faci3", driver, wait)
+
+        # STEP 4: Wait for commTbl table to appear in Commander frame
+        print("⏳ Waiting for commTbl table to appear on result page...")
+        try:
+            # Switch to Commander frame
+            driver.switch_to.default_content()
+            WebDriverWait(driver, 15).until(
+                EC.frame_to_be_available_and_switch_to_it((By.NAME, "Faci3"))
+            )
+            driver.switch_to.frame("Commander")
+
+            # Wait for commTbl table (60 second timeout)
+            WebDriverWait(driver, 60).until(
+                EC.presence_of_element_located((By.ID, "commTbl"))
+            )
+
+            print("✅ commTbl table found! Navigation to report page complete!")
+            return True  # Success!
+
+        except TimeoutException:
+            print("❌ commTbl table never appeared on report page within 60 seconds")
+        except Exception as e:
+            print(f"⚠️ Error waiting for commTbl table: {e}")
+
+        # If we reach here, failed this attempt
+        if attempt < max_attempts - 1:
+            print("🔄 Retrying in 3 seconds...")
+            time.sleep(3)
 
     print(f"❌ Failed to reach result page after {max_attempts} attempts")
     return False
@@ -575,32 +557,10 @@ def _return_to_filter_page(driver):
     except Exception as e:
         print(f"⚠️ Could not return to filter page: {e}")
 
-def export_table_simple(driver, wait, first_value, max_retries=3, retry_delay=2):
+def export_table_simple(driver, wait, max_retries=3, retry_delay=2):
     """
     Simpler approach that overrides window.open to capture HTML content with retry logic
     """
-    # ---- go into the Master → Form_Body frame again ----
-    if switch_to_frames(["Faci3", "Master", "Form_Body"], driver, wait):
-        # ---- fill the three inputs ----
-        input_1 = wait.until(EC.visibility_of_element_located((By.ID, "GF10956_0")))
-        # input_2 = wait.until(EC.visibility_of_element_located((By.ID, "GF078012_0")))
-        # input_3 = wait.until(EC.visibility_of_element_located((By.ID, "GF078516_0")))
-
-        input_1.clear();
-        input_1.send_keys(str(first_value))
-        # input_2.clear(); input_2.send_keys("16")
-        # input_3.clear(); input_3.send_keys("18")
-    else:
-        print("❌ Frame switch failed. Aborting.")
-        return None
-
-    if not ensure_on_result_page_with_retry(driver, wait):
-        print("❌ Could not navigate to result page, aborting export")
-        return None
-
-    # Step 3: Proceed with export (we're confirmed to be on result page)
-    print("✅ Confirmed on result page, proceeding with export...")
-
     # Try export with retry logic
     html = None
     for attempt in range(max_retries):
@@ -626,6 +586,78 @@ def export_table_simple(driver, wait, first_value, max_retries=3, retry_delay=2)
 
     return html
 
+
+def get_fast_chrome_options():
+    """
+    Optimized Chrome options for fastest Selenium execution
+    """
+    chrome_options = Options()
+
+    # Core headless and performance options
+    chrome_options.add_argument("--headless=new")  # New headless mode (faster)
+    chrome_options.add_argument("--no-sandbox")
+    chrome_options.add_argument("--disable-dev-shm-usage")
+    chrome_options.add_argument("--disable-gpu")
+
+    # Memory and resource optimization
+    chrome_options.add_argument("--memory-pressure-off")
+    chrome_options.add_argument("--max-old-space-size=4096")
+    chrome_options.add_argument("--disable-background-timer-throttling")
+    chrome_options.add_argument("--disable-renderer-backgrounding")
+    chrome_options.add_argument("--disable-backgrounding-occluded-windows")
+    #
+    # JavaScript optimization
+    chrome_options.add_argument("--disable-ipc-flooding-protection")
+    chrome_options.add_argument("--disable-background-networking")
+    chrome_options.add_argument("--disable-features=TranslateUI")
+    chrome_options.add_argument("--disable-features=BlinkGenPropertyTrees")
+    #
+    # # Network and loading optimization
+    chrome_options.add_argument("--aggressive-cache-discard")
+    chrome_options.add_argument("--disable-background-downloads")
+    chrome_options.add_argument("--disable-background-sync")
+    chrome_options.add_argument("--disable-sync")
+    #
+    # # UI and visual optimization
+    chrome_options.add_argument("--disable-extensions")
+    chrome_options.add_argument("--disable-plugins")
+    chrome_options.add_argument("--disable-default-apps")
+    chrome_options.add_argument("--no-first-run")
+    chrome_options.add_argument("--disable-popup-blocking")
+    # chrome_options.add_argument("--disable-prompt-on-repost")
+    #
+    # # Security features that can be disabled for speed
+    chrome_options.add_argument("--disable-web-security")
+    chrome_options.add_argument("--disable-features=VizDisplayCompositor")
+    chrome_options.add_argument("--disable-features=VizServiceDisplayCompositor")
+    #
+    # # Process optimization
+    chrome_options.add_argument("--disable-logging")
+    chrome_options.add_argument("--disable-logging-redirect")
+    chrome_options.add_argument("--log-level=3")
+
+    # Set preferences for better performance
+    prefs = {
+        "profile.default_content_setting_values": {
+            "notifications": 2,  # Block notifications
+            "geolocation": 2,  # Block location requests
+            "media_stream": 2,  # Block media requests
+        },
+        "profile.default_content_settings.popups": 0,
+        "profile.content_settings.exceptions.automatic_downloads.*.setting": 1,
+    }
+    chrome_options.add_experimental_option("prefs", prefs)
+
+    # Additional experimental options for speed
+    chrome_options.add_experimental_option("useAutomationExtension", False)
+    chrome_options.add_experimental_option("excludeSwitches", [
+        "enable-automation",
+        "enable-logging",
+        "disable-extensions"
+    ])
+
+    return chrome_options
+
 def scrape_golestan_courses(course_status, username=None, password=None):
 
     load_dotenv(override=True)
@@ -636,21 +668,27 @@ def scrape_golestan_courses(course_status, username=None, password=None):
         password = os.getenv("PASSWORD")
 
     # Configure ChromeOptions to speed up Selenium
-    chrome_options = Options()
-    #chrome_options.add_argument("--headless=new")
-    chrome_options.add_argument("--disable-extensions")
-    chrome_options.add_argument("--disable-gpu")
-    chrome_options.add_argument("--no-sandbox")
-    chrome_options.add_argument("--disable-dev-shm-usage")
-    chrome_options.add_argument("--force-device-scale-factor=2")
+    # chrome_options = Options()
+    # chrome_options.add_argument("--headless=new")
+    # chrome_options.add_argument("--disable-extensions")
+    # chrome_options.add_argument("--disable-gpu")
+    # chrome_options.add_argument("--no-sandbox")
+    # chrome_options.add_argument("--disable-dev-shm-usage")
+    # chrome_options.add_argument("--disable-plugins")
+    # chrome_options.add_argument("--no-first-run")
+    # chrome_options.add_argument("--disable-default-apps")
+
+    chrome_options = get_fast_chrome_options()
 
     url = "https://golestan.ikiu.ac.ir/forms/authenticateuser/main.htm"   # change if needed
 
-    driver = webdriver.Chrome()
+    driver = webdriver.Chrome(options=chrome_options)
     driver.get(url)
     wait = WebDriverWait(driver, 10)
 
     try:
+        wait_for_loading('Faci1', driver, wait)
+
         # Perform the complete login sequence
         successful_login = perform_login_sequence(driver, wait, username, password)
 
@@ -662,13 +700,19 @@ def scrape_golestan_courses(course_status, username=None, password=None):
         # Usage
         navigation_success = click_ok_with_retry(driver, wait)
         if not navigation_success:
-            print("❌ Could not navigate to report page")
+            print("❌ Could not navigate to course report dashboard.")
 
-        print("✅ Successfully navigated to course page!")
+        print("✅ Successfully navigated to course report dashboard!")
+
+        wait_for_loading("Faci3", driver, wait, messages=['', "لطفا صبر کنيد."])
 
         if course_status == "available":
+            if not ensure_on_result_page_with_retry(driver, wait, 1):
+                print("❌ Could not navigate to result page for available courses, aborting export")
+                raise Exception("Available courses navigation failed")  # Go to log out
+
             print("📚 Scraping available courses...")
-            html_available = export_table_simple(driver, wait, 1)  # قابل اخذ
+            html_available = export_table_simple(driver, wait)
             if html_available:
                 # Parse and save to JSON - function creates file and returns True
                 success = parse_courses_from_html(html_available, 'available_courses.json')
@@ -678,8 +722,12 @@ def scrape_golestan_courses(course_status, username=None, password=None):
                 print("⚠️ No available courses HTML retrieved")
 
         elif course_status == "unavailable":
+            if not ensure_on_result_page_with_retry(driver, wait, 0):
+                print("❌ Could not navigate to result page for unavailable courses, aborting export")
+                raise Exception("Available courses navigation failed")  # Go to log out
+
             print("📚 Scraping unavailable courses...")
-            html_unavailable = export_table_simple(driver, wait, 0)  # غیرقابل اخذ
+            html_unavailable = export_table_simple(driver, wait)
             if html_unavailable:
                 success = parse_courses_from_html(html_unavailable, 'unavailable_courses.json')
                 if success:
@@ -690,9 +738,13 @@ def scrape_golestan_courses(course_status, username=None, password=None):
         elif course_status == "both":
             print("📚 Scraping both available and unavailable courses...")
 
+            if not ensure_on_result_page_with_retry(driver, wait, 1):
+                print("❌ Could not navigate to result page for available courses, aborting export")
+                raise Exception("Available courses navigation failed")  # Go to log out
+
             # Scrape available first
             print("  📋 Getting available courses...")
-            html_available = export_table_simple(driver, wait, 1)  # قابل اخذ
+            html_available = export_table_simple(driver, wait)
             if html_available:
                 success = parse_courses_from_html(html_available, 'available_courses.json')
                 if success:
@@ -700,9 +752,13 @@ def scrape_golestan_courses(course_status, username=None, password=None):
             else:
                 print("⚠️ No available courses HTML retrieved")
 
+            if not ensure_on_result_page_with_retry(driver, wait, 0):
+                print("❌ Could not navigate to result page for unavailable courses, aborting export")
+                raise Exception("Available courses navigation failed")  # Go to log out
+
             # Scrape unavailable second
             print("  📋 Getting unavailable courses...")
-            html_unavailable = export_table_simple(driver, wait, 0)  # غیرقابل اخذ
+            html_unavailable = export_table_simple(driver, wait)
             if html_unavailable:
                 success = parse_courses_from_html(html_unavailable, 'unavailable_courses.json')
                 if success:
@@ -729,4 +785,4 @@ def scrape_golestan_courses(course_status, username=None, password=None):
         driver.quit()
         print("✅ Browser closed successfully!")
 
-scrape_golestan_courses('unavailable')
+# scrape_golestan_courses('both')

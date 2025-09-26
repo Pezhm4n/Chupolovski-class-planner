@@ -2,8 +2,6 @@
 import os
 os.environ["KERAS_BACKEND"] = "tensorflow"
 import numpy as np
-import matplotlib.pyplot as plt
-from pathlib import Path
 import tensorflow as tf
 import keras
 from keras import ops
@@ -144,25 +142,6 @@ class CTCLayer(layers.Layer):
         return {**base_config}
 
 
-# Load Model
-save_path = "ocr_model_v2_full.h5"
-
-custom_objects = {
-    "CTCLayer": CTCLayer,
-    "ctc_batch_cost": ctc_batch_cost
-}
-
-loaded_model = keras.models.load_model(
-    save_path,
-    custom_objects=custom_objects,
-    compile=False)
-
-prediction_model = keras.models.Model(
-    inputs=loaded_model.input[0],
-    outputs=loaded_model.get_layer(name="dense_logits").output
-)
-
-
 # Decode CTC Function
 # --- CTC decode ---
 def ctc_decode(y_pred, input_length, greedy=True, beam_width=100, top_paths=1):
@@ -190,7 +169,25 @@ def ctc_decode(y_pred, input_length, greedy=True, beam_width=100, top_paths=1):
 
 
 # Function For Predict text from image
-def predict_from_path(img_path, prediction_model, max_length=32):
+def predict_from_path(img_path, max_length=32):
+    # Load Model
+    save_path = "ocr_model_v2_full.h5"
+
+    custom_objects = {
+        "CTCLayer": CTCLayer,
+        "ctc_batch_cost": ctc_batch_cost
+    }
+
+    loaded_model = keras.models.load_model(
+        save_path,
+        custom_objects=custom_objects,
+        compile=False)
+
+    prediction_model = keras.models.Model(
+        inputs=loaded_model.input[0],
+        outputs=loaded_model.get_layer(name="dense_logits").output
+    )
+
     # Use from Encode Function
     sample = encode_single_sample(img_path, label="")  # Empty Label
     img = sample["image"]
@@ -207,6 +204,3 @@ def predict_from_path(img_path, prediction_model, max_length=32):
     text = tf.strings.reduce_join(num_to_char(res)).numpy().decode("utf-8")
 
     return text
-
-final_text = predict_from_path(path_img, prediction_model)
-print(final_text)

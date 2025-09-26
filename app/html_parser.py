@@ -42,6 +42,12 @@ def parse_courses_from_html(html, output_path):
                 "parity": m.group("parity") or ""
             })
 
+
+        location = ""
+        location_match = re.search(r"مکان:\s*(.+?)(?:\s*تاريخ:|$)", cells[15])
+        if location_match:
+            location = location_match.group(1).strip()
+
         exam_time = ""
         m = re.search(r"(\d{4}/\d{2}/\d{2}).*?(\d{2}:\d{2}-\d{2}:\d{2})", cells[16])
         if m:
@@ -51,10 +57,12 @@ def parse_courses_from_html(html, output_path):
             "code": cells[6],
             "name": cells[7],
             "credits": credits,
+            "gender": cells[13],
+            "capacity": cells[10],
             "instructor": (cells[14] or "اساتيد گروه آموزشي").strip(),
             "schedule": schedule,
-            "location": cells[23] if len(cells) > 23 else "",
-            "description": "",
+            "location": location,
+            "description": cells[22] + ' - ' + cells[17] if cells[22] and cells[17] else cells[22] + cells[17] ,
             "exam_time": exam_time
         }
 
