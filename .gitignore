@@ -16,3 +16,5 @@ app/courses_data/
 app/scrapers/__pycache__/
 
 app/scrapers/requests_scraper/__pycache__/
+
+app/captcha_solver/__pycache__/
