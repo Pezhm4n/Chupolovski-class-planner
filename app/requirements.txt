@@ -1,6 +1,15 @@
 # Core PyQt5 requirements (already installed)
 PyQt5>=5.15.0
 
+# Web scraping requirements
+requests>=2.28.0
+beautifulsoup4>=4.11.0
+python-dotenv>=0.21.0
+
+# Captcha solving requirements
+tensorflow>=2.10.0
+numpy>=1.21.0
+
 # Optional: Additional fonts for better Persian support
 # Install system fonts like Tahoma, B Nazanin, etc. manually if needed
 

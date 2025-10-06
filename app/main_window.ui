@@ -585,8 +585,26 @@
      <height>21</height>
     </rect>
    </property>
+   <widget class="QMenu" name="menu_data">
+    <property name="title">
+     <string>داده‌ها</string>
+    </property>
+    <addaction name="action_fetch_golestan"/>
+    <addaction name="action_manual_fetch"/>
+   </widget>
+   <addaction name="menu_data"/>
   </widget>
   <widget class="QStatusBar" name="statusbar"/>
+  <action name="action_fetch_golestan">
+   <property name="text">
+    <string>دریافت خودکار از گلستان</string>
+   </property>
+  </action>
+  <action name="action_manual_fetch">
+   <property name="text">
+    <string>دریافت دستی از گلستان</string>
+   </property>
+  </action>
  </widget>
  <resources/>
  <connections/>

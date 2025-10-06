@@ -111,56 +111,101 @@ def save_courses_to_json():
     except Exception as e:
         print(f"Error saving courses to {COURSES_DATA_FILE}: {e}")
 
-# Load courses at module level
-load_courses_from_json()
+# Add new function to load courses from Golestan data
+def load_courses_from_golestan_data():
+    """Load courses from Golestan scraper data files"""
+    global COURSES
+    try:
+        from golestan_integration import load_golestan_data
+        logger.info("Loading courses from Golestan data files...")
+        
+        # Load courses from Golestan data
+        golestan_courses = load_golestan_data()
+        
+        # Update COURSES dictionary
+        COURSES.clear()
+        COURSES.update(golestan_courses)
+        
+        logger.info(f"Successfully loaded {len(COURSES)} courses from Golestan data")
+        print(f"Loaded {len(COURSES)} courses from Golestan data")
+        
+    except Exception as e:
+        logger.error(f"Error loading courses from Golestan data: {e}")
+        print(f"Error loading courses from Golestan data: {e}")
 
-# ---------------------- User Data Management ----------------------
+# Add new function to check if Golestan data files exist
+def golestan_data_files_exist():
+    """Check if Golestan data files exist in the courses_data directory"""
+    try:
+        app_dir = os.path.dirname(os.path.abspath(__file__))
+        courses_data_dir = os.path.join(app_dir, 'courses_data')
+        
+        available_courses_file = os.path.join(courses_data_dir, 'available_courses.json')
+        unavailable_courses_file = os.path.join(courses_data_dir, 'unavailable_courses.json')
+        
+        return os.path.exists(available_courses_file) or os.path.exists(unavailable_courses_file)
+    except Exception as e:
+        logger.error(f"Error checking Golestan data files: {e}")
+        return False
+
+# Load courses at module level
+# Try to load from Golestan data first if files exist, fallback to JSON
+try:
+    if golestan_data_files_exist():
+        load_courses_from_golestan_data()
+    else:
+        load_courses_from_json()
+except Exception as e:
+    logger.info("Failed to load from Golestan data, falling back to JSON")
+    load_courses_from_json()
 
 def load_user_data():
-    """Load user data from JSON file with error handling"""
-    data = {'custom_courses': [], 'saved_combos': []}
+    """Load user data from JSON file"""
     if not os.path.exists(USER_DATA_FILE):
-        return data
+        # Return default user data structure
+        return {
+            'custom_courses': [],
+            'saved_combos': [],
+            'current_schedule': []
+        }
+    
     try:
         with open(USER_DATA_FILE, 'r', encoding='utf-8') as f:
-            loaded_data = json.load(f)
-            data.update(loaded_data)
-    except (json.JSONDecodeError, IOError) as e:
-        print(f"Warning: Could not load user data - {e}")
-        return data
-    
-    # Load custom courses into COURSES dictionary
-    try:
-        for c in data.get('custom_courses', []):
-            if isinstance(c, dict) and 'code' in c and 'name' in c:
-                key = generate_unique_key(c.get('code', 'custom'), COURSES)
-                COURSES[key] = c
-    except Exception as e:
-        print(f"Warning: Error loading custom courses - {e}")
-    
-    return data
-
-
-def save_user_data(data):
-    """Save user data to JSON file with error handling"""
-    try:
-        # Ensure directory exists
-        os.makedirs(os.path.dirname(os.path.abspath(USER_DATA_FILE)), exist_ok=True)
+            data = json.load(f)
         
+        # Ensure required keys exist
+        required_keys = ['custom_courses', 'saved_combos', 'current_schedule']
+        for key in required_keys:
+            if key not in data:
+                data[key] = []
+                
+        return data
+    except Exception as e:
+        logger.error(f"Error loading user data from {USER_DATA_FILE}: {e}")
+        # Return default structure on error
+        return {
+            'custom_courses': [],
+            'saved_combos': [],
+            'current_schedule': []
+        }
+
+def save_user_data(user_data):
+    """Save user data to JSON file"""
+    try:
         with open(USER_DATA_FILE, 'w', encoding='utf-8') as f:
-            json.dump(data, f, ensure_ascii=False, indent=2)
-    except (IOError, OSError) as e:
-        print(f'Error saving user data: {e}')
-        raise
+            json.dump(user_data, f, ensure_ascii=False, indent=2)
+    except Exception as e:
+        logger.error(f"Error saving user data to {USER_DATA_FILE}: {e}")
 
-
-def generate_unique_key(base_code, store):
-    """Generate a unique key for a course based on its code"""
-    # base_code may contain invalid chars; make a safe key
-    safe = base_code.replace(' ', '_')
-    if safe not in store:
-        return safe
-    i = 1
-    while f"{safe}_u{i}" in store:
-        i += 1
-    return f"{safe}_u{i}"
+def generate_unique_key(base_key, existing_keys):
+    """Generate a unique key by appending a number if needed"""
+    if base_key not in existing_keys:
+        return base_key
+    
+    counter = 1
+    new_key = f"{base_key}_{counter}"
+    while new_key in existing_keys:
+        counter += 1
+        new_key = f"{base_key}_{counter}"
+    
+    return new_key
