@@ -18,9 +18,9 @@ class CourseListWidget(QtWidgets.QWidget):
         self.setup_ui()
         
     def setup_ui(self):
-        layout = QtWidgets.QHBoxLayout(self)
+        layout = QtWidgets.QVBoxLayout(self)
         layout.setContentsMargins(8, 6, 8, 6)  # Increased margins for better spacing
-        layout.setSpacing(6)  # Add spacing between elements
+        layout.setSpacing(4)  # Add spacing between elements
         
         # Enable mouse tracking for hover events
         self.setMouseTracking(True)
@@ -28,6 +28,10 @@ class CourseListWidget(QtWidgets.QWidget):
         # Enable context menu
         self.setContextMenuPolicy(QtCore.Qt.CustomContextMenu)
         self.customContextMenuRequested.connect(self.show_context_menu)
+        
+        # Main course info layout
+        main_layout = QtWidgets.QHBoxLayout()
+        main_layout.setSpacing(6)
         
         # Course info label with improved styling
         display = f"{self.course_info['name']} — {self.course_info['code']} — {self.course_info.get('instructor', 'نامشخص')}"
@@ -37,7 +41,7 @@ class CourseListWidget(QtWidgets.QWidget):
         self.course_label.setObjectName("course_list_label")  # For QSS styling
         # Enable mouse tracking on the label too
         self.course_label.setMouseTracking(True)
-        layout.addWidget(self.course_label, 1)
+        main_layout.addWidget(self.course_label, 1)
         
         # Conflict indicator label (hidden by default) with enhanced styling
         # Positioned absolutely on hover, not taking up permanent space
@@ -70,8 +74,59 @@ class CourseListWidget(QtWidgets.QWidget):
             self.delete_btn.clicked.connect(self.delete_course)
             button_layout.addWidget(self.delete_btn)
             
-        layout.addLayout(button_layout)
+        main_layout.addLayout(button_layout)
+        layout.addLayout(main_layout)
+        
+        # Additional course information from Golestan data
+        self.additional_info_widget = self.create_additional_info_widget()
+        self.additional_info_widget.hide()
+        layout.addWidget(self.additional_info_widget)
             
+    def create_additional_info_widget(self):
+        """Create widget to display additional Golestan course information"""
+        widget = QtWidgets.QWidget()
+        layout = QtWidgets.QVBoxLayout(widget)
+        layout.setContentsMargins(10, 5, 10, 5)
+        layout.setSpacing(2)
+        
+        # Capacity information
+        capacity = self.course_info.get('capacity', '')
+        if capacity:
+            capacity_label = QtWidgets.QLabel(f"ظرفیت: {capacity}")
+            capacity_label.setStyleSheet("font-size: 11px; color: #555;")
+            layout.addWidget(capacity_label)
+        
+        # Gender restriction information
+        gender_restriction = self.course_info.get('gender_restriction', '')
+        if gender_restriction and gender_restriction != 'مختلط':
+            gender_label = QtWidgets.QLabel(f"محدودیت جنسیتی: {gender_restriction}")
+            gender_label.setStyleSheet("font-size: 11px; color: #555;")
+            layout.addWidget(gender_label)
+        
+        # Location information
+        location = self.course_info.get('location', '')
+        if location:
+            location_label = QtWidgets.QLabel(f"مکان: {location}")
+            location_label.setStyleSheet("font-size: 11px; color: #555;")
+            layout.addWidget(location_label)
+        
+        # Enrollment conditions
+        enrollment_conditions = self.course_info.get('enrollment_conditions', '')
+        if enrollment_conditions:
+            conditions_label = QtWidgets.QLabel(f"شرایط اخذ: {enrollment_conditions}")
+            conditions_label.setStyleSheet("font-size: 11px; color: #555;")
+            conditions_label.setWordWrap(True)
+            layout.addWidget(conditions_label)
+        
+        # Availability status
+        is_available = self.course_info.get('is_available', True)
+        if not is_available:
+            status_label = QtWidgets.QLabel("وضعیت: پر شده")
+            status_label.setStyleSheet("font-size: 11px; color: #e74c3c; font-weight: bold;")
+            layout.addWidget(status_label)
+        
+        return widget
+        
     def is_custom_course(self):
         """Check if this course should show delete button (all JSON courses can be deleted)"""
         # With JSON storage, we can allow deletion of all courses
@@ -297,8 +352,14 @@ class CourseListWidget(QtWidgets.QWidget):
         else:
             self.conflict_indicator.hide()
     
+    def enterEvent(self, event):
+        """Show additional information when mouse enters the widget"""
+        self.additional_info_widget.show()
+        super().enterEvent(event)
+    
     def leaveEvent(self, event):
-        """Clear preview when mouse leaves the widget"""
+        """Hide additional information when mouse leaves the widget"""
+        self.additional_info_widget.hide()
         main_window = self.get_main_window()
         if main_window:
             main_window.clear_preview()
