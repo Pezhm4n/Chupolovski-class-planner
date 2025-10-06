@@ -1,21 +1,12 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""
-Custom widgets for Schedule Planner
-Contains custom UI components for the application
-"""
-
-from PyQt5 import QtWidgets, QtGui, QtCore
 import sys
 import os
 
+from PyQt5 import QtWidgets, QtGui, QtCore
+
 # Add the app directory to the Python path to enable imports
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from config import DAYS, TIME_SLOTS, EXTENDED_TIME_SLOTS, COLOR_MAP, COURSES
-from course_utils import schedules_conflict
-
-# ---------------------- Custom Course List Widget ----------------------
+from config import COURSES, DAYS, EXTENDED_TIME_SLOTS, logger
 
 class CourseListWidget(QtWidgets.QWidget):
     """Custom widget for course list items with delete functionality"""
@@ -28,15 +19,22 @@ class CourseListWidget(QtWidgets.QWidget):
         
     def setup_ui(self):
         layout = QtWidgets.QHBoxLayout(self)
-        layout.setContentsMargins(5, 2, 5, 2)
+        layout.setContentsMargins(8, 6, 8, 6)  # Increased margins for better spacing
+        layout.setSpacing(6)  # Add spacing between elements
         
         # Enable mouse tracking for hover events
         self.setMouseTracking(True)
         
-        # Course info label
+        # Enable context menu
+        self.setContextMenuPolicy(QtCore.Qt.CustomContextMenu)
+        self.customContextMenuRequested.connect(self.show_context_menu)
+        
+        # Course info label with improved styling
         display = f"{self.course_info['name']} — {self.course_info['code']} — {self.course_info.get('instructor', 'نامشخص')}"
         self.course_label = QtWidgets.QLabel(display)
         self.course_label.setWordWrap(True)
+        self.course_label.setMinimumHeight(45)  # Increased minimum height for proper display
+        self.course_label.setObjectName("course_list_label")  # For QSS styling
         # Enable mouse tracking on the label too
         self.course_label.setMouseTracking(True)
         layout.addWidget(self.course_label, 1)
@@ -50,23 +48,24 @@ class CourseListWidget(QtWidgets.QWidget):
         self.conflict_indicator.setGeometry(self.width() - 25, 2, 16, 16)  # Position at top-right
         self.conflict_indicator.setToolTip("این درس با دروس انتخابی شما تداخل دارد")
         
-        # Button container
+        # Button container with improved spacing
         button_layout = QtWidgets.QHBoxLayout()
-        button_layout.setSpacing(2)
+        button_layout.setSpacing(6)  # Increased spacing between buttons
+        button_layout.setAlignment(QtCore.Qt.AlignRight | QtCore.Qt.AlignVCenter)
         
-        # Edit button (pencil icon) - smaller and more circular
+        # Edit button (pencil icon) - larger and more visible
         self.edit_btn = QtWidgets.QPushButton("✏️")
         self.edit_btn.setObjectName("edit_btn")
-        self.edit_btn.setFixedSize(18, 18)
+        self.edit_btn.setFixedSize(24, 24)  # Increased size from 18x18 to 24x24
         self.edit_btn.setToolTip(f"ویرایش درس {self.course_info['name']}")
         self.edit_btn.clicked.connect(self.edit_course)
         button_layout.addWidget(self.edit_btn)
         
-        # Delete button (only for custom courses) - smaller and more circular
+        # Delete button (only for custom courses) - larger and more visible
         if self.is_custom_course():
             self.delete_btn = QtWidgets.QPushButton("✕")
             self.delete_btn.setObjectName("delete_btn")
-            self.delete_btn.setFixedSize(18, 18)
+            self.delete_btn.setFixedSize(24, 24)  # Increased size from 18x18 to 24x24
             self.delete_btn.setToolTip(f"حذف درس {self.course_info['name']}")
             self.delete_btn.clicked.connect(self.delete_course)
             button_layout.addWidget(self.delete_btn)
@@ -153,6 +152,61 @@ class CourseListWidget(QtWidgets.QWidget):
             parent = parent.parent()
         return None
     
+    def show_context_menu(self, position):
+        """Show context menu for course list items"""
+        main_window = self.get_main_window()
+        if not main_window:
+            return
+            
+        menu = QtWidgets.QMenu()
+        add_to_auto_action = menu.addAction("اضافه به لیست برنامه‌ریزی خودکار")
+        action = menu.exec_(self.mapToGlobal(position))
+        
+        if action == add_to_auto_action:
+            self.add_to_auto_schedule_list(main_window)
+    
+    def add_to_auto_schedule_list(self, main_window):
+        """Add this course to the auto-schedule list"""
+        try:
+            course = COURSES.get(self.course_key)
+            if not course:
+                return
+                
+            # Check if item already exists in auto_select_list
+            exists = False
+            for j in range(main_window.auto_select_list.count()):
+                if main_window.auto_select_list.item(j).data(QtCore.Qt.UserRole) == self.course_key:
+                    exists = True
+                    break
+            
+            if not exists:
+                # Create display text with position-based priority
+                course_name = course.get('name', 'نامشخص')
+                position = main_window.auto_select_list.count() + 1
+                display = f"({position}) {course_name}"
+                
+                # Create new item with same data
+                new_item = QtWidgets.QListWidgetItem(display)
+                new_item.setData(QtCore.Qt.UserRole, self.course_key)
+                # Set position as priority (first item = priority 1)
+                new_item.setData(QtCore.Qt.UserRole + 1, position)
+                main_window.auto_select_list.addItem(new_item)
+                
+                # Show confirmation
+                QtWidgets.QMessageBox.information(
+                    main_window, 'اضافه به لیست', 
+                    f'درس "{course_name}" به لیست برنامه‌ریزی خودکار اضافه شد.'
+                )
+            else:
+                course = COURSES.get(self.course_key)
+                course_name = course.get('name', 'نامشخص') if course else 'نامشخص'
+                QtWidgets.QMessageBox.information(
+                    main_window, 'اضافه به لیست', 
+                    f'درس "{course_name}" قبلاً در لیست برنامه‌ریزی خودکار وجود دارد.'
+                )
+        except Exception as e:
+            logger.error(f"Error adding to auto schedule list: {e}")
+            
     def mousePressEvent(self, event):
         """Handle mouse clicks to select item and emit itemClicked signal"""
         # Only handle left-click, ignore right-click and other buttons
@@ -254,32 +308,6 @@ class CourseListWidget(QtWidgets.QWidget):
         
         super().leaveEvent(event)
 
-
-class DraggableCourseList(QtWidgets.QListWidget):
-    """Custom list widget that supports drag and drop operations"""
-    def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setDragEnabled(True)
-        self.setSelectionMode(QtWidgets.QAbstractItemView.SingleSelection)
-
-    def startDrag(self, supportedActions):
-        """Start drag operation for course items"""
-        item = self.currentItem()
-        if not item:
-            return
-        course_key = item.data(QtCore.Qt.UserRole)
-        mime = QtCore.QMimeData()
-        mime.setText(course_key)
-        drag = QtGui.QDrag(self)
-        drag.setMimeData(mime)
-        pix = QtGui.QPixmap(self.visualItemRect(item).size())
-        pix.fill(QtGui.QColor(220, 220, 220))
-        drag.setPixmap(pix)
-        drag.exec_(QtCore.Qt.MoveAction)
-
-
-# ---------------------- Schedule Table Widgets ----------------------
-
 class AnimatedCourseWidget(QtWidgets.QFrame):
     """Course cell widget with smooth hover effects"""
     
@@ -310,6 +338,69 @@ class AnimatedCourseWidget(QtWidgets.QFrame):
         else:
             self.setProperty('conflict', False)
         
+        # Enable context menu
+        self.setContextMenuPolicy(QtCore.Qt.CustomContextMenu)
+        self.customContextMenuRequested.connect(self.show_context_menu)
+    
+    def show_context_menu(self, position):
+        """Show context menu for course cell items"""
+        # Get main window reference
+        main_window = self.parent().parent()
+        while main_window and not isinstance(main_window, QtWidgets.QMainWindow):
+            main_window = main_window.parent()
+            
+        if not main_window:
+            return
+            
+        menu = QtWidgets.QMenu()
+        add_to_auto_action = menu.addAction("اضافه به لیست برنامه‌ریزی خودکار")
+        action = menu.exec_(self.mapToGlobal(position))
+        
+        if action == add_to_auto_action:
+            self.add_to_auto_schedule_list(main_window)
+    
+    def add_to_auto_schedule_list(self, main_window):
+        """Add this course to the auto-schedule list"""
+        try:
+            course = COURSES.get(self.course_key)
+            if not course:
+                return
+                
+            # Check if item already exists in auto_select_list
+            exists = False
+            for j in range(main_window.auto_select_list.count()):
+                if main_window.auto_select_list.item(j).data(QtCore.Qt.UserRole) == self.course_key:
+                    exists = True
+                    break
+            
+            if not exists:
+                # Create display text with position-based priority
+                course_name = course.get('name', 'نامشخص')
+                position = main_window.auto_select_list.count() + 1
+                display = f"({position}) {course_name}"
+                
+                # Create new item with same data
+                new_item = QtWidgets.QListWidgetItem(display)
+                new_item.setData(QtCore.Qt.UserRole, self.course_key)
+                # Set position as priority (first item = priority 1)
+                new_item.setData(QtCore.Qt.UserRole + 1, position)
+                main_window.auto_select_list.addItem(new_item)
+                
+                # Show confirmation
+                QtWidgets.QMessageBox.information(
+                    main_window, 'اضافه به لیست', 
+                    f'درس "{course_name}" به لیست برنامه‌ریزی خودکار اضافه شد.'
+                )
+            else:
+                course = COURSES.get(self.course_key)
+                course_name = course.get('name', 'نامشخص') if course else 'نامشخص'
+                QtWidgets.QMessageBox.information(
+                    main_window, 'اضافه به لیست', 
+                    f'درس "{course_name}" قبلاً در لیست برنامه‌ریزی خودکار وجود دارد.'
+                )
+        except Exception as e:
+            logger.error(f"Error adding to auto schedule list: {e}")
+            
     def enterEvent(self, event):
         """Handle mouse enter event for hover effects"""
         # For conflicting courses, show a subtle highlight without red border
@@ -328,34 +419,3 @@ class AnimatedCourseWidget(QtWidgets.QFrame):
         else:
             self.setStyleSheet("")
         super().leaveEvent(event)
-
-
-class ScheduleTable(QtWidgets.QTableWidget):
-    """Custom table widget for displaying the weekly schedule"""
-    def __init__(self, rows, cols, parent=None):
-        super().__init__(rows, cols, parent)
-        self.setAcceptDrops(True)
-        self.parent_window = parent
-
-    def dragEnterEvent(self, event):
-        """Handle drag enter event"""
-        if event.mimeData().hasText():
-            event.acceptProposedAction()
-        else:
-            super().dragEnterEvent(event)
-
-    def dragMoveEvent(self, event):
-        """Handle drag move event"""
-        if event.mimeData().hasText():
-            event.acceptProposedAction()
-        else:
-            super().dragMoveEvent(event)
-
-    def dropEvent(self, event):
-        """Handle drop event"""
-        if event.mimeData().hasText():
-            course_key = event.mimeData().text()
-            self.parent_window.add_course_to_table(course_key, ask_on_conflict=True)
-            event.acceptProposedAction()
-        else:
-            super().dropEvent(event)

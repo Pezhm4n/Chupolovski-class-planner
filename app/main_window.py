@@ -26,10 +26,11 @@ from data_manager import (
 from course_utils import (
     to_minutes, overlap, schedules_conflict, 
     calculate_days_needed_for_combo, calculate_empty_time_for_combo,
-    generate_best_combinations_for_groups
+    generate_best_combinations_for_groups,
+    generate_priority_based_schedules, create_greedy_schedule, create_alternative_schedule
 )
 from widgets import (
-    CourseListWidget, DraggableCourseList, AnimatedCourseWidget, ScheduleTable
+    CourseListWidget, AnimatedCourseWidget
 )
 from dialogs import AddCourseDialog, EditCourseDialog, DetailedInfoWindow, ExamScheduleWindow
 
@@ -191,6 +192,10 @@ class SchedulerWindow(QtWidgets.QMainWindow):
             result += english_to_persian.get(char, char)
         return result
 
+
+
+
+
     def setup_responsive_layout(self):
         """Setup responsive layout and sizing with reduced margins and spacing"""
         try:
@@ -217,6 +222,10 @@ class SchedulerWindow(QtWidgets.QMainWindow):
             
             # Reduce margins and spacing in all layouts
             self.reduce_layout_margins()
+            
+            # Set minimum height for course list
+            if hasattr(self, 'course_list'):
+                self.course_list.setMinimumHeight(200)
             
             logger.info("Responsive layout configured")
             
@@ -325,14 +334,15 @@ class SchedulerWindow(QtWidgets.QMainWindow):
             now = jdatetime.datetime.now()
             
             # نام‌های روزهای هفته به فارسی
+            # Fix: jdatetime weekday uses Saturday=0, but we need to map correctly
             persian_weekdays = {
-                0: 'دوشنبه',
-                1: 'سه‌شنبه', 
-                2: 'چهارشنبه',
-                3: 'پنج‌شنبه',
-                4: 'جمعه',
-                5: 'شنبه',
-                6: 'یکشنبه'
+                0: 'شنبه',    # Saturday
+                1: 'یکشنبه',  # Sunday
+                2: 'دوشنبه',  # Monday
+                3: 'سه‌شنبه', # Tuesday
+                4: 'چهارشنبه',# Wednesday
+                5: 'پنج‌شنبه',# Thursday
+                6: 'جمعه'     # Friday
             }
             
             # نام‌های ماه‌های شمسی
@@ -506,8 +516,12 @@ class SchedulerWindow(QtWidgets.QMainWindow):
             'مهر', 'آبان', 'آذر', 'دی', 'بهمن', 'اسفند'
         ]
         
-        weekday_names = ['دوشنبه', 'سه‌شنبه', 'چهارشنبه', 'پنج‌شنبه', 'جمعه', 'شنبه', 'یکشنبه']
-        weekday = weekday_names[now.weekday()]
+        # Fix: Convert Python weekday (Monday=0) to Persian (Saturday=0)
+        python_weekday = now.weekday()
+        persian_weekday_index = (python_weekday + 2) % 7
+        
+        weekday_names = ['شنبه', 'یکشنبه', 'دوشنبه', 'سه‌شنبه', 'چهارشنبه', 'پنج‌شنبه', 'جمعه']
+        weekday = weekday_names[persian_weekday_index]
         
         # تقریبی - نه دقیق
         month_name = persian_months[now.month - 1] if 1 <= now.month <= 12 else 'نامشخص'
@@ -774,6 +788,10 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         
         return super().eventFilter(obj, event)
     
+    def calculate_empty_time(self, course_keys):
+        """Calculate the empty time (gaps) for a combination of courses"""
+        return calculate_empty_time_for_combo(course_keys)
+
     # ---------------------- Missing Methods ----------------------
     
     def preview_course(self, course_key):
@@ -877,7 +895,7 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         return True
 
     def add_course_to_table(self, course_key, ask_on_conflict=True):
-        """Add a course to the schedule table"""
+        """Add a course to the schedule table with priority-based conflict resolution"""
         # Safety check for schedule_table
         if not hasattr(self, 'schedule_table'):
             logger.error("schedule_table widget not found")
@@ -921,13 +939,38 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         # Add conflict indicator to course info if there are conflicts
         has_conflicts = len(conflicts) > 0
 
-        # Handle conflicts with better warning messages and visual indicators
+        # Handle conflicts with priority-based resolution
         if conflicts and ask_on_conflict:
+            # Get priority of current course (if in auto-select list)
+            current_priority = self.get_course_priority(course_key)
+            
+            # Check if any conflicting courses have higher priority
+            higher_priority_conflicts = []
             conflict_details = []
             for conf in conflicts:
-                (_, _), (_, _), _, conflict_name = conf
+                (_, _), (_, _), conflict_course_key, conflict_name = conf
+                conflict_priority = self.get_course_priority(conflict_course_key)
+                
+                # If conflicting course has higher priority (lower number), it should stay
+                if conflict_priority < current_priority:
+                    higher_priority_conflicts.append((conflict_course_key, conflict_name, conflict_priority))
                 conflict_details.append(conflict_name)
             
+            # If there are higher priority conflicts, show warning and don't add course
+            if higher_priority_conflicts:
+                conflict_list = '\n'.join([f"• {name}" for name in conflict_details])
+                warning_msg = QtWidgets.QMessageBox()
+                warning_msg.setIcon(QtWidgets.QMessageBox.Warning)
+                warning_msg.setWindowTitle('تداخل دروس')
+                warning_msg.setText(f'درس "{course["name"]}" به دلیل تداخل با دروس با اولویت بالاتر اضافه نشد:')
+                
+                # Add details about higher priority conflicts
+                priority_details = '\n'.join([f"• {name} (اولویت: {priority})" for _, name, priority in higher_priority_conflicts])
+                warning_msg.setDetailedText(f'دروس با اولویت بالاتر:\n{priority_details}')
+                warning_msg.exec_()
+                return
+            
+            # If no higher priority conflicts, proceed with normal conflict resolution
             conflict_list = '\n'.join([f"• {name}" for name in conflict_details])
             
             msg = QtWidgets.QMessageBox()
@@ -1030,7 +1073,6 @@ class SchedulerWindow(QtWidgets.QMainWindow):
             course_name_label = QtWidgets.QLabel(course['name'])
             course_name_label.setAlignment(QtCore.Qt.AlignCenter)
             course_name_label.setWordWrap(True)
-            course_name_label.setObjectName('course-name-label')
             
             # Professor Name
             professor_label = QtWidgets.QLabel(course.get('instructor', 'نامشخص'))
@@ -1103,9 +1145,11 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         
         # Auto-save user data
         self.auto_save_user_data()
-
-
-
+        
+        # Update stats panel
+        print("🔄 Calling update_stats_panel from add_course_to_table")
+        self.update_stats_panel()  # فورس کال
+        QtCore.QCoreApplication.processEvents()  # فورس UI update
 
     def clear_course_highlights(self):
         """Restore original styling for all course widgets"""
@@ -1130,11 +1174,218 @@ class SchedulerWindow(QtWidgets.QMainWindow):
                 widget.setStyleSheet("")
     
 
+    def is_cell_empty(self, row, col):
+        """Check if a cell is empty (helper method)"""
+        item = self.schedule_table.item(row, col)
+        if not item:
+            return True
+        it = item.data(QtCore.Qt.DisplayRole)
         if it and it.text().strip() != '':
             return False
         return True
 
+    def add_course_to_table_with_priority(self, course_key, course_priorities):
+        """Add a course to the schedule table with priority-based conflict resolution"""
+        # Safety check for schedule_table
+        if not hasattr(self, 'schedule_table'):
+            logger.error("schedule_table widget not found")
+            QtWidgets.QMessageBox.critical(self, 'خطا', 'جدول برنامه یافت نشد.')
+            return False
+            
+        course = COURSES.get(course_key)
+        if not course:
+            QtWidgets.QMessageBox.warning(self, 'خطا', f'درس با کلید {course_key} یافت نشد.')
+            return False
+        
+        placements = []
+        for sess in course['schedule']:
+            if sess['day'] not in DAYS:
+                continue
+            col = DAYS.index(sess['day'])
+            try:
+                srow = EXTENDED_TIME_SLOTS.index(sess['start'])
+                erow = EXTENDED_TIME_SLOTS.index(sess['end'])
+            except ValueError:
+                QtWidgets.QMessageBox.warning(self, 'خطا', f'زمان نامعتبر برای درس {course["name"]}: {sess["start"]}-{sess["end"]}')
+                continue
+            span = max(1, erow - srow)
+            placements.append((srow, col, span, sess))
 
+        # Check for conflicts
+        conflicts = []
+        for (srow, col, span, sess) in placements:
+            for (prow, pcol), info in list(self.placed.items()):
+                if pcol != col:
+                    continue
+                # Skip conflict check with the same course
+                if info['course'] == course_key:
+                    continue
+                prow_start = prow
+                prow_span = info['rows']
+                if not (srow + span <= prow_start or prow_start + prow_span <= srow):
+                    conflict_course = COURSES.get(info['course'], {})
+                    conflicts.append(((srow, col), (prow_start, pcol), info['course'], conflict_course.get('name', 'نامشخص')))
+        
+        # Handle conflicts with priority-based resolution
+        if conflicts:
+            current_priority = course_priorities.get(course_key, 999)
+            
+            # Check if any conflicting courses have higher priority (lower number)
+            higher_priority_conflicts = []
+            conflict_details = []
+            for conf in conflicts:
+                (_, _), (_, _), conflict_course_key, conflict_name = conf
+                conflict_priority = course_priorities.get(conflict_course_key, 999)
+                
+                # If conflicting course has higher priority (lower number), it should stay
+                if conflict_priority < current_priority:
+                    higher_priority_conflicts.append((conflict_course_key, conflict_name, conflict_priority))
+                conflict_details.append(conflict_name)
+            
+            # If there are higher priority conflicts, don't add this course
+            if higher_priority_conflicts:
+                return False
+
+        # Clear preview
+        self.clear_preview()
+
+        COLOR_MAP = [
+            QtGui.QColor(174, 214, 241),  # Light Blue
+            QtGui.QColor(175, 215, 196),  # Light Green
+            QtGui.QColor(248, 220, 188),  # Light Orange
+            QtGui.QColor(216, 191, 216),  # Light Purple
+            QtGui.QColor(240, 202, 202),  # Light Red
+            QtGui.QColor(250, 235, 215)   # Light Beige
+        ]
+        color_idx = len(self.placed) % len(COLOR_MAP)
+        bg = COLOR_MAP[color_idx % len(COLOR_MAP)]
+        
+        for (srow, col, span, sess) in placements:
+            # Determine parity information and styling
+            parity_indicator = ''
+            if sess.get('parity') == 'ز':
+                parity_indicator = 'ز'
+            elif sess.get('parity') == 'ف':
+                parity_indicator = 'ف'
+
+            # Create course cell widget with improved styling
+            cell_widget = AnimatedCourseWidget(course_key, bg, False, self)
+            # Set object name for QSS styling
+            cell_widget.setObjectName('course-cell')
+            
+            # Set properties for styling based on course type and conflicts
+            cell_widget.setProperty('conflict', False)
+            if course.get('code', '').startswith('elective'):
+                cell_widget.setProperty('elective', True)
+            else:
+                cell_widget.setProperty('elective', False)
+            
+            # Store background color for animation
+            cell_widget.bg_color = bg
+            cell_widget.border_color = QtGui.QColor(bg.red()//2, bg.green()//2, bg.blue()//2)
+            cell_layout = QtWidgets.QVBoxLayout(cell_widget)
+            cell_layout.setContentsMargins(2, 1, 2, 1)
+            cell_layout.setSpacing(0)
+            
+            # Top row with X button
+            top_row = QtWidgets.QHBoxLayout()
+            top_row.setContentsMargins(0, 0, 0, 0)
+            
+            top_row.addStretch()
+            
+            # X button for course removal - properly styled in red
+            x_button = QtWidgets.QPushButton('✕')
+            x_button.setFixedSize(18, 18)
+            x_button.setObjectName('close-btn')
+            x_button.clicked.connect(lambda checked, ck=course_key: self.remove_course_silently(ck))
+            
+            top_row.addWidget(x_button)
+            cell_layout.addLayout(top_row)
+            
+            # Course information with improved layout
+            # Course Name (Bold)
+            course_name_label = QtWidgets.QLabel(course['name'])
+            course_name_label.setAlignment(QtCore.Qt.AlignCenter)
+            course_name_label.setWordWrap(True)
+            
+            # Professor Name
+            professor_label = QtWidgets.QLabel(course.get('instructor', 'نامشخص'))
+            professor_label.setAlignment(QtCore.Qt.AlignCenter)
+            professor_label.setWordWrap(True)
+            professor_label.setObjectName('professor-label')
+            
+            # Course Code
+            code_label = QtWidgets.QLabel(course.get('code', ''))
+            code_label.setAlignment(QtCore.Qt.AlignCenter)
+            code_label.setWordWrap(True)
+            code_label.setObjectName('code-label')
+            
+            # Add labels to layout
+            cell_layout.addWidget(course_name_label)
+            cell_layout.addWidget(professor_label)
+            cell_layout.addWidget(code_label)
+            
+            # Bottom row for parity indicator
+            bottom_row = QtWidgets.QHBoxLayout()
+            bottom_row.setContentsMargins(0, 0, 0, 0)
+            
+            # Parity indicator (bottom-left corner)
+            if parity_indicator:
+                parity_label = QtWidgets.QLabel(parity_indicator)
+                parity_label.setAlignment(QtCore.Qt.AlignLeft | QtCore.Qt.AlignBottom)
+                if parity_indicator == 'ز':
+                    parity_label.setObjectName('parity-label-even')
+                elif parity_indicator == 'ف':
+                    parity_label.setObjectName('parity-label-odd')
+                else:
+                    parity_label.setObjectName('parity-label-all')
+                bottom_row.addWidget(parity_label)
+            
+            bottom_row.addStretch()
+            cell_layout.addLayout(bottom_row)
+            
+            # Store references for hover effects and course operations
+            cell_widget.course_key = course_key
+            
+            # Enable hover effects
+            def enter_event(event, widget=cell_widget):
+                self.highlight_course_sessions(widget.course_key)
+            
+            def leave_event(event, widget=cell_widget):
+                self.clear_course_highlights()
+            
+            def mouse_press_event(event, widget=cell_widget):
+                if event.button() == QtCore.Qt.LeftButton:
+                    self.show_course_details(widget.course_key)
+            
+            cell_widget.enterEvent = enter_event
+            cell_widget.leaveEvent = leave_event
+            cell_widget.mousePressEvent = mouse_press_event
+            
+            self.schedule_table.setCellWidget(srow, col, cell_widget)
+            if span > 1:
+                self.schedule_table.setSpan(srow, col, span, 1)
+            self.placed[(srow, col)] = {
+                'course': course_key, 
+                'rows': span, 
+                'widget': cell_widget
+            }
+            
+        # Update status after adding course
+        self.update_status()
+        
+        # Update detailed info window if open
+        self.update_detailed_info_if_open()
+        
+        # Auto-save user data
+        self.auto_save_user_data()
+        
+        # Update stats panel
+        print("🔄 Calling update_stats_panel from add_course_to_table_with_priority")
+        self.update_stats_panel()
+        QtCore.QCoreApplication.processEvents()
+        
+        return True
 
     def add_course_to_table(self, course_key, ask_on_conflict=True):
         """Add a course to the schedule table"""
@@ -1290,267 +1541,6 @@ class SchedulerWindow(QtWidgets.QMainWindow):
             course_name_label = QtWidgets.QLabel(course['name'])
             course_name_label.setAlignment(QtCore.Qt.AlignCenter)
             course_name_label.setWordWrap(True)
-            course_name_label.setObjectName('course-name-label')
-            
-            # Professor Name
-            professor_label = QtWidgets.QLabel(course.get('instructor', 'نامشخص'))
-            professor_label.setAlignment(QtCore.Qt.AlignCenter)
-            professor_label.setWordWrap(True)
-            professor_label.setObjectName('professor-label')
-            
-            # Course Code
-            code_label = QtWidgets.QLabel(course.get('code', ''))
-            code_label.setAlignment(QtCore.Qt.AlignCenter)
-            code_label.setWordWrap(True)
-            code_label.setObjectName('code-label')
-            
-            # Add labels to layout
-            cell_layout.addWidget(course_name_label)
-            cell_layout.addWidget(professor_label)
-            cell_layout.addWidget(code_label)
-            
-            # Bottom row for parity indicator
-            bottom_row = QtWidgets.QHBoxLayout()
-            bottom_row.setContentsMargins(0, 0, 0, 0)
-            
-            # Parity indicator (bottom-left corner)
-            if parity_indicator:
-                parity_label = QtWidgets.QLabel(parity_indicator)
-                parity_label.setAlignment(QtCore.Qt.AlignLeft | QtCore.Qt.AlignBottom)
-                if parity_indicator == 'ز':
-                    parity_label.setObjectName('parity-label-even')
-                elif parity_indicator == 'ف':
-                    parity_label.setObjectName('parity-label-odd')
-                else:
-                    parity_label.setObjectName('parity-label-all')
-                bottom_row.addWidget(parity_label)
-            
-            bottom_row.addStretch()
-            cell_layout.addLayout(bottom_row)
-            
-            # Store references for hover effects and course operations
-            cell_widget.course_key = course_key
-            
-            # Enable hover effects
-            def enter_event(event, widget=cell_widget):
-                self.highlight_course_sessions(widget.course_key)
-            
-            def leave_event(event, widget=cell_widget):
-                self.clear_course_highlights()
-            
-            def mouse_press_event(event, widget=cell_widget):
-                if event.button() == QtCore.Qt.LeftButton:
-                    self.show_course_details(widget.course_key)
-            
-            cell_widget.enterEvent = enter_event
-            cell_widget.leaveEvent = leave_event
-            cell_widget.mousePressEvent = mouse_press_event
-            
-            self.schedule_table.setCellWidget(srow, col, cell_widget)
-            if span > 1:
-                self.schedule_table.setSpan(srow, col, span, 1)
-            self.placed[(srow, col)] = {
-                'course': course_key, 
-                'rows': span, 
-                'widget': cell_widget
-            }
-            
-        # Update status after adding course
-        self.update_status()
-        
-        # Update detailed info window if open
-        self.update_detailed_info_if_open()
-        
-        # Auto-save user data
-        self.auto_save_user_data()
-
-
-
-
-    def clear_course_highlights(self):
-        """Restore original styling for all course widgets"""
-        # Stop any pulsing animations
-        if hasattr(self, '_pulse_timers'):
-            for timer in list(self._pulse_timers.values()):
-                try:
-                    if timer and timer.isActive():
-                        timer.stop()
-                except RuntimeError:
-                    # Timer has been deleted, skip it
-                    pass
-            self._pulse_timers.clear()
-        
-        for (srow, scol), info in self.placed.items():
-            widget = info.get('widget')
-            if widget and hasattr(widget, 'original_style'):
-                # Restore the exact original style to prevent any residual effects
-                widget.setStyleSheet(widget.original_style)
-            elif widget:
-                # If no original style was stored, apply default styling
-                widget.setStyleSheet("")
-    
-
-        if it and it.text().strip() != '':
-            return False
-        return True
-
-
-
-    def add_course_to_table(self, course_key, ask_on_conflict=True):
-        """Add a course to the schedule table"""
-        # Safety check for schedule_table
-        if not hasattr(self, 'schedule_table'):
-            logger.error("schedule_table widget not found")
-            QtWidgets.QMessageBox.critical(self, 'خطا', 'جدول برنامه یافت نشد.')
-            return
-            
-        course = COURSES.get(course_key)
-        if not course:
-            QtWidgets.QMessageBox.warning(self, 'خطا', f'درس با کلید {course_key} یافت نشد.')
-            return
-        
-        placements = []
-        for sess in course['schedule']:
-            if sess['day'] not in DAYS:
-                continue
-            col = DAYS.index(sess['day'])
-            try:
-                srow = EXTENDED_TIME_SLOTS.index(sess['start'])
-                erow = EXTENDED_TIME_SLOTS.index(sess['end'])
-            except ValueError:
-                QtWidgets.QMessageBox.warning(self, 'خطا', f'زمان نامعتبر برای درس {course["name"]}: {sess["start"]}-{sess["end"]}')
-                continue
-            span = max(1, erow - srow)
-            placements.append((srow, col, span, sess))
-
-        # Check for conflicts
-        conflicts = []
-        for (srow, col, span, sess) in placements:
-            for (prow, pcol), info in list(self.placed.items()):
-                if pcol != col:
-                    continue
-                # Skip conflict check with the same course
-                if info['course'] == course_key:
-                    continue
-                prow_start = prow
-                prow_span = info['rows']
-                if not (srow + span <= prow_start or prow_start + prow_span <= srow):
-                    conflict_course = COURSES.get(info['course'], {})
-                    conflicts.append(((srow, col), (prow_start, pcol), info['course'], conflict_course.get('name', 'نامشخص')))
-        
-        # Add conflict indicator to course info if there are conflicts
-        has_conflicts = len(conflicts) > 0
-
-        # Handle conflicts with better warning messages and visual indicators
-        if conflicts and ask_on_conflict:
-            conflict_details = []
-            for conf in conflicts:
-                (_, _), (_, _), _, conflict_name = conf
-                conflict_details.append(conflict_name)
-            
-            conflict_list = '\n'.join([f"• {name}" for name in conflict_details])
-            
-            msg = QtWidgets.QMessageBox()
-            msg.setIcon(QtWidgets.QMessageBox.Warning)
-            msg.setWindowTitle('تداخل زمان‌بندی دروس')
-            msg.setText(f'درس "{course["name"]}" با دروس زیر تداخل دارد:')
-            msg.setDetailedText(f'دروس متداخل:\n{conflict_list}')
-            msg.setInformativeText('آیا می‌خواهید دروس متداخل حذف شوند و این درس اضافه گردد؟')
-            msg.setStandardButtons(QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No | QtWidgets.QMessageBox.Cancel)
-            msg.setDefaultButton(QtWidgets.QMessageBox.No)
-            
-            res = msg.exec_()
-            if res == QtWidgets.QMessageBox.Cancel:
-                return
-            elif res != QtWidgets.QMessageBox.Yes:
-                # Show warning instead of adding conflicting course
-                warning_msg = QtWidgets.QMessageBox()
-                warning_msg.setIcon(QtWidgets.QMessageBox.Warning)
-                warning_msg.setWindowTitle('تداخل دروس')
-                warning_msg.setText(f'درس "{course["name"]}" به دلیل تداخل با دروس زیر اضافه نشد:')
-                warning_msg.setDetailedText(conflict_list)
-                warning_msg.exec_()
-                return
-            
-            # Remove conflicting courses if user confirmed
-            conflicting_courses = set()
-            for conf in conflicts:
-                (_, _), (rstart, rcol), rcourse, _ = conf
-                conflicting_courses.add(rcourse)
-            
-            # Remove entire conflicting courses
-            for conflicting_course_key in conflicting_courses:
-                self.remove_course_from_schedule(conflicting_course_key)
-        elif conflicts and not ask_on_conflict:
-            # If we're not asking about conflicts (e.g., applying presets), still mark as conflicting
-            has_conflicts = True
-
-        # Clear preview
-        self.clear_preview()
-
-        COLOR_MAP = [
-            QtGui.QColor(174, 214, 241),  # Light Blue
-            QtGui.QColor(175, 215, 196),  # Light Green
-            QtGui.QColor(248, 220, 188),  # Light Orange
-            QtGui.QColor(216, 191, 216),  # Light Purple
-            QtGui.QColor(240, 202, 202),  # Light Red
-            QtGui.QColor(250, 235, 215)   # Light Beige
-        ]
-        color_idx = len(self.placed) % len(COLOR_MAP)
-        # رنگ‌ها - Updated with harmonious color palette
-        bg = COLOR_MAP[color_idx % len(COLOR_MAP)]
-        for (srow, col, span, sess) in placements:
-            # Determine parity information and styling
-            parity_indicator = ''
-            if sess.get('parity') == 'ز':
-                parity_indicator = 'ز'
-            elif sess.get('parity') == 'ف':
-                parity_indicator = 'ف'
-
-            # Create course cell widget with improved styling
-            cell_widget = AnimatedCourseWidget(course_key, bg, has_conflicts, self)
-            # Set object name for QSS styling
-            cell_widget.setObjectName('course-cell')
-            
-            # Set properties for styling based on course type and conflicts
-            if has_conflicts:
-                cell_widget.setProperty('conflict', True)
-            elif course.get('code', '').startswith('elective'):
-                cell_widget.setProperty('elective', True)
-            else:
-                cell_widget.setProperty('conflict', False)
-                cell_widget.setProperty('elective', False)
-            
-            # Store background color for animation
-            cell_widget.bg_color = bg
-            cell_widget.border_color = QtGui.QColor(bg.red()//2, bg.green()//2, bg.blue()//2)
-            cell_layout = QtWidgets.QVBoxLayout(cell_widget)
-            cell_layout.setContentsMargins(2, 1, 2, 1)
-            cell_layout.setSpacing(0)
-            
-            # Top row with X button and conflict indicator
-            top_row = QtWidgets.QHBoxLayout()
-            top_row.setContentsMargins(0, 0, 0, 0)
-            
-            # No conflict indicator in schedule table (only in course list)
-            # Add a spacer to maintain consistent layout
-            top_row.addStretch()
-            
-            # X button for course removal - properly styled in red
-            x_button = QtWidgets.QPushButton('✕')
-            x_button.setFixedSize(18, 18)
-            x_button.setObjectName('close-btn')
-            x_button.clicked.connect(lambda checked, ck=course_key: self.remove_course_silently(ck))
-            
-            top_row.addWidget(x_button)
-            cell_layout.addLayout(top_row)
-            
-            # Course information with improved layout
-            # Course Name (Bold)
-            course_name_label = QtWidgets.QLabel(course['name'])
-            course_name_label.setAlignment(QtCore.Qt.AlignCenter)
-            course_name_label.setWordWrap(True)
-            
             
             # Professor Name
             professor_label = QtWidgets.QLabel(course.get('instructor', 'نامشخص'))
@@ -1657,7 +1647,6 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         print("🔄 Calling update_stats_panel from remove_course_from_schedule")
         self.update_stats_panel()
         QtCore.QCoreApplication.processEvents()  # فورس UI update
-    
 
     def remove_course_silently(self, course_key):
         """Remove course without user confirmation or notification"""
@@ -1962,6 +1951,11 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         if self.detailed_info_window and self.detailed_info_window.isVisible():
             self.detailed_info_window.update_content()
 
+    def update_item_size_hint(self, item, widget):
+        """Update the size hint for a QListWidgetItem based on its widget"""
+        if item and widget:
+            item.setSizeHint(widget.sizeHint())
+            
     def populate_course_list(self, filter_text=""):
         """Populate the course list with all available courses - fixed widget lifecycle management"""
         try:
@@ -2040,9 +2034,12 @@ class SchedulerWindow(QtWidgets.QMainWindow):
                     color_index = used % len(COLOR_MAP)
                     course_widget.setProperty('colorIndex', color_index)
                     
-                    # Set the custom widget for this item
+                    # Set the custom widget for this item with proper sizing
                     item.setSizeHint(course_widget.sizeHint())
                     self.course_list.setItemWidget(item, course_widget)
+                    
+                    # Force update the size hint after widget is added
+                    QtCore.QTimer.singleShot(0, lambda itm=item, widget=course_widget: self.update_item_size_hint(itm, widget))
                     
                     # Cache tooltip only (not the widget)
                     tooltip_key = f"{key}_tooltip"
@@ -2055,6 +2052,9 @@ class SchedulerWindow(QtWidgets.QMainWindow):
                     print(f"Warning: Could not create widget for course {key}: {e}")
                     continue
                 
+            # Update spacing between items
+            self.course_list.setSpacing(3)
+            
             # Update status with count
             total_courses = len(COURSES)
             shown_courses = len(courses_to_show)
@@ -2209,10 +2209,6 @@ class SchedulerWindow(QtWidgets.QMainWindow):
 
     def show_optimal_schedule_results(self, combos):
         """Show optimal schedule results in a dialog"""
-        if not combos:
-            QtWidgets.QMessageBox.information(self, 'نتیجه', 'هیچ ترکیب بهینه‌ای پیدا نشد.')
-            return
-            
         dialog = QtWidgets.QDialog(self)
         dialog.setWindowTitle('ترکیب‌های بهینه پیشنهادی')
         dialog.resize(600, 400)
@@ -2227,7 +2223,10 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         layout.addWidget(title_label)
         
         # Info label
-        info_label = QtWidgets.QLabel('بهترین ترکیب‌ها بر اساس حداقل روزهای حضور و حداقل فاصله بین جلسات')
+        if combos:
+            info_label = QtWidgets.QLabel('بهترین ترکیب‌ها بر اساس حداقل روزهای حضور و حداقل فاصله بین جلسات')
+        else:
+            info_label = QtWidgets.QLabel('هیچ ترکیب بهینه‌ای بدون تداخل پیدا نشد. ترکیب‌هایی با تداخل نشان داده نمی‌شوند.')
         info_label.setStyleSheet("color: #7f8c8d; margin-bottom: 10px;")
         info_label.setAlignment(QtCore.Qt.AlignCenter)
         layout.addWidget(info_label)
@@ -2237,50 +2236,63 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         layout.addWidget(results_list)
         
         # Add combinations to list
-        for i, combo in enumerate(combos[:10]):  # Show top 10
-            # Create item widget
+        if combos:
+            for i, combo in enumerate(combos[:10]):  # Show top 10
+                # Create item widget
+                item_widget = QtWidgets.QWidget()
+                item_layout = QtWidgets.QVBoxLayout(item_widget)
+                item_layout.setContentsMargins(10, 10, 10, 10)
+                
+                # Header with rank and stats
+                header_layout = QtWidgets.QHBoxLayout()
+                
+                rank_label = QtWidgets.QLabel(f'#{i+1}')
+                rank_label.setStyleSheet("font-weight: bold; color: #1976D2; font-size: 14px;")
+                rank_label.setFixedWidth(30)
+                
+                stats_label = QtWidgets.QLabel(f'روزها: {combo["days"]} | فاصله: {combo["empty"]:.1f}h | امتیاز: {combo["score"]:.1f}')
+                stats_label.setStyleSheet("color: #7f8c8d;")
+                
+                apply_btn = QtWidgets.QPushButton('اعمال')
+                apply_btn.setObjectName("success_btn")
+                apply_btn.setFixedWidth(80)
+                apply_btn.clicked.connect(lambda checked, c=combo: self.apply_optimal_combo(c, dialog))
+                
+                header_layout.addWidget(rank_label)
+                header_layout.addWidget(stats_label)
+                header_layout.addStretch()
+                header_layout.addWidget(apply_btn)
+                
+                item_layout.addLayout(header_layout)
+                
+                # Course list
+                course_list = QtWidgets.QListWidget()
+                course_list.setMaximumHeight(100)
+                course_list.setStyleSheet("border: 1px solid #d5dbdb; border-radius: 5px;")
+                
+                for course_key in combo['courses']:
+                    if course_key in COURSES:
+                        course = COURSES[course_key]
+                        course_item = QtWidgets.QListWidgetItem(
+                            f"{course['name']} - {course['code']} - {course.get('instructor', 'نامشخص')}"
+                        )
+                        course_list.addItem(course_item)
+                
+                item_layout.addWidget(course_list)
+                
+                # Add item to list
+                list_item = QtWidgets.QListWidgetItem()
+                list_item.setSizeHint(item_widget.sizeHint())
+                results_list.addItem(list_item)
+                results_list.setItemWidget(list_item, item_widget)
+        else:
+            # Show a message when no combinations are found
+            no_results_label = QtWidgets.QLabel('هیچ ترکیبی برای نمایش وجود ندارد.')
+            no_results_label.setAlignment(QtCore.Qt.AlignCenter)
+            no_results_label.setStyleSheet("color: #95a5a6; font-style: italic; padding: 20px;")
             item_widget = QtWidgets.QWidget()
             item_layout = QtWidgets.QVBoxLayout(item_widget)
-            item_layout.setContentsMargins(10, 10, 10, 10)
-            
-            # Header with rank and stats
-            header_layout = QtWidgets.QHBoxLayout()
-            
-            rank_label = QtWidgets.QLabel(f'#{i+1}')
-            rank_label.setStyleSheet("font-weight: bold; color: #1976D2; font-size: 14px;")
-            rank_label.setFixedWidth(30)
-            
-            stats_label = QtWidgets.QLabel(f'روزها: {combo["days"]} | فاصله: {combo["empty"]:.1f}h | امتیاز: {combo["score"]:.1f}')
-            stats_label.setStyleSheet("color: #7f8c8d;")
-            
-            apply_btn = QtWidgets.QPushButton('اعمال')
-            apply_btn.setObjectName("success_btn")
-            apply_btn.setFixedWidth(80)
-            apply_btn.clicked.connect(lambda checked, c=combo: self.apply_optimal_combo(c, dialog))
-            
-            header_layout.addWidget(rank_label)
-            header_layout.addWidget(stats_label)
-            header_layout.addStretch()
-            header_layout.addWidget(apply_btn)
-            
-            item_layout.addLayout(header_layout)
-            
-            # Course list
-            course_list = QtWidgets.QListWidget()
-            course_list.setMaximumHeight(100)
-            course_list.setStyleSheet("border: 1px solid #d5dbdb; border-radius: 5px;")
-            
-            for course_key in combo['courses']:
-                if course_key in COURSES:
-                    course = COURSES[course_key]
-                    course_item = QtWidgets.QListWidgetItem(
-                        f"{course['name']} - {course['code']} - {course.get('instructor', 'نامشخص')}"
-                    )
-                    course_list.addItem(course_item)
-            
-            item_layout.addWidget(course_list)
-            
-            # Add item to list
+            item_layout.addWidget(no_results_label)
             list_item = QtWidgets.QListWidgetItem()
             list_item.setSizeHint(item_widget.sizeHint())
             results_list.addItem(list_item)
@@ -2292,6 +2304,64 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         layout.addWidget(close_btn)
         
         dialog.exec_()
+
+    def apply_optimal_combo_from_auto_list(self, combo, dialog):
+        """Apply an optimal combination from auto-list to the schedule with priority-based conflict resolution"""
+        try:
+            # Clear current schedule
+            self.clear_table_silent()
+            
+            # Get course priorities from auto-select list
+            course_priorities = {}
+            if hasattr(self, 'auto_select_list'):
+                for i in range(self.auto_select_list.count()):
+                    item = self.auto_select_list.item(i)
+                    course_key = item.data(QtCore.Qt.UserRole)
+                    priority = item.data(QtCore.Qt.UserRole + 1)
+                    if course_key and priority:
+                        course_priorities[course_key] = priority
+            
+            # Add courses from combination with priority-based conflict resolution
+            added_count = 0
+            conflicts = []
+            
+            # Sort courses by priority (lower number = higher priority)
+            sorted_courses = sorted(combo['courses'], key=lambda x: course_priorities.get(x, 999))
+            
+            for course_key in sorted_courses:
+                if course_key in COURSES:
+                    try:
+                        # Add course with conflict handling based on priority
+                        success = self.add_course_to_table_with_priority(course_key, course_priorities)
+                        if success:
+                            added_count += 1
+                        else:
+                            conflicts.append(COURSES[course_key].get('name', course_key))
+                    except Exception as e:
+                        logger.error(f"Error adding course {course_key}: {e}")
+                        conflicts.append(COURSES[course_key].get('name', course_key))
+            
+            # Update UI
+            self.update_status()
+            self.update_stats_panel()
+            self.update_detailed_info_if_open()
+            
+            # Close dialog
+            dialog.close()
+            
+            # Show results
+            if conflicts:
+                msg = f"✅ {added_count} درس اضافه شد\n⚠️ {len(conflicts)} درس به دلیل تداخل اضافه نشد:\n" + "\n".join(conflicts[:5])
+                if len(conflicts) > 5:
+                    msg += f"\n... و {len(conflicts)-5} درس دیگر"
+            else:
+                msg = f"✅ تمام {added_count} درس با موفقیت اضافه شد!"
+            
+            QtWidgets.QMessageBox.information(self, "نتیجه", msg)
+            
+        except Exception as e:
+            logger.error(f"Error applying combo: {e}")
+            QtWidgets.QMessageBox.critical(self, "خطا", f"خطا در اعمال ترکیب: {str(e)}")
 
     def apply_optimal_combo(self, combo, dialog):
         """Apply an optimal combination to the schedule"""
@@ -2426,6 +2496,430 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         sc = item.data(QtCore.Qt.UserRole)
         combo_name = sc.get('name', 'بدون نام')
         
+        # Use the existing delete_saved_combo method
+        self.delete_saved_combo(combo_name)
+
+    def setup_auto_select_list(self):
+        """Setup drag and drop functionality for auto-select list"""
+        if hasattr(self, 'auto_select_list'):
+            # Enable drag and drop
+            self.auto_select_list.setDragDropMode(QtWidgets.QAbstractItemView.InternalMove)
+            self.auto_select_list.setDefaultDropAction(QtCore.Qt.MoveAction)
+            
+            # Enable context menu
+            self.auto_select_list.setContextMenuPolicy(QtCore.Qt.CustomContextMenu)
+            self.auto_select_list.customContextMenuRequested.connect(self.show_auto_list_context_menu)
+            
+            # Connect signal for handling reordering
+            self.auto_select_list.model().rowsMoved.connect(self.on_auto_list_reordered)
+
+    def on_auto_list_reordered(self, parent, start, end, destination, row):
+        """Handle reordering of auto-select list items"""
+        try:
+            # Update priorities based on new positions
+            for i in range(self.auto_select_list.count()):
+                item = self.auto_select_list.item(i)
+                if item:
+                    # Priority = position + 1 (first item = priority 1)
+                    priority = i + 1
+                    item.setData(QtCore.Qt.UserRole + 1, priority)
+                    
+                    # Update display text to show priority
+                    course_key = item.data(QtCore.Qt.UserRole)
+                    if course_key in COURSES:
+                        course = COURSES[course_key]
+                        course_name = course.get('name', course_key)
+                        item.setText(f"({priority}) {course_name}")
+            
+            logger.info("Auto-select list priorities updated")
+        except Exception as e:
+            logger.error(f"Error reordering auto list: {e}")
+
+    def on_generate_optimal_from_auto_list(self):
+        """Handle generate optimal schedule from auto-select list button click"""
+        try:
+            self.generate_optimal_schedule_from_auto_list()
+        except Exception as e:
+            logger.error(f"Error generating optimal schedule from auto list: {e}")
+
+    def generate_optimal_schedule_from_auto_list(self):
+        """Generate schedules that respect user priority order"""
+        # Extract courses IN PRIORITY ORDER from auto-select list
+        ordered_course_keys = []
+        for i in range(self.auto_select_list.count()):
+            item = self.auto_select_list.item(i)
+            if item and item.data(QtCore.Qt.UserRole):
+                course_key = item.data(QtCore.Qt.UserRole)
+                if course_key in COURSES:
+                    ordered_course_keys.append(course_key)
+        
+        if not ordered_course_keys:
+            QtWidgets.QMessageBox.information(self, "اطلاع", "لیست اولویت خالی است.")
+            return
+        
+        # Show progress dialog
+        progress = QtWidgets.QProgressDialog('در حال تولید بهترین ترکیبات...', 'لغو', 0, 100, self)
+        progress.setWindowModality(QtCore.Qt.WindowModal)
+        progress.show()
+        
+        try:
+            # Use priority-aware algorithm instead of combinations
+            schedules = generate_priority_based_schedules(ordered_course_keys)
+            progress.setValue(50)
+            
+            # Always proceed even if no perfect combinations found
+            # Display results in a dialog
+            self.show_priority_aware_results(schedules, ordered_course_keys)
+            progress.setValue(100)
+            
+        except Exception as e:
+            QtWidgets.QMessageBox.critical(
+                self, 'خطا', 
+                f'خطا در تولید ترکیبات:\n{str(e)}'
+            )
+            print(f"Error in generate_optimal_schedule_from_auto_list: {e}")
+        finally:
+            progress.close()
+
+    def generate_optimal_schedule(self):
+        """Generate optimal schedule combinations with conflict handling"""
+        # Get all available courses
+        all_courses = list(COURSES.keys())
+        
+        if not all_courses:
+            QtWidgets.QMessageBox.information(self, 'هیچ درسی', 'هیچ درسی برای برنامه‌ریزی وجود ندارد.')
+            return
+            
+        # Show progress dialog
+        progress = QtWidgets.QProgressDialog('در حال تولید بهترین ترکیبات...', 'لغو', 0, 100, self)
+        progress.setWindowModality(QtCore.Qt.WindowModal)
+        progress.show()
+        
+        try:
+            # Generate best combinations
+            combos = generate_best_combinations_for_groups(all_courses)
+            progress.setValue(50)
+            
+            # Always proceed even if no perfect combinations found
+            # Display results in a dialog
+            self.show_optimal_schedule_results(combos)
+            progress.setValue(100)
+            
+        except Exception as e:
+            QtWidgets.QMessageBox.critical(
+                self, 'خطا', 
+                f'خطا در تولید ترکیبات:\n{str(e)}'
+            )
+            print(f"Error in generate_optimal_schedule: {e}")
+        finally:
+            progress.close()
+
+    def show_optimal_schedule_results(self, combos):
+        """Show optimal schedule results in a dialog"""
+        dialog = QtWidgets.QDialog(self)
+        dialog.setWindowTitle('ترکیب‌های بهینه پیشنهادی')
+        dialog.resize(600, 400)
+        dialog.setLayoutDirection(QtCore.Qt.RightToLeft)
+        
+        layout = QtWidgets.QVBoxLayout(dialog)
+        
+        # Title
+        title_label = QtWidgets.QLabel('ترکیب‌های بهینه پیشنهادی')
+        title_label.setStyleSheet("font-size: 16px; font-weight: bold; color: #2c3e50; margin: 10px;")
+        title_label.setAlignment(QtCore.Qt.AlignCenter)
+        layout.addWidget(title_label)
+        
+        # Info label
+        if combos:
+            info_label = QtWidgets.QLabel('بهترین ترکیب‌ها بر اساس حداقل روزهای حضور و حداقل فاصله بین جلسات')
+        else:
+            info_label = QtWidgets.QLabel('هیچ ترکیب بهینه‌ای بدون تداخل پیدا نشد. ترکیب‌هایی با تداخل نشان داده نمی‌شوند.')
+        info_label.setStyleSheet("color: #7f8c8d; margin-bottom: 10px;")
+        info_label.setAlignment(QtCore.Qt.AlignCenter)
+        layout.addWidget(info_label)
+        
+        # Results list
+        results_list = QtWidgets.QListWidget()
+        layout.addWidget(results_list)
+        
+        # Add combinations to list
+        if combos:
+            for i, combo in enumerate(combos[:10]):  # Show top 10
+                # Create item widget
+                item_widget = QtWidgets.QWidget()
+                item_layout = QtWidgets.QVBoxLayout(item_widget)
+                item_layout.setContentsMargins(10, 10, 10, 10)
+                
+                # Header with rank and stats
+                header_layout = QtWidgets.QHBoxLayout()
+                
+                rank_label = QtWidgets.QLabel(f'#{i+1}')
+                rank_label.setStyleSheet("font-weight: bold; color: #1976D2; font-size: 14px;")
+                rank_label.setFixedWidth(30)
+                
+                stats_label = QtWidgets.QLabel(f'روزها: {combo["days"]} | فاصله: {combo["empty"]:.1f}h | امتیاز: {combo["score"]:.1f}')
+                stats_label.setStyleSheet("color: #7f8c8d;")
+                
+                apply_btn = QtWidgets.QPushButton('اعمال')
+                apply_btn.setObjectName("success_btn")
+                apply_btn.setFixedWidth(80)
+                apply_btn.clicked.connect(lambda checked, c=combo: self.apply_optimal_combo(c, dialog))
+                
+                header_layout.addWidget(rank_label)
+                header_layout.addWidget(stats_label)
+                header_layout.addStretch()
+                header_layout.addWidget(apply_btn)
+                
+                item_layout.addLayout(header_layout)
+                
+                # Course list
+                course_list = QtWidgets.QListWidget()
+                course_list.setMaximumHeight(100)
+                course_list.setStyleSheet("border: 1px solid #d5dbdb; border-radius: 5px;")
+                
+                for course_key in combo['courses']:
+                    if course_key in COURSES:
+                        course = COURSES[course_key]
+                        course_item = QtWidgets.QListWidgetItem(
+                            f"{course['name']} - {course['code']} - {course.get('instructor', 'نامشخص')}"
+                        )
+                        course_list.addItem(course_item)
+                
+                item_layout.addWidget(course_list)
+                
+                # Add item to list
+                list_item = QtWidgets.QListWidgetItem()
+                list_item.setSizeHint(item_widget.sizeHint())
+                results_list.addItem(list_item)
+                results_list.setItemWidget(list_item, item_widget)
+        else:
+            # Show a message when no combinations are found
+            no_results_label = QtWidgets.QLabel('هیچ ترکیبی برای نمایش وجود ندارد.')
+            no_results_label.setAlignment(QtCore.Qt.AlignCenter)
+            no_results_label.setStyleSheet("color: #95a5a6; font-style: italic; padding: 20px;")
+            item_widget = QtWidgets.QWidget()
+            item_layout = QtWidgets.QVBoxLayout(item_widget)
+            item_layout.addWidget(no_results_label)
+            list_item = QtWidgets.QListWidgetItem()
+            list_item.setSizeHint(item_widget.sizeHint())
+            results_list.addItem(list_item)
+            results_list.setItemWidget(list_item, item_widget)
+        
+        # Close button
+        close_btn = QtWidgets.QPushButton('بستن')
+        close_btn.clicked.connect(dialog.close)
+        layout.addWidget(close_btn)
+        
+        dialog.exec_()
+
+
+
+    def show_priority_aware_results(self, schedules, original_priority_order):
+        """Show results with clear priority information"""
+        if not schedules:
+            QtWidgets.QMessageBox.information(
+                self, "نتیجه", 
+                "با توجه به اولویت‌های تعیین شده و تداخل‌های زمانی، برنامه‌ای قابل ساخت نیست."
+            )
+            return
+        
+        dialog = QtWidgets.QDialog(self)
+        dialog.setWindowTitle("برنامه‌های پیشنهادی با اولویت")
+        dialog.setModal(True)
+        dialog.resize(700, 500)
+        dialog.setLayoutDirection(QtCore.Qt.RightToLeft)
+        
+        layout = QtWidgets.QVBoxLayout(dialog)
+        
+        # Description label
+        info_label = QtWidgets.QLabel(f"{len(schedules)} برنامه پیشنهادی یافت شد. روی یکی کلیک کنید:")
+        layout.addWidget(info_label)
+        
+        # Clickable list
+        schedule_list = QtWidgets.QListWidget()
+        schedule_list.setSelectionMode(QtWidgets.QAbstractItemView.SingleSelection)
+        
+        # Process schedules to add priority information
+        for i, schedule in enumerate(schedules):
+            # Calculate priority information
+            included_priorities = []
+            skipped_priorities = []
+            
+            for j, course_key in enumerate(original_priority_order):
+                priority_num = j + 1
+                course_name = COURSES[course_key].get('name', course_key)
+                
+                if course_key in schedule['courses']:
+                    included_priorities.append(f"P{priority_num}: {course_name}")
+                else:
+                    skipped_priorities.append(f"P{priority_num}: {course_name}")
+            
+            # Create display information
+            schedule['display_info'] = {
+                'included': included_priorities,
+                'skipped': skipped_priorities,
+                'priority_success_rate': len(included_priorities) / len(original_priority_order) if original_priority_order else 0
+            }
+            
+            # Create item text with priority information
+            method_text = schedule.get('method', 'Unknown Method')
+            course_count = len(schedule['courses'])
+            days = schedule.get('days', 0)
+            empty_time = schedule.get('empty', 0.0)
+            
+            schedule_text = f"{method_text}: {course_count} درس - {days} روز - {empty_time:.1f} ساعت خالی"
+            
+            item = QtWidgets.QListWidgetItem(schedule_text)
+            item.setData(QtCore.Qt.UserRole, schedule)  # Store complete schedule
+            schedule_list.addItem(item)
+        
+        layout.addWidget(schedule_list)
+        
+        # Buttons
+        button_layout = QtWidgets.QHBoxLayout()
+        
+        apply_btn = QtWidgets.QPushButton("اعمال برنامه")
+        cancel_btn = QtWidgets.QPushButton("انصراف")
+        
+        button_layout.addWidget(apply_btn)
+        button_layout.addWidget(cancel_btn)
+        layout.addLayout(button_layout)
+        
+        # Connect signals
+        def on_apply():
+            selected_items = schedule_list.selectedItems()
+            if selected_items:
+                schedule = selected_items[0].data(QtCore.Qt.UserRole)
+                self.apply_priority_aware_schedule(schedule, dialog)
+            else:
+                QtWidgets.QMessageBox.warning(dialog, "هشدار", "لطفاً یک برنامه انتخاب کنید.")
+        
+        def on_item_double_click(item):
+            schedule = item.data(QtCore.Qt.UserRole)
+            self.apply_priority_aware_schedule(schedule, dialog)
+        
+        def on_item_click(item):
+            # Show detailed information about the selected schedule
+            schedule = item.data(QtCore.Qt.UserRole)
+            self.show_schedule_details(schedule)
+        
+        apply_btn.clicked.connect(on_apply)
+        cancel_btn.clicked.connect(dialog.close)
+        schedule_list.itemDoubleClicked.connect(on_item_double_click)
+        schedule_list.itemClicked.connect(on_item_click)
+        
+        dialog.exec_()
+
+    def show_schedule_details(self, schedule):
+        """Show detailed information about a schedule"""
+        # This method can be expanded to show more details about the schedule
+        pass
+
+    def apply_priority_aware_schedule(self, schedule, dialog):
+        """Apply a priority-aware schedule to the schedule table"""
+        try:
+            # Clear current schedule
+            self.clear_table_silent()
+            
+            # Add courses from schedule
+            added_count = 0
+            conflicts = []
+            
+            for course_key in schedule['courses']:
+                if course_key in COURSES:
+                    try:
+                        # Add course with conflict handling
+                        success = self.add_course_to_table(course_key, ask_on_conflict=False)
+                        if success:
+                            added_count += 1
+                        else:
+                            conflicts.append(COURSES[course_key].get('name', course_key))
+                    except Exception as e:
+                        logger.error(f"Error adding course {course_key}: {e}")
+                        conflicts.append(COURSES[course_key].get('name', course_key))
+            
+            # Update UI
+            self.update_status()
+            self.update_stats_panel()
+            self.update_detailed_info_if_open()
+            
+            # Close dialog
+            dialog.close()
+            
+            # Show results
+            if conflicts:
+                msg = f"✅ {added_count} درس اضافه شد\n⚠️ {len(conflicts)} درس به دلیل تداخل اضافه نشد:\n" + "\n".join(conflicts[:5])
+                if len(conflicts) > 5:
+                    msg += f"\n... و {len(conflicts)-5} درس دیگر"
+            else:
+                msg = f"✅ تمام {added_count} درس با موفقیت اضافه شد!"
+            
+            QtWidgets.QMessageBox.information(self, "نتیجه", msg)
+            
+        except Exception as e:
+            logger.error(f"Error applying schedule: {e}")
+            QtWidgets.QMessageBox.critical(self, "خطا", f"خطا در اعمال برنامه: {str(e)}")
+
+    def save_auto_select_list(self):
+        """Save the auto-select list to user data"""
+        # This method is called to save changes to the auto-select list
+        # For now, we'll just log that it was called since the list is managed in memory
+        logger.debug("Auto-select list saved")
+        pass
+
+    def show_auto_list_context_menu(self, position):
+        """Show context menu for auto-select list items"""
+        item = self.auto_select_list.itemAt(position)
+        
+        menu = QtWidgets.QMenu()
+        
+        # If an item is right-clicked, show delete option
+        if item:
+            # Delete action
+            delete_action = menu.addAction("حذف از لیست")
+        
+        # Always show clear all option if there are items in the list
+        if self.auto_select_list.count() > 0:
+            clear_all_action = menu.addAction("پاک کردن همه")
+        
+        action = menu.exec_(self.auto_select_list.mapToGlobal(position))
+        
+        if 'delete_action' in locals() and action == delete_action:
+            row = self.auto_select_list.row(item)
+            self.auto_select_list.takeItem(row)
+        elif 'clear_all_action' in locals() and action == clear_all_action:
+            # Confirm clear all
+            reply = QtWidgets.QMessageBox.question(
+                self, 'پاک کردن همه', 
+                f'آیا مطمئن هستید که می‌خواهید همه {self.auto_select_list.count()} درس را از لیست حذف کنید؟',
+                QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
+                QtWidgets.QMessageBox.No
+            )
+            
+            if reply == QtWidgets.QMessageBox.Yes:
+                self.auto_select_list.clear()
+
+    def auto_select_list_key_press_event(self, event):
+        """Handle key press events for auto-select list"""
+        # Handle Delete key
+        if event.key() in (QtCore.Qt.Key_Delete, QtCore.Qt.Key_Backspace):
+            selected_items = self.auto_select_list.selectedItems()
+            if selected_items:
+                # Remove selected items (in reverse order to maintain indices)
+                for item in reversed(selected_items):
+                    row = self.auto_select_list.row(item)
+                    self.auto_select_list.takeItem(row)
+                return
+        
+        # Handle Ctrl+A for select all
+        if event.key() == QtCore.Qt.Key_A and event.modifiers() == QtCore.Qt.ControlModifier:
+            self.auto_select_list.selectAll()
+            return
+            
+        # Call the original event handler for other keys
+        QtWidgets.QListWidget.keyPressEvent(self.auto_select_list, event)
+    def delete_saved_combo(self, combo_name):
+        """Delete a saved combination by name"""
         # Confirm deletion
         reply = QtWidgets.QMessageBox.question(
             self, 'حذف ترکیب', 
@@ -2473,6 +2967,7 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         # generate key and store
         key = generate_unique_key(course['code'], COURSES)
         COURSES[key] = course
+
         
         # Save courses to JSON
         save_courses_to_json()
@@ -2519,13 +3014,13 @@ class SchedulerWindow(QtWidgets.QMainWindow):
                 self.clear_schedule_btn.clicked.connect(self.on_clear_schedule)
                 
             if hasattr(self, 'optimal_schedule_btn'):
-                self.optimal_schedule_btn.clicked.connect(self.on_generate_optimal)
+                self.optimal_schedule_btn.clicked.connect(self.on_generate_optimal_from_auto_list)
                 
             if hasattr(self, 'showExamPagebtn'):
                 # Connect exam button to show exam schedule method
                 self.showExamPagebtn.clicked.connect(self.on_show_exam_schedule)
             
-            # Saved combinations buttons
+            # Saved combinations buttons - Fix: Connect to proper saved combination handlers
             if hasattr(self, 'add_to_auto_btn'):
                 self.add_to_auto_btn.clicked.connect(self.on_save_current_combo)
                 
@@ -2539,6 +3034,12 @@ class SchedulerWindow(QtWidgets.QMainWindow):
             # Saved combinations list
             if hasattr(self, 'saved_combos_list'):
                 self.saved_combos_list.itemClicked.connect(self.on_saved_combo_clicked)
+            
+            # Auto-select list drag & drop
+            if hasattr(self, 'auto_select_list'):
+                self.setup_auto_select_list()
+                # Enable keyboard shortcuts for auto-select list
+                self.auto_select_list.keyPressEvent = self.auto_select_list_key_press_event
             
             logger.info("All UI signals connected successfully")
             
@@ -2625,15 +3126,23 @@ class SchedulerWindow(QtWidgets.QMainWindow):
                         break
                 
                 if not exists:
-                    # Create new item with same data
-                    new_item = QtWidgets.QListWidgetItem(item.text())
-                    new_item.setData(QtCore.Qt.UserRole, item.data(QtCore.Qt.UserRole))
-                    self.auto_select_list.addItem(new_item)
-                    
-            logger.info(f"Added {len(selected_items)} courses to auto select list")
+                    # Create new item with course data
+                    course_key = item.data(QtCore.Qt.UserRole)
+                    course = COURSES.get(course_key)
+                    if course:
+                        position = self.auto_select_list.count() + 1
+                        new_item = QtWidgets.QListWidgetItem(f"({position}) {course['name']} - {course.get('instructor', 'نامشخص')}")
+                        new_item.setData(QtCore.Qt.UserRole, course_key)
+                        # Set position as priority (first item = priority 1)
+                        new_item.setData(QtCore.Qt.UserRole + 1, position)
+                        self.auto_select_list.addItem(new_item)
+            
+            # Save user data
+            self.save_auto_select_list()
             
         except Exception as e:
-            logger.error(f"Error adding to auto select list: {e}")
+            logger.error(f"Error adding to auto list: {e}")
+            QtWidgets.QMessageBox.critical(self, 'خطا', f'خطا در افزودن به لیست انتخاب توسط سیستم: {str(e)}')
 
     def on_remove_from_auto(self):
         """Handle remove from auto select list button click"""

@@ -145,16 +145,26 @@ QListWidget {
     background-color: white;
     padding: 6px;
     font-size: 12px;
+    spacing: 3px; /* Add spacing between items */
 }
 
 QListWidget::item {
     border-bottom: 1px solid #ecf0f1;
     padding: 8px 4px; /* Reduced right padding to allow full text display */
+    min-height: 45px; /* Ensure minimum height for proper display */
 }
 
 QListWidget::item:selected {
     background-color: #d6eaf8;
     color: #2980b9;
+}
+
+/* Course list label styling */
+QLabel#course_list_label {
+    min-height: 45px;
+    font-size: 12px;
+    color: #2c3e50;
+    padding: 2px 0;
 }
 
 /* Table Widget Styles - Enhanced Schedule Table */
@@ -192,6 +202,7 @@ QHeaderView::section {
 
 QHeaderView::section:vertical {
     background-color: transparent;
+    /* background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1, stop: 0 #1976D2, stop: 1 #1565C0); */
     color: black;
     font-size: 12px;
     font-family: 'IRANSans UI', sans-serif;
@@ -376,19 +387,19 @@ QPushButton#close-btn:hover {
                               stop: 0 #D32F2F, stop: 1 #E53935);
 }
 
-/* Edit button styling - Smaller and more circular */
+/* Edit button styling - Larger and more circular */
 QPushButton#edit_btn {
     background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
                               stop: 0 #1976D2, stop: 1 #1565C0);
     color: white;
     border: none;
-    border-radius: 10px; /* Perfect circle for 20px */
+    border-radius: 12px; /* Perfect circle for 24px */
     font-weight: bold;
     font-size: 12px;
-    min-width: 18px;
-    min-height: 18px;
-    max-width: 18px;
-    max-height: 18px;
+    min-width: 24px;
+    min-height: 24px;
+    max-width: 24px;
+    max-height: 24px;
     padding: 0px;
 }
 
@@ -397,19 +408,19 @@ QPushButton#edit_btn:hover {
                               stop: 0 #1565C0, stop: 1 #1976D2);
 }
 
-/* Delete button styling - Smaller and more circular */
+/* Delete button styling - Larger and more circular */
 QPushButton#delete_btn {
     background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
                               stop: 0 #E53935, stop: 1 #D32F2F);
     color: white;
     border: none;
-    border-radius: 9px; /* Perfect circle for 18px */
+    border-radius: 12px; /* Perfect circle for 24px */
     font-weight: bold;
     font-size: 12px;
-    min-width: 18px;
-    min-height: 18px;
-    max-width: 18px;
-    max-height: 18px;
+    min-width: 24px;
+    min-height: 24px;
+    max-width: 24px;
+    max-height: 24px;
     padding: 0px;
 }
 
