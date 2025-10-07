@@ -698,7 +698,7 @@ def scrape_golestan_courses(course_status, username=None, password=None):
         # Get app root (parent of scrapers)
         app_root = Path(__file__).resolve().parents[2]
 
-        courses_data_dir = os.path.join(app_root, 'courses_data')
+        courses_data_dir = os.path.join(app_root, 'data', 'courses_data')
         os.makedirs(courses_data_dir, exist_ok=True)
 
         if course_status == "available":

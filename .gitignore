@@ -18,3 +18,23 @@ app/scrapers/__pycache__/
 app/scrapers/requests_scraper/__pycache__/
 
 app/captcha_solver/__pycache__/
+
+app/assets/__pycache__/
+
+app/core/__pycache__/
+
+app/data/backups/
+
+app/ui/__pycache__/
+
+app/scrapers/selenium_scraper/__pycache__/
+
+app/data/__pycache__/
+
+app/data/courses_data/available_courses.json
+
+app/data/courses_data/unavailable_courses.json
+
+*.backup
+
+app/data/user_data.json

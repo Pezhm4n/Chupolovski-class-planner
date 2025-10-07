@@ -592,7 +592,15 @@
     <addaction name="action_fetch_golestan"/>
     <addaction name="action_manual_fetch"/>
    </widget>
+   <widget class="QMenu" name="menu_tools">
+    <property name="title">
+     <string>ابزارها</string>
+    </property>
+    <addaction name="action_show_exam_schedule"/>
+    <addaction name="action_export_exam_schedule"/>
+   </widget>
    <addaction name="menu_data"/>
+   <addaction name="menu_tools"/>
   </widget>
   <widget class="QStatusBar" name="statusbar"/>
   <action name="action_fetch_golestan">
@@ -603,6 +611,16 @@
   <action name="action_manual_fetch">
    <property name="text">
     <string>دریافت دستی از گلستان</string>
+   </property>
+  </action>
+  <action name="action_show_exam_schedule">
+   <property name="text">
+    <string>نمایش برنامه امتحانات</string>
+   </property>
+  </action>
+  <action name="action_export_exam_schedule">
+   <property name="text">
+    <string>صدور برنامه امتحانات</string>
    </property>
   </action>
  </widget>

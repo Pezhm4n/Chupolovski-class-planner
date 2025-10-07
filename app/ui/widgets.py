@@ -3,10 +3,12 @@ import os
 
 from PyQt5 import QtWidgets, QtGui, QtCore
 
-# Add the app directory to the Python path to enable imports
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+# Import from core modules
+from ..core.config import COURSES, DAYS, EXTENDED_TIME_SLOTS
+from ..core.logger import setup_logging
 
-from config import COURSES, DAYS, EXTENDED_TIME_SLOTS, logger
+logger = setup_logging()
+
 
 class CourseListWidget(QtWidgets.QWidget):
     """Custom widget for course list items with delete functionality"""
@@ -158,8 +160,7 @@ class CourseListWidget(QtWidgets.QWidget):
                 del COURSES[self.course_key]
             
             # Save courses to JSON
-            sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-            from data_manager import save_courses_to_json
+            from ..core.data_manager import save_courses_to_json
             save_courses_to_json()
             
             # Remove from user_data
@@ -169,8 +170,7 @@ class CourseListWidget(QtWidgets.QWidget):
                                           if c.get('code') != self.course_info.get('code')]
             
             # Save updated user data
-            sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-            from data_manager import save_user_data
+            from ..core.data_manager import save_user_data
             save_user_data(user_data)
             
             # Remove from any placed schedules

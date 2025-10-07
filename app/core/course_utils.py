@@ -16,10 +16,8 @@ from itertools import product
 import sys
 import os
 
-# Add the app directory to the Python path to enable imports
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-
-from config import COURSES, DAYS, TIME_SLOTS
+# Import from core modules
+from .config import COURSES, DAYS, TIME_SLOTS
 
 # ---------------------- Time Utility Functions ----------------------
 
