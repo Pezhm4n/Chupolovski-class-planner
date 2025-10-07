@@ -8,20 +8,52 @@ University Course Schedule Planner Application
 import sys
 import os
 
-# Add the app directory to the Python path to enable relative imports
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+# Add the current directory to Python path for direct execution
+current_dir = os.path.dirname(os.path.abspath(__file__))
+if current_dir not in sys.path:
+    sys.path.insert(0, current_dir)
 
 from PyQt5.QtWidgets import QApplication
-from main_window import SchedulerWindow
-from data_manager import load_courses_from_json
-from config import load_qss_styles, logger
+
+# Handle both direct execution and module execution
+# First, try relative imports (for python -m app.main)
+try:
+    from .__version__ import __version__
+    from .ui.main_window import SchedulerWindow
+    from .core.data_manager import load_courses_from_json
+    from .core.config import load_qss_styles
+    from .core.logger import setup_logging
+    USING_RELATIVE_IMPORTS = True
+except (ImportError, ValueError):
+    # Fall back to absolute imports (for direct script execution)
+    try:
+        from __version__ import __version__
+        from ui.main_window import SchedulerWindow
+        from core.data_manager import load_courses_from_json
+        from core.config import load_qss_styles
+        from core.logger import setup_logging
+        USING_RELATIVE_IMPORTS = False
+    except ImportError:
+        # If that fails, try adjusting the path and importing again
+        parent_dir = os.path.dirname(current_dir)
+        if parent_dir not in sys.path:
+            sys.path.insert(0, parent_dir)
+        
+        from app.__version__ import __version__
+        from app.ui.main_window import SchedulerWindow
+        from app.core.data_manager import load_courses_from_json
+        from app.core.config import load_qss_styles
+        from app.core.logger import setup_logging
+        USING_RELATIVE_IMPORTS = False
+
+logger = setup_logging()
 
 
 def main():
     """Main function to run the application"""
     app = QApplication(sys.argv)
     app.setApplicationName('Schedule Planner')
-    app.setApplicationVersion('2.1')
+    app.setApplicationVersion(__version__)
     app.setOrganizationName('University Schedule Tools')
     
     # Set application icon if available

@@ -9,10 +9,6 @@ from requests.cookies import create_cookie
 import sys
 from pathlib import Path
 
-
-root_dir = Path(__file__).resolve().parent.parent.parent.parent
-sys.path.insert(0, str(root_dir))
-
 from app.scrapers.requests_scraper.xml_parser import parse_courses_from_xml
 import os
 from app.captcha_solver.predict import predict
@@ -363,20 +359,20 @@ def get_courses(status='both', username=None, password=None):
         results = golestan.fetch_courses(status)
 
         # Get the path to the app root
-        app_root = Path(__file__).resolve().parents[2]
-        project_super_root = app_root.parent.parent
+        app_root = Path(__file__).resolve().parent.parent.parent
+        project_super_root = app_root.parent
 
-        data_dir = os.path.join(app_root, 'courses_data')
+        data_dir = app_root / 'data' / 'courses_data'
         os.makedirs(data_dir, exist_ok=True)
 
         if 'available' in results:
-            available_path = os.path.join(data_dir, 'available_courses.json')
-            parse_courses_from_xml(results['available'], available_path)
-            print(f"💾 Available courses saved to {os.path.relpath(available_path, start=project_super_root)}")
+            available_path = data_dir / 'available_courses.json'
+            parse_courses_from_xml(results['available'], str(available_path))
+            print(f"💾 Available courses saved to {available_path.relative_to(project_super_root)}")
         if 'unavailable' in results:
-            unavailable_path = os.path.join(data_dir, 'unavailable_courses.json')
-            parse_courses_from_xml(results['unavailable'], unavailable_path)
-            print(f"💾 Unavailable courses saved to {os.path.relpath(unavailable_path, start=project_super_root)}")
+            unavailable_path = data_dir / 'unavailable_courses.json'
+            parse_courses_from_xml(results['unavailable'], str(unavailable_path))
+            print(f"💾 Unavailable courses saved to {unavailable_path.relative_to(project_super_root)}")
 
     finally:
         golestan.session.close()

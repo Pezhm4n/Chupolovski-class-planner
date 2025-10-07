@@ -1,20 +1,21 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Export functionality for Schedule Planner
-Contains all export methods for detailed information window
+Export dialogs module for Schedule Planner
+Contains dialog windows for exporting schedules
 """
 
-import os
 import sys
+import os
+import json
 
-# Add the app directory to the Python path to enable imports
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+from PyQt5 import QtWidgets, QtCore
 
-from PyQt5 import QtWidgets, QtGui, QtCore
-from config import COURSES, logger
-from data_manager import save_courses_to_json, save_user_data
-from course_utils import to_minutes
+# Import from core modules
+from ..core.config import COURSES
+from ..core.logger import setup_logging
+
+logger = setup_logging()
 
 class ExportMixin:
     """Mixin class for export functionality"""

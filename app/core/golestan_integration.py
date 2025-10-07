@@ -10,12 +10,13 @@ import json
 import logging
 from typing import Dict, List, Any
 
-# Add the app directory to the Python path to enable imports
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+# Import from core modules
+from .config import COURSES
+from .logger import setup_logging
 
-from config import COURSES, logger
-from data_manager import save_courses_to_json
-from scrapers.requests_scraper.fetch_data import get_courses
+logger = setup_logging()
+
+from ..scrapers.requests_scraper.fetch_data import get_courses
 
 # Global variable to store major information for courses
 COURSE_MAJORS = {}
@@ -59,8 +60,8 @@ def load_golestan_data() -> Dict[str, Any]:
     """
     try:
         # Get the app directory
-        app_dir = os.path.dirname(os.path.abspath(__file__))
-        courses_data_dir = os.path.join(app_dir, 'courses_data')
+        app_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        courses_data_dir = os.path.join(app_dir, 'data', 'courses_data')
         
         # Load available courses
         available_courses_file = os.path.join(courses_data_dir, 'available_courses.json')
@@ -70,19 +71,31 @@ def load_golestan_data() -> Dict[str, Any]:
         global COURSE_MAJORS
         COURSE_MAJORS = {}
         
+        available_count = 0
+        unavailable_count = 0
+        
         # Process available courses
         if os.path.exists(available_courses_file):
             with open(available_courses_file, 'r', encoding='utf-8') as f:
                 available_data = json.load(f)
+            # Count available courses before processing
+            for faculty_name, departments in available_data.items():
+                for department_name, courses in departments.items():
+                    available_count += len(courses)
             process_golestan_faculty_data(available_data, all_courses, COURSE_MAJORS, is_available=True)
         
         # Process unavailable courses
         if os.path.exists(unavailable_courses_file):
             with open(unavailable_courses_file, 'r', encoding='utf-8') as f:
                 unavailable_data = json.load(f)
+            # Count unavailable courses before processing
+            for faculty_name, departments in unavailable_data.items():
+                for department_name, courses in departments.items():
+                    unavailable_count += len(courses)
             process_golestan_faculty_data(unavailable_data, all_courses, COURSE_MAJORS, is_available=False)
         
-        logger.info(f"Loaded {len(all_courses)} courses from Golestan data")
+        logger.info(f"Loaded {len(all_courses)} total courses ({available_count} available + {unavailable_count} unavailable)")
+        print(f"Loaded {len(all_courses)} total courses ({available_count} available + {unavailable_count} unavailable)")
         return all_courses
         
     except Exception as e:
@@ -227,9 +240,7 @@ def update_courses_from_golestan(username=None, password=None):
         COURSES.clear()
         COURSES.update(golestan_courses)
         
-        # Save to JSON file
-        save_courses_to_json()
-        
+        # NOTE: No longer saving to courses_data.json - data is saved in Golestan files
         logger.info(f"Successfully updated {len(golestan_courses)} courses from Golestan")
         
     except Exception as e:

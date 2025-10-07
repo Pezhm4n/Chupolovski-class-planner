@@ -1,20 +1,21 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Exam schedule dialog functionality for Schedule Planner
-Contains exam schedule related UI components and functionality
+Exam schedule dialog module for Schedule Planner
+Contains dialog window for viewing exam schedules
 """
 
-import os
 import sys
+import os
 
-# Add the app directory to the Python path to enable imports
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+from PyQt5 import QtWidgets, QtCore
 
-from PyQt5 import QtWidgets, QtGui, QtCore
-from config import COURSES, logger
-from data_manager import save_courses_to_json, save_user_data
-from course_utils import to_minutes
+# Import from core modules
+from ..core.config import COURSES
+from ..core.logger import setup_logging
+
+logger = setup_logging()
+
 
 class ExamScheduleMixin:
     """Mixin class for exam schedule functionality"""

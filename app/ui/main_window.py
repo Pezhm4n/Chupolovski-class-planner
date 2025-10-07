@@ -11,36 +11,35 @@ import shutil
 import datetime
 import itertools
 
-# Add the app directory to the Python path to enable imports
-sys.path.append(os.path.dirname(os.path.abspath(__file__)))
-
 from PyQt5 import QtWidgets, QtGui, QtCore, uic
 
-# Import from our modules
-from config import (
-    COURSES, DAYS, TIME_SLOTS, EXTENDED_TIME_SLOTS, COLOR_MAP, logger
+# Import from our core modules
+from ..core.config import (
+    COURSES, DAYS, TIME_SLOTS, EXTENDED_TIME_SLOTS, COLOR_MAP
 )
-from data_manager import (
+from ..core.data_manager import (
     load_user_data, save_user_data, save_courses_to_json, generate_unique_key
 )
-from course_utils import (
+from ..core.logger import setup_logging
+from ..core.course_utils import (
     to_minutes, overlap, schedules_conflict, 
     calculate_days_needed_for_combo, calculate_empty_time_for_combo,
     generate_best_combinations_for_groups,
     generate_priority_based_schedules, create_greedy_schedule, create_alternative_schedule
 )
-from widgets import (
+from .widgets import (
     CourseListWidget, AnimatedCourseWidget
 )
-from dialogs import AddCourseDialog, EditCourseDialog, DetailedInfoWindow, ExamScheduleWindow
+from .dialogs import AddCourseDialog, EditCourseDialog, DetailedInfoWindow, ExamScheduleWindow
+
+# Set up logger
+logger = setup_logging()
 
 # ---------------------- Main Application Window ----------------------
 
 class SchedulerWindow(QtWidgets.QMainWindow):
     """Main window for the Schedule Planner application"""
     
-
-
     def __init__(self):
         super().__init__()
         
@@ -98,7 +97,7 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         
         # Populate UI with data
         # Load courses explicitly to ensure they're available
-        from data_manager import load_courses_from_json
+        from ..core.data_manager import load_courses_from_json
         load_courses_from_json()
         
         # Populate major dropdown AFTER courses are loaded
@@ -137,7 +136,8 @@ class SchedulerWindow(QtWidgets.QMainWindow):
     def initialize_schedule_table(self):
         """Initialize the schedule table with days and time slots"""
         try:
-            from config import DAYS, EXTENDED_TIME_SLOTS
+            from ..core.config import DAYS, EXTENDED_TIME_SLOTS
+
             
             # Clear the table completely first
             self.schedule_table.clear()
@@ -201,10 +201,6 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         for char in time_str:
             result += english_to_persian.get(char, char)
         return result
-
-
-
-
 
     def setup_responsive_layout(self):
         """Setup responsive layout and sizing with reduced margins and spacing"""
@@ -1027,14 +1023,7 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         # Clear preview
         self.clear_preview()
 
-        COLOR_MAP = [
-            QtGui.QColor(174, 214, 241),  # Light Blue
-            QtGui.QColor(175, 215, 196),  # Light Green
-            QtGui.QColor(248, 220, 188),  # Light Orange
-            QtGui.QColor(216, 191, 216),  # Light Purple
-            QtGui.QColor(240, 202, 202),  # Light Red
-            QtGui.QColor(250, 235, 215)   # Light Beige
-        ]
+        # Use the imported COLOR_MAP instead of defining locally
         color_idx = len(self.placed) % len(COLOR_MAP)
         # رنگ‌ها - Updated with harmonious color palette
         bg = COLOR_MAP[color_idx % len(COLOR_MAP)]
@@ -1975,7 +1964,8 @@ class SchedulerWindow(QtWidgets.QMainWindow):
     def populate_course_list(self, filter_text=""):
         """Populate the course list with all available courses - fixed widget lifecycle management"""
         try:
-            from config import COURSES
+            from ..core.config import COURSES
+
             
             if not hasattr(self, 'course_list'):
                 logger.error("course_list widget not found")
@@ -2157,6 +2147,13 @@ class SchedulerWindow(QtWidgets.QMainWindow):
             if hasattr(self, 'action_manual_fetch'):
                 self.action_manual_fetch.triggered.connect(self.manual_fetch_from_golestan)
             
+            # Add exam schedule actions
+            if hasattr(self, 'action_show_exam_schedule'):
+                self.action_show_exam_schedule.triggered.connect(self.on_show_exam_schedule)
+            
+            if hasattr(self, 'action_export_exam_schedule'):
+                self.action_export_exam_schedule.triggered.connect(self.on_export_exam_schedule)
+            
             # Major selection dropdown
             if hasattr(self, 'comboBox'):
                 self.comboBox.currentIndexChanged.connect(self.on_major_selection_changed)
@@ -2241,22 +2238,9 @@ class SchedulerWindow(QtWidgets.QMainWindow):
             # Update user data with current schedule
             self.user_data['current_schedule'] = keys
             
-            # Create backup before saving
-            import shutil
-            import datetime
-            import os
-            # Get USER_DATA_FILE from config
-            from config import USER_DATA_FILE
-            backup_file = f"{USER_DATA_FILE}.backup_{datetime.datetime.now().strftime('%Y%m%d_%H%M%S')}"
-            if os.path.exists(USER_DATA_FILE):
-                shutil.copy2(USER_DATA_FILE, backup_file)
-                logger.info(f"Backup created: {backup_file}")
-            
-            # Save user data
+            # Save user data (backup functionality is now handled in save_user_data)
+            from ..core.data_manager import save_user_data
             save_user_data(self.user_data)
-            
-            # Keep only last 5 backups
-            self._cleanup_old_backups()
             
         except Exception as e:
             logger.error(f"Auto-save failed: {e}")
@@ -2265,20 +2249,8 @@ class SchedulerWindow(QtWidgets.QMainWindow):
     def _cleanup_old_backups(self):
         """Clean up old backup files, keeping only the last 5"""
         try:
-            import glob
-            import os
-            # Get USER_DATA_FILE from config
-            from config import USER_DATA_FILE
-            backup_files = glob.glob(f"{USER_DATA_FILE}.backup_*")
-            backup_files.sort(key=os.path.getmtime, reverse=True)
-            
-            # Remove backups older than 5
-            for old_backup in backup_files[5:]:
-                try:
-                    os.remove(old_backup)
-                    logger.info(f"Removed old backup: {old_backup}")
-                except Exception as e:
-                    logger.error(f"Failed to remove backup {old_backup}: {e}")
+            from ..core.data_manager import cleanup_old_backups
+            cleanup_old_backups()
         except Exception as e:
             logger.error(f"Backup cleanup failed: {e}")
 
@@ -2569,17 +2541,45 @@ class SchedulerWindow(QtWidgets.QMainWindow):
                 result = msg.exec_()
                 if result == QtWidgets.QMessageBox.Retry:
                     continue  # Ask for new name
+                elif result == QtWidgets.QMessageBox.Yes:
+                    # Remove existing combo with same name
+                    self.user_data['saved_combos'] = [
+                        combo for combo in self.user_data['saved_combos'] 
+                        if combo.get('name') != name
+                    ]
+                elif result == QtWidgets.QMessageBox.Cancel:
+                    return
                     
-                    if course_key not in self._pulse_timers:
-                        timer = QtCore.QTimer(widget)
-                        timer.course_key = course_key
-                        timer.widget = widget
-                        timer.step = 0
-                        timer.timeout.connect(self._pulse_highlight)
-                        self._pulse_timers[course_key] = timer
-                    
-                    # Start the pulsing animation
-                    self._pulse_timers[course_key].start(100)
+            # Create new combo object
+            new_combo = {
+                'name': name,
+                'courses': keys
+            }
+            
+            # Add to saved combos
+            self.user_data['saved_combos'].append(new_combo)
+            
+            # Save to file using the data manager
+            try:
+                from ..core.data_manager import save_user_data
+                save_user_data(self.user_data)
+                
+                # Update UI
+                self.load_saved_combos_ui()
+                
+                # Show confirmation
+                QtWidgets.QMessageBox.information(
+                    self, '✅ ذخیره موفق', 
+                    f'ترکیب "{name}" با موفقیت ذخیره شد.\nتعداد دروس: {len(keys)}'
+                )
+            except Exception as e:
+                logger.error(f"Error saving combo: {e}")
+                QtWidgets.QMessageBox.critical(
+                    self, 'خطا', 
+                    f'خطا در ذخیره ترکیب:\n{str(e)}'
+                )
+            
+            return
         
     def _pulse_highlight(self):
         """Pulse animation for highlighted course sessions"""
@@ -2638,7 +2638,7 @@ class SchedulerWindow(QtWidgets.QMainWindow):
     def populate_course_list(self, filter_text=""):
         """Populate the course list with all available courses - fixed widget lifecycle management"""
         try:
-            from config import COURSES
+            from ..core.config import COURSES
             
             if not hasattr(self, 'course_list'):
                 logger.error("course_list widget not found")
@@ -3395,7 +3395,7 @@ class SchedulerWindow(QtWidgets.QMainWindow):
     def on_show_exam_schedule(self):
         """Show exam schedule window"""
         try:
-            from dialogs import ExamScheduleWindow
+            from ui.dialogs import ExamScheduleWindow
             exam_window = ExamScheduleWindow(self)
             exam_window.show()
         except Exception as e:
@@ -3595,10 +3595,36 @@ class SchedulerWindow(QtWidgets.QMainWindow):
             else:
                 QtWidgets.QMessageBox.warning(self, "خطا", "خطا در ذخیره تصویر.")
 
+    def on_show_exam_schedule(self):
+        """Show the exam schedule window"""
+        try:
+            # Create and show exam schedule window
+            self.exam_schedule_window = ExamScheduleWindow(self)
+            self.exam_schedule_window.show()
+        except Exception as e:
+            logger.error(f"Error showing exam schedule: {e}")
+            QtWidgets.QMessageBox.critical(
+                self, 'خطا', 
+                f'خطا در نمایش برنامه امتحانات:\n{str(e)}'
+            )
+
+    def on_export_exam_schedule(self):
+        """Export the exam schedule"""
+        try:
+            # Create exam schedule window and export directly
+            exam_window = ExamScheduleWindow(self)
+            exam_window.export_exam_schedule()
+        except Exception as e:
+            logger.error(f"Error exporting exam schedule: {e}")
+            QtWidgets.QMessageBox.critical(
+                self, 'خطا', 
+                f'خطا در صدور برنامه امتحانات:\n{str(e)}'
+            )
+
     def fetch_from_golestan(self):
         """Fetch courses from Golestan system automatically"""
         try:
-            from golestan_integration import update_courses_from_golestan
+            from ..core.golestan_integration import update_courses_from_golestan
             
             # Show progress dialog
             progress = QtWidgets.QProgressDialog('در حال دریافت اطلاعات از گلستان...', 'لغو', 0, 0, self)
@@ -3631,7 +3657,7 @@ class SchedulerWindow(QtWidgets.QMainWindow):
     def manual_fetch_from_golestan(self):
         """Fetch courses from Golestan system with manual credentials"""
         try:
-            from golestan_integration import update_courses_from_golestan
+            from ..core.golestan_integration import update_courses_from_golestan
             
             # Get credentials from user
             username, ok1 = QtWidgets.QInputDialog.getText(
@@ -3676,7 +3702,7 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         """Extract major information from course data"""
         try:
             # Try to get major from golestan integration
-            from golestan_integration import get_course_major
+            from ..core.golestan_integration import get_course_major
             major = get_course_major(course_key)
             logger.debug(f"Course {course_key} major: {major}")
             return major if major else "رشته نامشخص"
