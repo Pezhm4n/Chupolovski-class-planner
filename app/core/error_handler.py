@@ -1,10 +1,8 @@
 """
-Global error handler for the Chupolovski Class Planner application.
+Global error handler for the Golestoon Class Planner application.
 
-This module provides centralized error handling including:
-- Unhandled exception logging
-- Error reporting utilities
-- Graceful error recovery mechanisms
+This module provides centralized error handling and logging functionality
+for the entire application.
 """
 
 import sys

@@ -1,8 +1,10 @@
 """
-Core data management module for the Chupolovski Class Planner application.
+Core data management module for the Golestoon Class Planner application.
 
-This module handles loading and saving course data and user data with
-improved error handling and validation.
+This module handles loading, saving, and managing application data including:
+- Course data
+- User preferences
+- Schedule backups
 """
 
 import os

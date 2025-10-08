@@ -1,7 +1,9 @@
 """
-UI package for the Chupolovski Class Planner application.
+UI package for the Golestoon Class Planner application.
 
-This package contains all user interface components including the main window,
-dialogs, widgets, and styles.
+This package contains all user interface components including:
+- Main window
+- Dialogs
+- Widgets
+- Custom UI elements
 """
-__all__ = []

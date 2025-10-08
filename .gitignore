@@ -38,3 +38,5 @@ app/data/courses_data/unavailable_courses.json
 *.backup
 
 app/data/user_data.json
+
+app/output.txt

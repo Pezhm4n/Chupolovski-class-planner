@@ -1,5 +1,5 @@
 """
-Main package for the Chupolovski Class Planner application.
+Main package for the Golestoon Class Planner application.
 
 This is the root package that contains all application modules including:
 - core: Core application logic and configuration

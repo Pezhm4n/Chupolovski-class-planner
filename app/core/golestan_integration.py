@@ -1,7 +1,9 @@
 # -*- coding: utf-8 -*-
 """
-Golestan Integration Module for Chupolovski Class Planner
-Handles integration with the Golestan system scraper and data processing
+Golestan Integration Module for Golestoon Class Planner
+
+This module handles the integration with the Golestan university system,
+including authentication, data fetching, and parsing.
 """
 
 import os
@@ -93,6 +95,7 @@ def load_golestan_data() -> Dict[str, Any]:
                 for department_name, courses in departments.items():
                     unavailable_count += len(courses)
             process_golestan_faculty_data(unavailable_data, all_courses, COURSE_MAJORS, is_available=False)
+        
         
         logger.info(f"Loaded {len(all_courses)} total courses ({available_count} available + {unavailable_count} unavailable)")
         print(f"Loaded {len(all_courses)} total courses ({available_count} available + {unavailable_count} unavailable)")

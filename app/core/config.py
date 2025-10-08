@@ -1,5 +1,5 @@
 """
-Core configuration module for the Chupolovski Class Planner application.
+Core configuration module for the Golestoon Class Planner application.
 
 This module provides centralized configuration management including:
 - Environment variable loading
@@ -57,16 +57,6 @@ APP_DIR = Path(__file__).parent.parent
 USER_DATA_FILE = APP_DIR / 'data' / 'user_data.json'
 COURSES_DATA_FILE = APP_DIR / 'data' / 'courses_data.json'
 STYLES_FILE = APP_DIR / 'ui' / 'styles.qss'
-
-# OPTIONS برای چیدن خودکار (فقط دروس تخصصی)
-OPTIONS = {
-    'database': ['database_29', 'database_30'],
-    'micro': ['micro_29', 'micro_31'],
-    'software': ['software_29'],
-    'micro_lab': ['micro_lab_30', 'micro_lab_31'],
-    'ai': ['ai_29', 'ai_30'],
-    'compiler': ['compiler_29', 'compiler_30']
-}
 
 # روزها و اسلات‌ها
 DAYS = ['شنبه', 'یکشنبه', 'دوشنبه', 'سه‌شنبه', 'چهارشنبه', 'پنج‌شنبه']
