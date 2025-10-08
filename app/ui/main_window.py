@@ -130,7 +130,12 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         # Load and apply styles
         self.load_and_apply_styles()
         
-        # Menu bar is not implemented in this version
+        # Load latest backup on startup
+        self.load_latest_backup()
+        
+        # Create menu bar
+        self.create_menu_bar()
+        
         logger.info("SchedulerWindow initialized successfully")
 
     def initialize_schedule_table(self):
@@ -761,8 +766,6 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         # Update detailed info window if open
         self.update_detailed_info_if_open()
         
-        # Auto-save user data
-        self.auto_save_user_data()
         
         QtWidgets.QMessageBox.information(self, 'پاک شد', 'تمام دروس از جدول حذف شدند.')
 
@@ -1148,8 +1151,6 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         # Update detailed info window if open
         self.update_detailed_info_if_open()
         
-        # Auto-save user data
-        self.auto_save_user_data()
         
         # Update stats panel
         print("🔄 Calling update_stats_panel from add_course_to_table")
@@ -1382,8 +1383,6 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         # Update detailed info window if open
         self.update_detailed_info_if_open()
         
-        # Auto-save user data
-        self.auto_save_user_data()
         
         # Update stats panel
         print("🔄 Calling update_stats_panel from add_course_to_table_with_priority")
@@ -1616,8 +1615,6 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         # Update detailed info window if open
         self.update_detailed_info_if_open()
         
-        # Auto-save user data
-        self.auto_save_user_data()
         
         # Update stats panel
         print("🔄 Calling update_stats_panel from add_course_to_table")
@@ -1719,8 +1716,6 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         # Update detailed info window if open
         self.update_detailed_info_if_open()
         
-        # Auto-save user data
-        self.auto_save_user_data()
         
         # Update stats panel after removing course
         print("🔄 Calling update_stats_panel from remove_entire_course")
@@ -2230,21 +2225,9 @@ class SchedulerWindow(QtWidgets.QMainWindow):
             self.search_clear_button.hide()
 
     def auto_save_user_data(self):
-        """Auto-save user data without user interaction with backup functionality"""
-        try:
-            # Collect currently placed course keys
-            keys = list({info['course'] for info in self.placed.values()})
-            
-            # Update user data with current schedule
-            self.user_data['current_schedule'] = keys
-            
-            # Save user data (backup functionality is now handled in save_user_data)
-            from ..core.data_manager import save_user_data
-            save_user_data(self.user_data)
-            
-        except Exception as e:
-            logger.error(f"Auto-save failed: {e}")
-            # Don't show error to user for auto-save to keep it seamless
+        """Auto-save user data without user interaction - DISABLED for backup-on-exit only"""
+        # DISABLED: Backup system now only creates backups on app exit, not after table edits
+        pass
             
     def _cleanup_old_backups(self):
         """Clean up old backup files, keeping only the last 5"""
@@ -3737,6 +3720,207 @@ class SchedulerWindow(QtWidgets.QMainWindow):
             
         except Exception as e:
             logger.error(f"Error populating major dropdown: {e}")
+
+    def load_latest_backup(self):
+        """Load the latest backup on application startup"""
+        try:
+            from ..core.data_manager import get_latest_auto_backup, load_auto_backup
+            
+            # Get the latest auto backup file
+            latest_backup = get_latest_auto_backup()
+            
+            if latest_backup:
+                # Load data from the latest backup
+                backup_data = load_auto_backup(latest_backup)
+                
+                if backup_data:
+                    # Update user data
+                    self.user_data = backup_data
+                    
+                    # Load courses from backup data
+                    current_schedule = self.user_data.get('current_schedule', [])
+                    for course_key in current_schedule:
+                        if course_key in COURSES:
+                            self.add_course_to_table(course_key, ask_on_conflict=False)
+                    
+                    # Update UI
+                    self.update_status()
+                    self.update_stats_panel()
+                    self.update_detailed_info_if_open()
+                    
+                    logger.info(f"Loaded latest backup: {latest_backup}")
+                else:
+                    logger.error(f"Failed to load backup data from: {latest_backup}")
+            else:
+                logger.info("No backup files found, starting with empty schedule")
+                
+        except Exception as e:
+            logger.error(f"Error loading latest backup: {e}")
+
+    def create_menu_bar(self):
+        """Create the application menu bar with usage history option"""
+        try:
+            # Create menu bar
+            menubar = self.menuBar()
+            
+            # Create "Usage History" menu
+            history_menu = menubar.addMenu('سوابق استفاده')
+            
+            # Add date to menu title
+            current_date = datetime.datetime.now().strftime('%Y/%m/%d')
+            history_menu.setTitle(f'سوابق استفاده ({current_date})')
+            
+            # Connect menu to populate with backup history when clicked
+            history_menu.aboutToShow.connect(self.populate_backup_history_menu)
+            
+        except Exception as e:
+            logger.error(f"Error creating menu bar: {e}")
+
+    def populate_backup_history_menu(self):
+        """Populate the backup history menu with available backups"""
+        try:
+            # Clear existing menu items
+            menu = self.sender()
+            menu.clear()
+            
+            # Get backup history from data manager
+            from ..core.data_manager import get_backup_history
+            backup_files = get_backup_history(5)
+            
+            if not backup_files:
+                no_backups_action = menu.addAction("هیچ سوابقی موجود نیست")
+                no_backups_action.setEnabled(False)
+                return
+            
+            # Add backup files to menu
+            for i, backup_file in enumerate(backup_files):
+                # Extract timestamp from filename
+                filename = os.path.basename(backup_file)
+                timestamp_part = filename.replace('user_data_', '').replace('user_data_auto_', '').replace('.json', '')
+                
+                # Format timestamp for display with Jalali date
+                try:
+                    if '_' in timestamp_part:
+                        # Handle both manual (YYYYMMDD_HHMMSS) and auto (auto_YYYYMMDD_HHMMSS) backup formats
+                        parts = timestamp_part.split('_', 1)  # Split only on first underscore
+                        if len(parts) == 2 and parts[0] == 'auto':
+                            # Auto backup format: auto_YYYYMMDD_HHMMSS
+                            date_time_part = parts[1]
+                        else:
+                            # Manual backup format: YYYYMMDD_HHMMSS
+                            date_time_part = timestamp_part
+                        
+                        # Split date and time parts
+                        date_part, time_part = date_time_part.split('_')
+                        
+                        # Extract year, month, day
+                        year = int(date_part[:4])
+                        month = int(date_part[4:6])
+                        day = int(date_part[6:8])
+                        
+                        # Convert Gregorian to Jalali
+                        import jdatetime
+                        jalali_date = jdatetime.date.fromgregorian(year=year, month=month, day=day)
+                        
+                        # Format time
+                        formatted_time = f"{time_part[:2]}:{time_part[2:4]}:{time_part[4:6]}"
+                        
+                        # Display in Persian format: 📅 1403/07/17 - 🕒 11:40:06
+                        display_text = f"📅 {jalali_date.year}/{jalali_date.month:02d}/{jalali_date.day:02d} - 🕒 {formatted_time}"
+                    else:
+                        display_text = f"برنامه {i+1} — تاریخ خروج: {timestamp_part}"
+                except Exception as e:
+                    logger.error(f"Error formatting backup timestamp: {e}")
+                    display_text = f"برنامه {i+1} — تاریخ خروج: {timestamp_part}"
+                
+                # Create action for this backup
+                action = menu.addAction(display_text)
+                action.triggered.connect(lambda checked, f=backup_file: self.load_backup_file(f))
+                
+        except Exception as e:
+            logger.error(f"Error populating backup history menu: {e}")
+
+    def load_backup_file(self, backup_file):
+        """Load a specific backup file and populate the schedule table"""
+        try:
+            from ..core.data_manager import load_auto_backup
+            import json
+            
+            logger.info(f"Loading backup file: {backup_file}")
+            
+            # Load data from backup file
+            with open(backup_file, 'r', encoding='utf-8') as f:
+                backup_data = json.load(f)
+            
+            # Update user data
+            self.user_data = backup_data
+            
+            # Clear current schedule completely
+            self.clear_table_silent()
+            
+            # Load courses from backup data
+            current_schedule = self.user_data.get('current_schedule', [])
+            for course_key in current_schedule:
+                if course_key in COURSES:
+                    self.add_course_to_table(course_key, ask_on_conflict=False)
+            
+            # Update UI
+            self.update_status()
+            self.update_stats_panel()
+            self.update_detailed_info_if_open()
+            
+            logger.info(f"Backup successfully loaded and replaced current table: {backup_file}")
+            QtWidgets.QMessageBox.information(self, 'موفقیت', 'نسخه پشتیبان با موفقیت بارگذاری شد.')
+            
+        except Exception as e:
+            logger.error(f"Error loading backup file {backup_file}: {e}")
+            QtWidgets.QMessageBox.critical(self, 'خطا', f'خطا در بارگذاری نسخه پشتیبان:\n{str(e)}')
+
+    def clear_schedule_table(self):
+        """Clear all courses from the schedule table"""
+        try:
+            # Get all course keys first to avoid dictionary change during iteration
+            course_keys = [info['course'] for info in self.placed.values()]
+            
+            # Remove all placed courses
+            for course_key in set(course_keys):  # Use set to avoid duplicates
+                self.remove_course_from_schedule(course_key)
+            
+            # Clear the placed dictionary (should already be empty after remove_course_from_schedule)
+            self.placed.clear()
+            
+            # Update UI
+            self.update_status()
+            self.update_stats_panel()
+            
+        except Exception as e:
+            logger.error(f"Error clearing schedule table: {e}")
+
+    def closeEvent(self, event):
+        """Handle application close event - create auto backup before exit"""
+        try:
+            logger.info("Auto-backup triggered on app exit.")
+            
+            # Collect currently placed course keys
+            keys = list({info['course'] for info in self.placed.values()})
+            
+            # Update user data with current schedule
+            self.user_data['current_schedule'] = keys
+            
+            # Create auto backup
+            from ..core.data_manager import create_auto_backup
+            backup_file = create_auto_backup(self.user_data)
+            
+            if backup_file:
+                logger.info(f"Auto-backup created: {backup_file}")
+            else:
+                logger.error("Failed to create auto-backup")
+                
+        except Exception as e:
+            logger.error(f"Error during auto-backup on exit: {e}")
+        
+        # Accept the close event
+        event.accept()
 
 if __name__ == '__main__':
     # Error handling for the main application

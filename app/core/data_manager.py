@@ -243,5 +243,113 @@ def generate_unique_key(base_key, existing_keys):
     
     return new_key
 
+def create_auto_backup(user_data):
+    """Create an automatic backup before app exit"""
+    try:
+        import datetime
+        # Create backup with timestamp
+        timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
+        backup_file = BACKUP_DIR / f"user_data_auto_{timestamp}.json"
+        
+        # Save current user data to backup file
+        with open(backup_file, 'w', encoding='utf-8') as f:
+            json.dump(user_data, f, ensure_ascii=False, indent=2)
+        
+        logger.info(f"Auto-backup created: {backup_file}")
+        
+        # Clean up old auto-backups (keep only last 5)
+        cleanup_auto_backups()
+        
+        return backup_file
+    except Exception as e:
+        logger.error(f"Error creating auto-backup: {e}")
+        return None
+
+def cleanup_auto_backups():
+    """Clean up old auto-backup files, keeping only the last 5"""
+    try:
+        # Find all auto backup files in the backups directory
+        auto_backup_pattern = str(BACKUP_DIR / "user_data_auto_*.json")
+        auto_backup_files = glob.glob(auto_backup_pattern)
+        
+        # Sort by modification time (newest first)
+        auto_backup_files.sort(key=os.path.getmtime, reverse=True)
+        
+        # Remove auto backups older than 5
+        for old_backup in auto_backup_files[5:]:
+            try:
+                os.remove(old_backup)
+                logger.info(f"Removed old auto-backup: {old_backup}")
+            except Exception as e:
+                logger.error(f"Failed to remove auto-backup {old_backup}: {e}")
+                
+        logger.info("Auto-backup cleanup complete (kept last 5 files)")
+        
+    except Exception as e:
+        logger.error(f"Auto-backup cleanup failed: {e}")
+
+def get_latest_auto_backup():
+    """Get the latest auto backup file"""
+    try:
+        # Find all auto backup files in the backups directory
+        auto_backup_pattern = str(BACKUP_DIR / "user_data_auto_*.json")
+        auto_backup_files = glob.glob(auto_backup_pattern)
+        
+        if not auto_backup_files:
+            logger.info("No auto-backup files found")
+            return None
+            
+        # Sort by modification time (newest first)
+        auto_backup_files.sort(key=os.path.getmtime, reverse=True)
+        
+        latest_backup = auto_backup_files[0]
+        logger.info(f"Latest auto-backup found: {latest_backup}")
+        return latest_backup
+    except Exception as e:
+        logger.error(f"Error finding latest auto-backup: {e}")
+        return None
+
+def load_auto_backup(backup_file):
+    """Load data from an auto backup file"""
+    try:
+        logger.info(f"Loading auto-backup: {backup_file}")
+        
+        with open(backup_file, 'r', encoding='utf-8') as f:
+            data = json.load(f)
+        
+        # Ensure required keys exist
+        required_keys = ['custom_courses', 'saved_combos', 'current_schedule']
+        for key in required_keys:
+            if key not in data:
+                data[key] = []
+                
+        logger.info(f"Successfully loaded auto-backup: {backup_file}")
+        return data
+    except Exception as e:
+        logger.error(f"Error loading auto-backup {backup_file}: {e}")
+        return None
+
+def get_backup_history(limit=5):
+    """Get the backup history (all backup files sorted by date)"""
+    try:
+        # Find all backup files (both manual and auto)
+        manual_backup_pattern = str(BACKUP_DIR / "user_data_*.json")
+        auto_backup_pattern = str(BACKUP_DIR / "user_data_auto_*.json")
+        
+        manual_backup_files = glob.glob(manual_backup_pattern)
+        auto_backup_files = glob.glob(auto_backup_pattern)
+        
+        # Combine all backup files
+        all_backup_files = manual_backup_files + auto_backup_files
+        
+        # Sort by modification time (newest first)
+        all_backup_files.sort(key=os.path.getmtime, reverse=True)
+        
+        # Return only the requested limit
+        return all_backup_files[:limit]
+    except Exception as e:
+        logger.error(f"Error getting backup history: {e}")
+        return []
+
 # Import datetime here to avoid circular imports
 import datetime
