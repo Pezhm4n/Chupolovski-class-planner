@@ -1,8 +1,5 @@
 """
-Requests-based scraper module for the Chupolovski Class Planner application.
+Requests-based scraper module for the Golestoon Class Planner application.
 
-This package contains modules for fetching course data from the Golestan system
-using HTTP requests and parsing the returned data.
+This module provides functionality for fetching course data using the requests library.
 """
-
-# This file makes the directory a Python package

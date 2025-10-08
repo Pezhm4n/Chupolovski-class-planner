@@ -1,5 +1,5 @@
 """
-Fonts package for the Chupolovski Class Planner application.
+Fonts package for the Golestoon Class Planner application.
 
-This package contains custom fonts used in the application.
+This package contains font resources used throughout the application.
 """

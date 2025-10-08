@@ -1,5 +1,5 @@
 """
-Version information for the Chupolovski Class Planner application.
+Version information for the Golestoon Class Planner application.
 """
 
-__version__ = "2.3.0"
+__version__ = "0.7.0"

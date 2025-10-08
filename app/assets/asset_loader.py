@@ -1,8 +1,8 @@
 """
-Asset loader module for the Chupolovski Class Planner application.
+Asset loader module for the Golestoon Class Planner application.
 
-This module provides utilities for loading application assets such as icons,
-images, and fonts from the assets directory.
+This module provides functionality for loading and managing application assets
+such as icons, images, and fonts.
 """
 
 import os

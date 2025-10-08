@@ -192,7 +192,7 @@ class ExamScheduleWindow(QtWidgets.QMainWindow):
         self.exam_table.horizontalHeader().setStyleSheet(
             "QHeaderView::section {"
             "background-color: #9C27B0;"
-            "color: white;"
+            "color: black;"
             "font-weight: normal;"
             "padding: 8px;"
             "border: 1px solid #dcdcdc;"
@@ -542,7 +542,7 @@ class ExamScheduleWindow(QtWidgets.QMainWindow):
         }}
         .exam-table thead {{
             background-color: #9C27B0;
-            color: white;
+            color: black;
         }}
         .exam-table th {{
             padding: 12px 15px;

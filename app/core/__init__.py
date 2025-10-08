@@ -1,7 +1,10 @@
 """
-Core package for the Chupolovski Class Planner application.
+Core package for the Golestoon Class Planner application.
 
-This package contains the core application logic including configuration,
-data management, and business logic.
+This package contains the core application logic and configuration including:
+- Application configuration
+- Data management
+- Logging
+- Error handling
+- Course utilities
 """
-__all__ = []

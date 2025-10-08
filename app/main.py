@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
-Main entry point for Chupolovski Class Planner
+Main entry point for Golestoon Class Planner
 University Course Schedule Planner Application
 """
 
@@ -52,7 +52,7 @@ logger = setup_logging()
 def main():
     """Main function to run the application"""
     app = QApplication(sys.argv)
-    app.setApplicationName('Schedule Planner')
+    app.setApplicationName('Golestoon Class Planner')
     app.setApplicationVersion(__version__)
     app.setOrganizationName('University Schedule Tools')
     
@@ -76,6 +76,7 @@ def main():
     
     # Create and show the main window
     win = SchedulerWindow()
+    win.setWindowTitle('Golestoon Class Planner')
     win.show()
     
     return app.exec_()

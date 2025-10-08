@@ -1,5 +1,5 @@
 """
-Icons package for the Chupolovski Class Planner application.
+Icons package for the Golestoon Class Planner application.
 
-This package contains application icons in various formats and sizes.
+This package contains icon resources used throughout the application.
 """
