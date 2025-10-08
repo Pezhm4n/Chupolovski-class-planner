@@ -96,6 +96,14 @@ def load_golestan_data() -> Dict[str, Any]:
                     unavailable_count += len(courses)
             process_golestan_faculty_data(unavailable_data, all_courses, COURSE_MAJORS, is_available=False)
         
+        # Normalize day names in all loaded courses
+        for course in all_courses.values():
+            if 'schedule' in course:
+                for session in course['schedule']:
+                    if 'day' in session:
+                        # Import normalize_day_name from xml_parser
+                        from ..scrapers.requests_scraper.xml_parser import normalize_day_name
+                        session['day'] = normalize_day_name(session['day'])
         
         logger.info(f"Loaded {len(all_courses)} total courses ({available_count} available + {unavailable_count} unavailable)")
         print(f"Loaded {len(all_courses)} total courses ({available_count} available + {unavailable_count} unavailable)")
@@ -183,13 +191,21 @@ def convert_golestan_course_format(course: Dict, is_available: bool) -> Dict:
     """
     try:
         # Extract basic information
+        # Extract location from first schedule session if exists
+        schedule = course.get('schedule', [])
+        course_location = course.get('location', '')  # Try course-level first
+        
+        if not course_location and schedule:
+            # Fallback to first session's location
+            course_location = schedule[0].get('location', '')
+        
         converted = {
             'code': course.get('code', ''),
             'name': course.get('name', ''),
             'credits': int(course.get('credits', 0)),
             'instructor': course.get('instructor', 'اساتيد گروه آموزشي'),
-            'schedule': course.get('schedule', []),
-            'location': course.get('location', ''),
+            'schedule': schedule,
+            'location': course_location,  # ← Now properly populated from schedule
             'description': course.get('description', ''),
             'exam_time': course.get('exam_time', ''),
             # New fields from Golestan scraper
