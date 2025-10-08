@@ -59,7 +59,7 @@ COURSES_DATA_FILE = APP_DIR / 'data' / 'courses_data.json'
 STYLES_FILE = APP_DIR / 'ui' / 'styles.qss'
 
 # روزها و اسلات‌ها
-DAYS = ['شنبه', 'یکشنبه', 'دوشنبه', 'سه‌شنبه', 'چهارشنبه', 'پنج‌شنبه']
+DAYS = ['شنبه', 'یکشنبه', 'دوشنبه', 'سه‌شنبه', 'چهارشنبه', 'پنج‌شنبه', 'جمعه']
 
 def generate_time_slots():
     """Generate time slots from 7:30 to 18:00 in 30-minute intervals."""

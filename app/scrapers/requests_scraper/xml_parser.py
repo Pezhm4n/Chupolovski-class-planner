@@ -18,6 +18,47 @@ def normalize_to_persian(text):
 
     return text
 
+def normalize_day_name(day_name):
+    """
+    Normalize Persian weekday names to standard format matching config.DAYS.
+    Handles variations in spacing, ZWNJ, and character encoding.
+    
+    Args:
+        day_name (str): Raw day name from parsed data
+        
+    Returns:
+        str: Normalized day name matching config.DAYS format
+    """
+    if not day_name:
+        return day_name
+    
+    # First normalize to Persian characters (Arabic → Persian)
+    day_name = normalize_to_persian(day_name)
+    
+    # Remove all whitespace and ZWNJ to create base form
+    day_clean = day_name.replace(' ', '').replace('\u200c', '').strip()
+    
+    # Map all variations to standard format with proper ZWNJ
+    day_mapping = {
+        'شنبه': 'شنبه',
+        'یکشنبه': 'یکشنبه',
+        'یکشنبه': 'یکشنبه',      # Alternative spelling
+        'دوشنبه': 'دوشنبه',
+        'دوشنبه': 'دوشنبه',      # Alternative spelling
+        'سهشنبه': 'سه\u200cشنبه',   # Add ZWNJ
+        'سهشنبه': 'سه\u200cشنبه',   # Alternative spelling
+        'چهارشنبه': 'چهارشنبه',
+        'چهارشنبه': 'چهارشنبه',  # Alternative spelling
+        'پنجشنبه': 'پنج\u200cشنبه', # Add ZWNJ
+        'پنجشنبه': 'پنج\u200cشنبه', # Alternative spelling
+        'جمعه': 'جمعه'
+    }
+    
+    # Return normalized form
+    normalized = day_mapping.get(day_clean, day_name)
+    
+    return normalized
+
 def parse_courses_from_xml(xml_string, output_path):
     with open('output.txt', 'w', encoding='utf-8') as f:
         f.write(xml_string)
@@ -67,10 +108,11 @@ def parse_courses_from_xml(xml_string, output_path):
                 location = location_match.group(1).strip() if location_match else ""
 
                 for match in time_matches:
-                    day = re.sub(r'\s+', ' ', match.group(1).strip())
-
+                    day_raw = re.sub(r'\s+', ' ', match.group(1)).strip()
+                    day_normalized = normalize_day_name(day_raw)  # ← ADD THIS
+                    
                     schedule.append({
-                        "day": day,
+                        "day": day_normalized,  # ← Use normalized instead of day_raw
                         "start": match.group(2),
                         "end": match.group(3),
                         "parity": match.group(4) or "",
