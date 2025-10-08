@@ -1,9 +1,26 @@
 import xml.etree.ElementTree as ET
 import json
 import re
-# import persianutils as pu
+
+def normalize_to_persian(text):
+    """Convert Arabic characters to Persian equivalents."""
+    if not text:
+        return text
+
+    # Arabic to Persian character mappings
+    replacements = {
+        'ي': 'ی',
+        'ك': 'ک',
+    }
+
+    for arabic, persian in replacements.items():
+        text = text.replace(arabic, persian)
+
+    return text
 
 def parse_courses_from_xml(xml_string, output_path):
+    with open('output.txt', 'w', encoding='utf-8') as f:
+        f.write(xml_string)
 
     root = ET.fromstring(xml_string)
     courses = {}
@@ -23,21 +40,42 @@ def parse_courses_from_xml(xml_string, output_path):
         except:
             pass
 
-        schedule = []
-        schedule_text = attrib.get("C12", "")
-        for m in re.finditer(r"(?P<day>\S+)\s+(?P<start>\d{2}:\d{2})-(?P<end>\d{2}:\d{2})(?:\s*(?P<parity>[فز])?)",
-                             schedule_text):
-            schedule.append({
-                "day": m.group("day"),
-                "start": m.group("start"),
-                "end": m.group("end"),
-                "parity": m.group("parity") or ""
-            })
+        schedule_text = normalize_to_persian(attrib.get("C12", ""))
 
-        location = ""
-        location_match = re.search(r"مکان:\s*(.+?)(?:\s*تاريخ:|$)", schedule_text)
-        if location_match:
-            location = location_match.group(1).strip()
+        schedule = []
+
+        if schedule_text and schedule_text.strip():
+            # Persian weekday names with variations
+            day_pattern = r'(?:شنبه|یک\s*شنبه|يك\s*شنبه|یکشنبه|يكشنبه|دو\s*شنبه|دوشنبه|سه\s*شنبه|سهشنبه|چهار\s*شنبه|چهارشنبه|پنج\s*شنبه|پنجشنبه|جمعه)'
+
+            # Split by "درس(ت):" or "درس(ع):" or comma before درس
+            schedule_entries = re.split(r'(?:درس\([تع]\)):\s*|،\s*(?=درس\([تع]\):)', schedule_text)
+            schedule_entries = [e.strip() for e in schedule_entries if e.strip()]
+
+            for entry in schedule_entries:
+                # Find all day-time patterns
+                time_matches = list(re.finditer(
+                    rf'({day_pattern})\s+(\d{{2}}:\d{{2}})-(\d{{2}}:\d{{2}})(?:\s*([فز]))?',
+                    entry
+                ))
+
+                if not time_matches:
+                    continue
+
+                # Extract location - everything after "مکان:" until comma or end
+                location_match = re.search(r'مکان:\s*(.+?)(?:،|$)', entry)
+                location = location_match.group(1).strip() if location_match else ""
+
+                for match in time_matches:
+                    day = re.sub(r'\s+', ' ', match.group(1).strip())
+
+                    schedule.append({
+                        "day": day,
+                        "start": match.group(2),
+                        "end": match.group(3),
+                        "parity": match.group(4) or "",
+                        "location": location
+                    })
 
         exam_time = ""
         exam_text = attrib.get("C13", "")
@@ -56,15 +94,14 @@ def parse_courses_from_xml(xml_string, output_path):
 
         course = {
             "code": attrib.get("C1", ""),
-            "name": attrib.get("C2", ""),
+            "name": normalize_to_persian(attrib.get("C2", "")),
             "credits": credits,
             "gender": attrib.get("C10", ""),
             "capacity": attrib.get("C7", ""),
-            "instructor": attrib.get("C11", "اساتيد گروه آموزشي").replace("<BR>", "").strip(),
-            "schedule": schedule,
-            "location": location,
-            "enrollment_conditions": enrollment_conditions,
-            "description": c25.replace("<BR>", ""),
+            "instructor": normalize_to_persian(attrib.get("C11", "اساتید گروه آموزشی")).replace("<BR>", "").strip(),
+            "schedule": schedule,  # Already normalized during parsing
+            "enrollment_conditions": normalize_to_persian(enrollment_conditions).replace("<BR>", "").strip(),
+            "description": normalize_to_persian(c25).replace("<BR>", ""),
             "exam_time": exam_time
         }
 

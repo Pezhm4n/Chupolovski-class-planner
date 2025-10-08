@@ -1,14 +1,11 @@
 import re
 import time
-from pathlib import Path
 from random import random
 import requests
 from bs4 import BeautifulSoup
 from dotenv import load_dotenv
 from requests.cookies import create_cookie
-import sys
 from pathlib import Path
-
 from app.scrapers.requests_scraper.xml_parser import parse_courses_from_xml
 import os
 from app.captcha_solver.predict import predict
@@ -72,10 +69,6 @@ class GolestanSession:
         Returns:
             bool: True if authentication successful, False otherwise
         """
-        # Load .env file from the scrapers directory
-        import os
-        from pathlib import Path
-        from dotenv import load_dotenv
         
         # Get the path to the scrapers directory where .env should be located
         scrapers_dir = Path(__file__).resolve().parent.parent
