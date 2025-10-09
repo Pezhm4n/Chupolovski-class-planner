@@ -40,3 +40,5 @@ app/data/courses_data/unavailable_courses.json
 app/data/user_data.json
 
 app/output.txt
+
+app/data/.db_initialized
