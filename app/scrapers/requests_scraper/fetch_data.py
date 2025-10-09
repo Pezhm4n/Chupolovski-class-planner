@@ -6,8 +6,9 @@ from bs4 import BeautifulSoup
 from dotenv import load_dotenv
 from requests.cookies import create_cookie
 from pathlib import Path
-from app.scrapers.requests_scraper.xml_parser import parse_courses_from_xml
 import os
+from app.data.storage import store_courses_to_db
+from app.scrapers.requests_scraper.xml_parser import parse_courses_from_xml
 from app.captcha_solver.predict import predict
 
 class GolestanSession:
@@ -351,21 +352,21 @@ def get_courses(status='both', username=None, password=None):
 
         results = golestan.fetch_courses(status)
 
-        # Get the path to the app root
-        app_root = Path(__file__).resolve().parent.parent.parent
-        project_super_root = app_root.parent
-
-        data_dir = app_root / 'data' / 'courses_data'
-        os.makedirs(data_dir, exist_ok=True)
+        # Parse and store courses to database
+        available_courses = None
+        unavailable_courses = None
 
         if 'available' in results:
-            available_path = data_dir / 'available_courses.json'
-            parse_courses_from_xml(results['available'], str(available_path))
-            print(f"💾 Available courses saved to {available_path.relative_to(project_super_root)}")
+            available_courses = parse_courses_from_xml(results['available'])
+            print(f"✓ Parsed {len(available_courses)} available courses")
+
         if 'unavailable' in results:
-            unavailable_path = data_dir / 'unavailable_courses.json'
-            parse_courses_from_xml(results['unavailable'], str(unavailable_path))
-            print(f"💾 Unavailable courses saved to {unavailable_path.relative_to(project_super_root)}")
+            unavailable_courses = parse_courses_from_xml(results['unavailable'])
+            print(f"✓ Parsed {len(unavailable_courses)} unavailable courses")
+
+        # Store to database (auto-creates tables if needed)
+        total = store_courses_to_db(available_courses, unavailable_courses)
+        print(f"💾 Stored {total} total courses to database")
 
     finally:
         golestan.session.close()
@@ -373,5 +374,5 @@ def get_courses(status='both', username=None, password=None):
 
 if __name__ == "__main__":
     # Example usage
-    courses = get_courses(status='both')
+    courses = get_courses(status='available')
     print("✅ Course fetching complete!")
