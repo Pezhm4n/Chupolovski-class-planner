@@ -102,7 +102,7 @@ def load_golestan_data() -> Dict[str, Any]:
                 for session in course['schedule']:
                     if 'day' in session:
                         # Import normalize_day_name from xml_parser
-                        from ..scrapers.requests_scraper.xml_parser import normalize_day_name
+                        from ..scrapers.requests_scraper.parsers import normalize_day_name
                         session['day'] = normalize_day_name(session['day'])
         
         logger.info(f"Loaded {len(all_courses)} total courses ({available_count} available + {unavailable_count} unavailable)")
