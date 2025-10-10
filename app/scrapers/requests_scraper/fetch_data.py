@@ -6,7 +6,8 @@ from bs4 import BeautifulSoup
 from dotenv import load_dotenv
 from requests.cookies import create_cookie
 from pathlib import Path
-from app.scrapers.requests_scraper.xml_parser import parse_courses_from_xml
+from app.scrapers.requests_scraper.models import Student
+from app.scrapers.requests_scraper.parsers import parse_courses_from_xml, parse_student_info, parse_semester_data, extract_semester_ids
 import os
 from app.captcha_solver.predict import predict
 
@@ -76,9 +77,8 @@ class GolestanSession:
         
         # Load the .env file from the correct location
         load_dotenv(dotenv_path=env_path, override=True)
-        
-        # Fix: Don't convert username to int, keep it as string
-        username = username or os.getenv("USERNAME")
+
+        self.username = username or os.getenv("USERNAME")
         password = password or os.getenv("PASSWORD")
 
         # Get session ID
@@ -96,13 +96,13 @@ class GolestanSession:
         # Get login page
         get_url = 'https://golestan.ikiu.ac.ir/Forms/AuthenticateUser/AuthUser.aspx?fid=0;1&tck=&&&lastm=20240303092318'
         get_resp = self.session.get(get_url, headers=self.headers)
-        results = self._extract_aspnet_fields(get_resp.text)
+        aspnet_fields = self._extract_aspnet_fields(get_resp.text)
 
         # Step 4: Initial POST
         payload = {
-            '__VIEWSTATE': results['viewstate'],
-            '__VIEWSTATEGENERATOR': results['viewstategen'],
-            '__EVENTVALIDATION': results['eventvalidation'],
+            '__VIEWSTATE': aspnet_fields['viewstate'],
+            '__VIEWSTATEGENERATOR': aspnet_fields['viewstategen'],
+            '__EVENTVALIDATION': aspnet_fields['eventvalidation'],
             'TxtMiddle': '<r/>',
             'Fm_Action': '00',
             'Frm_Type': '', 'Frm_No': '', 'TicketTextBox': ''
@@ -110,7 +110,7 @@ class GolestanSession:
 
         post_url = 'https://golestan.ikiu.ac.ir/Forms/AuthenticateUser/AuthUser.aspx?fid=0%3b1&tck=&&&lastm=20240303092318'
         post_resp = self.session.post(post_url, data=payload, headers=self.headers)
-        results = self._extract_aspnet_fields(post_resp.text)
+        aspnet_fields = self._extract_aspnet_fields(post_resp.text)
 
         # Captcha solving loop
         for i in range(max_attempts):
@@ -128,10 +128,10 @@ class GolestanSession:
                 continue  # Skips to next loop iteration
 
             payload = {
-                '__VIEWSTATE': results['viewstate'],
-                '__VIEWSTATEGENERATOR': results['viewstategen'],
-                '__EVENTVALIDATION': results['eventvalidation'],
-                'TxtMiddle': f'<r F51851="" F80351="{username}" F80401="{password}" F51701="{captcha_text}" F83181="1" F51602="" F51803="0" F51601="1"/>',
+                '__VIEWSTATE': aspnet_fields['viewstate'],
+                '__VIEWSTATEGENERATOR': aspnet_fields['viewstategen'],
+                '__EVENTVALIDATION': aspnet_fields['eventvalidation'],
+                'TxtMiddle': f'<r F51851="" F80351="{self.username}" F80401="{password}" F51701="{captcha_text}" F83181="1" F51602="" F51803="0" F51601="1"/>',
                 'Fm_Action': '09',
                 'Frm_Type': '', 'Frm_No': '', 'TicketTextBox': ''
             }
@@ -144,8 +144,8 @@ class GolestanSession:
 
             if self.lt and self.u:
                 print(f"✅ Authentication successful on attempt {i + 1}")
-                results = self._extract_aspnet_fields(resp_post.text)
-                self.tck = results['ticket']
+                aspnet_fields = self._extract_aspnet_fields(resp_post.text)
+                self.tck = aspnet_fields['ticket']
                 self.session_id = self.session.cookies.get("ASP.NET_SessionId", domain="golestan.ikiu.ac.ir")
                 break
             else:
@@ -167,8 +167,8 @@ class GolestanSession:
         rnd = random()
         get_url = f'https://golestan.ikiu.ac.ir/Forms/F0213_PROCESS_SYSMENU/F0213_01_PROCESS_SYSMENU_Dat.aspx?r={rnd}&fid=0;11130&b=&l=&tck={self.tck}&&lastm=20240303092316'
         get_resp = self.session.get(get_url, headers=self.headers)
-        results = self._extract_aspnet_fields(get_resp.text)
-        ticket = results['ticket']
+        aspnet_fields = self._extract_aspnet_fields(get_resp.text)
+        ticket = aspnet_fields['ticket']
 
         self.seq += 1
         cookie_tuples = [
@@ -179,9 +179,9 @@ class GolestanSession:
         self._add_cookies(cookie_tuples)
 
         payload = {
-            '__VIEWSTATE': results['viewstate'],
-            '__VIEWSTATEGENERATOR': results['viewstategen'],
-            '__EVENTVALIDATION': results['eventvalidation'],
+            '__VIEWSTATE': aspnet_fields['viewstate'],
+            '__VIEWSTATEGENERATOR': aspnet_fields['viewstategen'],
+            '__EVENTVALIDATION': aspnet_fields['eventvalidation'],
             'Fm_Action': '00', "Frm_Type": "", "Frm_No": "",
             "TicketTextBox": ticket, "XMLStdHlp": "",
             "TxtMiddle": "<r/>", 'ex': ''
@@ -189,8 +189,8 @@ class GolestanSession:
 
         post_url = f'https://golestan.ikiu.ac.ir/Forms/F0213_PROCESS_SYSMENU/F0213_01_PROCESS_SYSMENU_Dat.aspx?r={rnd}&fid=0%3b11130&b=&l=&tck={self.tck}&&lastm=20240303092316'
         post_resp = self.session.post(post_url, headers=self.headers, data=payload)
-        results = self._extract_aspnet_fields(post_resp.text)
-        self.tck = results['ticket']
+        aspnet_fields = self._extract_aspnet_fields(post_resp.text)
+        self.tck = aspnet_fields['ticket']
 
         return True
 
@@ -213,11 +213,11 @@ class GolestanSession:
         ]
         self._add_cookies(cookie_tuples)
 
-        self.report_rnd = random()
-        get_url = f'https://golestan.ikiu.ac.ir/Forms/F0202_PROCESS_REP_FILTER/F0202_01_PROCESS_REP_FILTER_DAT.ASPX?r={self.report_rnd}&fid=1;102&b=10&l=1&tck={self.tck}&&lastm=20230828062456'
+        self.rnd = random()
+        get_url = f'https://golestan.ikiu.ac.ir/Forms/F0202_PROCESS_REP_FILTER/F0202_01_PROCESS_REP_FILTER_DAT.ASPX?r={self.rnd}&fid=1;102&b=10&l=1&tck={self.tck}&&lastm=20230828062456'
         get_resp = self.session.get(get_url, headers=self.headers)
-        results = self._extract_aspnet_fields(get_resp.text)
-        ticket = results['ticket']
+        aspnet_fields = self._extract_aspnet_fields(get_resp.text)
+        ticket = aspnet_fields['ticket']
         self.ctck = self.session.cookies.get('ctck')
 
         self.seq += 1
@@ -230,9 +230,9 @@ class GolestanSession:
         self._add_cookies(cookie_tuples)
 
         payload = {
-            "__VIEWSTATE": results['viewstate'],
-            "__VIEWSTATEGENERATOR": results['viewstategen'],
-            "__EVENTVALIDATION": results['eventvalidation'],
+            "__VIEWSTATE": aspnet_fields['viewstate'],
+            "__VIEWSTATEGENERATOR": aspnet_fields['viewstategen'],
+            "__EVENTVALIDATION": aspnet_fields['eventvalidation'],
             "Fm_Action": "00", "Frm_Type": "", "Frm_No": "", "F_ID": "",
             "XmlPriPrm": "", "XmlPubPrm": "", "XmlMoredi": "",
             "F9999": "", "HelpCode": "", "Ref1": "", "Ref2": "", "Ref3": "",
@@ -241,11 +241,11 @@ class GolestanSession:
             "TxtMiddle": "<r/>", "tbExcel": "", "txtuqid": "", "ex": ""
         }
 
-        post_url = f'https://golestan.ikiu.ac.ir/Forms/F0202_PROCESS_REP_FILTER/F0202_01_PROCESS_REP_FILTER_DAT.ASPX?r={self.report_rnd}&fid=1%3b102&b=10&l=1&tck={self.tck}&&lastm=20230828062456'
+        post_url = f'https://golestan.ikiu.ac.ir/Forms/F0202_PROCESS_REP_FILTER/F0202_01_PROCESS_REP_FILTER_DAT.ASPX?r={self.rnd}&fid=1%3b102&b=10&l=1&tck={self.tck}&&lastm=20230828062456'
         post_resp = self.session.post(post_url, headers=self.headers, data=payload)
 
-        results = self._extract_aspnet_fields(post_resp.text)
-        self.report_ticket = results['ticket']
+        aspnet_fields = self._extract_aspnet_fields(post_resp.text)
+        self.report_ticket = aspnet_fields['ticket']
 
         print("✅ Navigated to course report dashboard")
 
@@ -268,9 +268,9 @@ class GolestanSession:
         if status in ['available', 'both']:
             print("📥 Fetching available courses...")
             payload = {
-                "__VIEWSTATE": results['viewstate'],
-                "__VIEWSTATEGENERATOR": results['viewstategen'],
-                "__EVENTVALIDATION": results['eventvalidation'],
+                "__VIEWSTATE": aspnet_fields['viewstate'],
+                "__VIEWSTATEGENERATOR": aspnet_fields['viewstategen'],
+                "__EVENTVALIDATION": aspnet_fields ['eventvalidation'],
                 "Fm_Action": "09", "Frm_Type": "", "Frm_No": "", "F_ID": "",
                 "XmlPriPrm": xml_pri_prm.replace('\n', ''),
                 "XmlPubPrm": xml_pub_prm_template.format(1, 1).replace('\n', ''),
@@ -281,7 +281,7 @@ class GolestanSession:
                 "TxtMiddle": "<r/>", "tbExcel": "", "txtuqid": "", "ex": ""
             }
 
-            post_url = f'https://golestan.ikiu.ac.ir/Forms/F0202_PROCESS_REP_FILTER/F0202_01_PROCESS_REP_FILTER_DAT.ASPX?r={self.report_rnd}&fid=1%3b102&b=10&l=1&tck={self.tck}&&lastm=20230828062456'
+            post_url = f'https://golestan.ikiu.ac.ir/Forms/F0202_PROCESS_REP_FILTER/F0202_01_PROCESS_REP_FILTER_DAT.ASPX?r={self.rnd}&fid=1%3b102&b=10&l=1&tck={self.tck}&&lastm=20230828062456'
             post_resp = self.session.post(post_url, headers=self.headers, data=payload)
 
             xml_string = self._extract_xmldat(post_resp.text)
@@ -292,8 +292,8 @@ class GolestanSession:
                 print("❌ Failed to extract available courses data")
 
             # Update state for next request
-            results = self._extract_aspnet_fields(post_resp.text)
-            self.report_ticket = results['ticket']
+            aspnet_fields = self._extract_aspnet_fields(post_resp.text)
+            self.report_ticket = aspnet_fields['ticket']
             self.ctck = self.session.cookies.get('ctck')
 
         # Fetch unavailable courses
@@ -305,9 +305,9 @@ class GolestanSession:
             self._add_cookies(cookie_tuples)
 
             payload = {
-                "__VIEWSTATE": results['viewstate'],
-                "__VIEWSTATEGENERATOR": results['viewstategen'],
-                "__EVENTVALIDATION": results['eventvalidation'],
+                "__VIEWSTATE": aspnet_fields['viewstate'],
+                "__VIEWSTATEGENERATOR": aspnet_fields['viewstategen'],
+                "__EVENTVALIDATION": aspnet_fields['eventvalidation'],
                 "Fm_Action": "09", "Frm_Type": "", "Frm_No": "", "F_ID": "",
                 "XmlPriPrm": xml_pri_prm.replace('\n', ''),
                 "XmlPubPrm": xml_pub_prm_template.format(0, 0).replace('\n', ''),
@@ -318,7 +318,7 @@ class GolestanSession:
                 "TxtMiddle": "<r/>", "tbExcel": "", "txtuqid": "", "ex": ""
             }
 
-            post_url = f'https://golestan.ikiu.ac.ir/Forms/F0202_PROCESS_REP_FILTER/F0202_01_PROCESS_REP_FILTER_DAT.ASPX?r={self.report_rnd}&fid=1%3b102&b=10&l=1&tck={self.tck}&&lastm=20230828062456'
+            post_url = f'https://golestan.ikiu.ac.ir/Forms/F0202_PROCESS_REP_FILTER/F0202_01_PROCESS_REP_FILTER_DAT.ASPX?r={self.rnd}&fid=1%3b102&b=10&l=1&tck={self.tck}&&lastm=20230828062456'
             post_resp = self.session.post(post_url, headers=self.headers, data=payload)
 
             xml_string = self._extract_xmldat(post_resp.text)
@@ -330,48 +330,231 @@ class GolestanSession:
 
         return results_data
 
+    def get_courses(status='both', username=None, password=None):
+        """
+        High-level function to fetch course data from Golestan.
 
-def get_courses(status='both', username=None, password=None):
+        Args:
+            status: 'available', 'unavailable', or 'both'
+            username: Login username (defaults to env USERNAME)
+            password: Login password (defaults to env PASSWORD)
+
+        Returns:
+            dict: Dictionary with 'available' and/or 'unavailable' keys containing course data
+        """
+        golestan = GolestanSession()
+
+        try:
+            if not golestan.authenticate(username, password):
+                raise RuntimeError("Authentication failed")
+
+            results = golestan.fetch_courses(status)
+
+            # Get the path to the app root
+            app_root = Path(__file__).resolve().parent.parent.parent
+            project_super_root = app_root.parent
+
+            data_dir = app_root / 'data' / 'courses_data'
+            os.makedirs(data_dir, exist_ok=True)
+
+            if 'available' in results:
+                available_path = data_dir / 'available_courses.json'
+                parse_courses_from_xml(results['available'], str(available_path))
+                print(f"💾 Available courses saved to {available_path.relative_to(project_super_root)}")
+            if 'unavailable' in results:
+                unavailable_path = data_dir / 'unavailable_courses.json'
+                parse_courses_from_xml(results['unavailable'], str(unavailable_path))
+                print(f"💾 Unavailable courses saved to {unavailable_path.relative_to(project_super_root)}")
+
+        finally:
+            golestan.session.close()
+
+    def fetch_student_info(self):
+        """
+        Scrape the 'اطلاعات جامع دانشجو' (Comprehensive Student Information) page.
+
+        Returns:
+            tuple: (Student, semester_ids, aspnet_fields)
+              - Student: populated student information model
+              - semester_ids: list of codes for each academic semester found
+              - aspnet_fields: ASP.NET session/form fields, to be used for follow-up requests
+        """
+
+        self.rnd = random()
+        get_url = f"https://golestan.ikiu.ac.ir/Forms/F1802_PROCESS_MNG_STDJAMEHMON/F1802_01_PROCESS_MNG_STDJAMEHMON_Dat.aspx?r={self.rnd}&fid=0;12310&b=10&l=1&tck={self.tck}&&lastm=20250906103728"
+        get_resp = self.session.get(get_url, headers=self.headers)
+        aspnet_fields = self._extract_aspnet_fields(get_resp.text)
+        ticket = aspnet_fields['ticket']
+
+        self.seq += 1
+        cookie_tuples = [
+            ("ASP.NET_SessionId", self.session_id),
+            ("f", '12310'), ("ft", '0'), ("lt", self.lt),
+            ("seq", str(self.seq)), ("sno", ""), ("stdno", ""),
+            ("su", '3'), ("u", self.u)
+        ]
+        self._add_cookies(cookie_tuples)
+
+        payload = {
+            '__VIEWSTATE': aspnet_fields['viewstate'],
+            '__VIEWSTATEGENERATOR': aspnet_fields['viewstategen'],
+            '__EVENTVALIDATION': aspnet_fields['eventvalidation'],
+            'Fm_Action': '00', "Frm_Type": "", "Frm_No": "",
+            "TicketTextBox": ticket, "XMLStdHlp": "",
+            "TxtMiddle": "<r/>", 'ex': ''
+        }
+
+        post_url = f"https://golestan.ikiu.ac.ir/Forms/F1802_PROCESS_MNG_STDJAMEHMON/F1802_01_PROCESS_MNG_STDJAMEHMON_Dat.aspx?r={self.rnd}&fid=0%3b12310&b=10&l=1&tck={self.tck}&&lastm=20250906103728"
+        post_resp = self.session.post(post_url, headers=self.headers, data=payload)
+        aspnet_fields = self._extract_aspnet_fields(post_resp.text)
+        ticket = aspnet_fields['ticket']
+
+        payload = {
+            '__VIEWSTATE': aspnet_fields['viewstate'],
+            '__VIEWSTATEGENERATOR': aspnet_fields['viewstategen'],
+            '__EVENTVALIDATION': aspnet_fields['eventvalidation'],
+            'Fm_Action': '08', "Frm_Type": "", "Frm_No": "",
+            "TicketTextBox": ticket, "XMLStdHlp": "",
+            "TxtMiddle": f'<r F41251="{self.username}" F01951="" F02001=""/>', 'ex': ''
+        }
+
+        post_url = f"https://golestan.ikiu.ac.ir/Forms/F1802_PROCESS_MNG_STDJAMEHMON/F1802_01_PROCESS_MNG_STDJAMEHMON_Dat.aspx?r={self.rnd}&fid=0%3b12310&b=10&l=1&tck={self.tck}&&lastm=20250906103728"
+        post_resp = self.session.post(post_url, headers=self.headers, data=payload)
+        aspnet_fields = self._extract_aspnet_fields(post_resp.text)
+
+        # Parse student info
+        student = parse_student_info(post_resp.text)
+
+        # Extract semester IDs for later requests
+        semester_ids = extract_semester_ids(post_resp.text)
+
+        return student, semester_ids, aspnet_fields
+
+    def fetch_semester_courses(self, semester_id, aspnet_fields):
+        """
+        Fetch course details for a single semester, passing ASP.NET form fields.
+
+        Args:
+            semester_id: Semester code (e.g., '4021')
+            aspnet_fields: ASP.NET hidden field values (dict)
+
+        Returns:
+            (SemesterRecord, next_results): SemesterRecord object and updated aspnet_fields for next request
+        """
+
+        payload = {
+            '__VIEWSTATE': aspnet_fields['viewstate'],
+            '__VIEWSTATEGENERATOR': aspnet_fields['viewstategen'],
+            '__EVENTVALIDATION': aspnet_fields['eventvalidation'],
+            'Fm_Action': '80', "Frm_Type": "", "Frm_No": "",
+            "TicketTextBox": aspnet_fields['ticket'] , "XMLStdHlp": "",
+            "TxtMiddle": f'<r F41251="{self.username}" F01951="" F02001="" F43501="{str(semester_id)}"/>', 'ex': ''
+        }
+
+        semester_url = f"https://golestan.ikiu.ac.ir/Forms/F1802_PROCESS_MNG_STDJAMEHMON/F1802_01_PROCESS_MNG_STDJAMEHMON_Dat.aspx?r={self.rnd}&fid=0%3b12310&b=10&l=1&tck={self.tck}&&lastm=20250906103728"
+        resp = self.session.post(semester_url, headers=self.headers, data=payload)
+        next_results = self._extract_aspnet_fields(resp.text)
+
+        # Parse the response to extract semester and course data
+        semester_record = parse_semester_data(resp.text)
+
+        return semester_record, next_results
+
+
+def get_student_record(username=None, password=None):
     """
-    High-level function to fetch course data from Golestan.
-
-    Args:
-        status: 'available', 'unavailable', or 'both'
-        username: Login username (defaults to env USERNAME)
-        password: Login password (defaults to env PASSWORD)
-
-    Returns:
-        dict: Dictionary with 'available' and/or 'unavailable' keys containing course data
+    Fetches student info, semesters, and courses as full transcript.
+    Returns a Student object with all semesters and courses populated.
     """
     golestan = GolestanSession()
-
     try:
         if not golestan.authenticate(username, password):
             raise RuntimeError("Authentication failed")
 
-        results = golestan.fetch_courses(status)
+        # Fetch personal info
+        student, semester_ids, aspnet_fields = golestan.fetch_student_info()
 
-        # Get the path to the app root
-        app_root = Path(__file__).resolve().parent.parent.parent
-        project_super_root = app_root.parent
+        print(f"📋 Semesters: {', '.join(semester_ids)} for student {student.name}")
 
-        data_dir = app_root / 'data' / 'courses_data'
-        os.makedirs(data_dir, exist_ok=True)
+        # Fetch each semester and add to student
+        for semester_id in semester_ids:
+            semester_record, aspnet_fields = golestan.fetch_semester_courses(semester_id, aspnet_fields)
+            if semester_record:
+                student.semesters.append(semester_record)
+                print(
+                    f"✅ Semester {semester_id}: {len(semester_record.courses)} courses, GPA: {semester_record.semester_gpa}")
+            else:
+                print(f"❌ Failed to fetch semester {semester_id}")
 
-        if 'available' in results:
-            available_path = data_dir / 'available_courses.json'
-            parse_courses_from_xml(results['available'], str(available_path))
-            print(f"💾 Available courses saved to {available_path.relative_to(project_super_root)}")
-        if 'unavailable' in results:
-            unavailable_path = data_dir / 'unavailable_courses.json'
-            parse_courses_from_xml(results['unavailable'], str(unavailable_path))
-            print(f"💾 Unavailable courses saved to {unavailable_path.relative_to(project_super_root)}")
+        return student
 
     finally:
         golestan.session.close()
 
 
+def print_student_details(student: Student):
+    """Print complete student record with all semesters and courses"""
+
+    # Print header
+    print("=" * 80)
+    print("STUDENT RECORD")
+    print("=" * 80)
+
+    # Print student info
+    print(f"\n📋 Student Information:")
+    print(f"   ID: {student.student_id}")
+    print(f"   Name: {student.name}")
+    print(f"   Father: {student.father_name}")
+    print(f"   Faculty: {student.faculty}")
+    print(f"   Department: {student.department}")
+    print(f"   Major: {student.major}")
+    print(f"   Degree: {student.degree_level}")
+    print(f"   Study Type: {student.study_type}")
+    print(f"   Status: {student.enrollment_status}")
+    print(f"   Registration: {'Allowed' if student.registration_permission else 'Not Allowed'}")
+
+    # Print academic summary
+    print(f"\n📊 Academic Summary:")
+    print(f"   Overall GPA: {student.overall_gpa}")
+    print(f"   Total Units Passed: {student.total_units_passed}")
+    print(f"   Total Probations: {student.total_probation}")
+    print(f"   Consecutive Probations: {student.consecutive_probation}")
+    print(f"   Special Probations: {student.special_probation}")
+    print(f"   Total Semesters: {len(student.semesters)}")
+    print(f"   Last Updated: {student.updated_at}")
+
+    # Print each semester
+    print(f"\n📚 SEMESTER DETAILS:")
+    print("-" * 80)
+
+    for i, semester in enumerate(student.semesters, 1):
+        print(f"\n🗓️  Semester {i}: {semester.semester_description}")
+        print(f"   Semester ID: {semester.semester_id}")
+        print(f"   Semester GPA: {semester.semester_gpa}")
+        print(f"   Units Taken: {semester.units_taken}")
+        print(f"   Units Passed: {semester.units_passed}")
+        print(f"   Cumulative GPA: {semester.cumulative_gpa}")
+        print(f"   Cumulative Units: {semester.cumulative_units_passed}")
+        print(f"   Number of Courses: {len(semester.courses)}")
+
+        if semester.courses:
+            print(f"\n   📖 Courses:")
+            for j, course in enumerate(semester.courses, 1):
+                grade_display = f"{course.grade}" if course.grade else course.grade_state
+                print(f"      {j}. {course.course_code}-{course.course_group}: {course.course_name}")
+                print(f"         Units: {course.course_units} | Type: {course.course_type} | "
+                      f"Grade: {grade_display} | Status: {course.grade_state}")
+        else:
+            print(f"   No courses found for this semester")
+
+        print("-" * 80)
+
+    print("\n" + "=" * 80)
+    print("END OF STUDENT RECORD")
+    print("=" * 80)
+
+
+# Usage example
 if __name__ == "__main__":
-    # Example usage
-    courses = get_courses(status='both')
-    print("✅ Course fetching complete!")
+    student = get_student_record()
+    print_student_details(student)
