@@ -1,8 +1,3 @@
-"""
-Database module for storing and retrieving Golestan course data.
-Handles PostgreSQL operations including table creation, upsert, and queries.
-"""
-
 from typing import Dict, List, Optional
 import os
 from dotenv import load_dotenv
@@ -16,7 +11,6 @@ try:
     POSTGRES_AVAILABLE = True
 except ImportError:
     POSTGRES_AVAILABLE = False
-
 import sqlite3
 
 
@@ -211,7 +205,7 @@ class CourseDatabase:
             sql_statement = """
                 CREATE TABLE IF NOT EXISTS genders (
                     id SERIAL PRIMARY KEY,
-                    name VARCHAR(20) UNIQUE NOT NULL
+                    name VARCHAR(6) UNIQUE NOT NULL
                 )
             """
             cursor.execute(self._adapt_create_table_syntax(sql_statement))
@@ -240,15 +234,15 @@ class CourseDatabase:
             # Create courses table
             sql_statement = """
                 CREATE TABLE IF NOT EXISTS courses (
-                    code VARCHAR(50) PRIMARY KEY,
+                    code VARCHAR(10) PRIMARY KEY,
                     name TEXT NOT NULL,
                     credits INTEGER DEFAULT 0,
                     department_id INTEGER NOT NULL,
                     instructor_id INTEGER,
                     gender_id INTEGER,
-                    capacity VARCHAR(20),
+                    capacity VARCHAR(3),
                     enrollment_conditions TEXT,
-                    exam_time VARCHAR(100),
+                    exam_time VARCHAR(25),
                     is_available BOOLEAN DEFAULT TRUE,
                     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     FOREIGN KEY (department_id) REFERENCES departments(id) ON DELETE CASCADE,
@@ -271,7 +265,7 @@ class CourseDatabase:
             sql_statement = """
                 CREATE TABLE IF NOT EXISTS time_slots (
                     id SERIAL PRIMARY KEY,
-                    day VARCHAR(20) NOT NULL,
+                    day VARCHAR(10) NOT NULL,
                     start_time VARCHAR(5) NOT NULL,
                     end_time VARCHAR(5) NOT NULL,
                     UNIQUE(day, start_time, end_time)
@@ -296,7 +290,7 @@ class CourseDatabase:
             # Create junction table
             sql_statement = """
                 CREATE TABLE IF NOT EXISTS course_schedules (
-                    course_code VARCHAR(50) NOT NULL,
+                    course_code VARCHAR(10) NOT NULL,
                     schedule_entry_id INTEGER NOT NULL,
                     PRIMARY KEY (course_code, schedule_entry_id),
                     FOREIGN KEY (course_code) REFERENCES courses(code) ON DELETE CASCADE,
@@ -335,124 +329,200 @@ class CourseDatabase:
 
         try:
             course_count = 0
+            placeholder = self._get_placeholder()
 
             for fac_name, departments in courses_data.items():
                 # Insert or get faculty ID
-                cursor.execute("""
-                               INSERT INTO faculties (name)
-                               VALUES (%s) ON CONFLICT (name) DO
-                               UPDATE SET name = EXCLUDED.name
-                                   RETURNING id
-                               """, (fac_name,))
-                faculty_id = cursor.fetchone()[0]
+                if self.use_postgres:
+                    cursor.execute(f"""
+                        INSERT INTO faculties (name)
+                        VALUES ({placeholder}) ON CONFLICT (name) DO
+                        UPDATE SET name = EXCLUDED.name
+                        RETURNING id
+                    """, (fac_name,))
+                    faculty_id = cursor.fetchone()[0]
+                else:
+                    cursor.execute(f"""
+                        INSERT INTO faculties (name)
+                        VALUES ({placeholder}) ON CONFLICT (name) DO
+                        UPDATE SET name = EXCLUDED.name
+                    """, (fac_name,))
+                    # Always SELECT to get ID (lastrowid unreliable with ON CONFLICT)
+                    cursor.execute("SELECT id FROM faculties WHERE name = ?", (fac_name,))
+                    faculty_id = cursor.fetchone()[0]
 
                 for dept_name, courses in departments.items():
                     # Insert or get department ID
-                    cursor.execute("""
-                                   INSERT INTO departments (name, faculty_id)
-                                   VALUES (%s, %s) ON CONFLICT (name, faculty_id) DO
-                                   UPDATE SET name = EXCLUDED.name
-                                       RETURNING id
-                                   """, (dept_name, faculty_id))
-                    department_id = cursor.fetchone()[0]
+                    if self.use_postgres:
+                        cursor.execute(f"""
+                            INSERT INTO departments (name, faculty_id)
+                            VALUES ({placeholder}, {placeholder}) ON CONFLICT (name, faculty_id) DO
+                            UPDATE SET name = EXCLUDED.name
+                            RETURNING id
+                        """, (dept_name, faculty_id))
+                        department_id = cursor.fetchone()[0]
+                    else:
+                        cursor.execute(f"""
+                            INSERT INTO departments (name, faculty_id)
+                            VALUES ({placeholder}, {placeholder}) ON CONFLICT (name, faculty_id) DO
+                            UPDATE SET name = EXCLUDED.name
+                        """, (dept_name, faculty_id))
+                        # Always SELECT to get ID
+                        cursor.execute("SELECT id FROM departments WHERE name = ? AND faculty_id = ?",
+                                       (dept_name, faculty_id))
+                        department_id = cursor.fetchone()[0]
 
                     for course in courses:
                         # Insert or get instructor ID
                         instructor_id = None
                         if course.get('instructor'):
-                            cursor.execute("""
-                                           INSERT INTO instructors (name)
-                                           VALUES (%s) ON CONFLICT (name) DO
-                                           UPDATE SET name = EXCLUDED.name
-                                               RETURNING id
-                                           """, (course['instructor'],))
-                            instructor_id = cursor.fetchone()[0]
+                            if self.use_postgres:
+                                cursor.execute(f"""
+                                    INSERT INTO instructors (name)
+                                    VALUES ({placeholder}) ON CONFLICT (name) DO
+                                    UPDATE SET name = EXCLUDED.name
+                                    RETURNING id
+                                """, (course['instructor'],))
+                                instructor_id = cursor.fetchone()[0]
+                            else:
+                                cursor.execute(f"""
+                                    INSERT INTO instructors (name)
+                                    VALUES ({placeholder}) ON CONFLICT (name) DO
+                                    UPDATE SET name = EXCLUDED.name
+                                """, (course['instructor'],))
+                                # Always SELECT to get ID
+                                cursor.execute("SELECT id FROM instructors WHERE name = ?",
+                                               (course['instructor'],))
+                                instructor_id = cursor.fetchone()[0]
 
                         # Get gender ID
                         gender_id = None
                         if course.get('gender'):
-                            cursor.execute("""
-                                           SELECT id
-                                           FROM genders
-                                           WHERE name = %s
-                                           """, (course['gender'],))
+                            cursor.execute(f"""
+                                SELECT id FROM genders WHERE name = {placeholder}
+                            """, (course['gender'],))
                             result = cursor.fetchone()
                             if result:
                                 gender_id = result[0]
 
-
-                        # Insert or update course (now references course_template only)
-                        cursor.execute("""
-                                       INSERT INTO courses (code, name, credits, department_id, instructor_id,
-                                                            gender_id, capacity,
-                                                            enrollment_conditions, exam_time, is_available)
-                                       VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s) ON CONFLICT (code)
-                            DO
-                                       UPDATE SET
-                                           name = EXCLUDED.name,
-                                           credits = EXCLUDED.credits,
-                                           department_id = EXCLUDED.department_id,
-                                           instructor_id = EXCLUDED.instructor_id,
-                                           gender_id = EXCLUDED.gender_id,
-                                           capacity = EXCLUDED.capacity,
-                                           enrollment_conditions = EXCLUDED.enrollment_conditions,
-                                           exam_time = EXCLUDED.exam_time,
-                                           is_available = EXCLUDED.is_available,
-                                           updated_at = CURRENT_TIMESTAMP
-                                       """, (
-                                           course['code'],
-                                           course['name'],
-                                           course['credits'],
-                                           department_id,
-                                           instructor_id,
-                                           gender_id,
-                                           course['capacity'],
-                                           course['enrollment_conditions'],
-                                           course['exam_time'],
-                                           is_available,
-                                       ))
+                        # Insert or update course
+                        cursor.execute(f"""
+                            INSERT INTO courses (code, name, credits, department_id, instructor_id,
+                                               gender_id, capacity, enrollment_conditions, exam_time, is_available)
+                            VALUES ({placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, 
+                                    {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}) 
+                            ON CONFLICT (code) DO UPDATE SET
+                                name = EXCLUDED.name,
+                                credits = EXCLUDED.credits,
+                                department_id = EXCLUDED.department_id,
+                                instructor_id = EXCLUDED.instructor_id,
+                                gender_id = EXCLUDED.gender_id,
+                                capacity = EXCLUDED.capacity,
+                                enrollment_conditions = EXCLUDED.enrollment_conditions,
+                                exam_time = EXCLUDED.exam_time,
+                                is_available = EXCLUDED.is_available,
+                                updated_at = CURRENT_TIMESTAMP
+                        """, (
+                            course['code'],
+                            course['name'],
+                            course['credits'],
+                            department_id,
+                            instructor_id,
+                            gender_id,
+                            course['capacity'],
+                            course['enrollment_conditions'],
+                            course['exam_time'],
+                            is_available,
+                        ))
 
                         # Delete existing schedule associations
-                        cursor.execute("""
-                                       DELETE
-                                       FROM course_schedules
-                                       WHERE course_code = %s
-                                       """, (course['code'],))
+                        cursor.execute(f"""
+                            DELETE FROM course_schedules WHERE course_code = {placeholder}
+                        """, (course['code'],))
 
-                        # Process schedule slots (same as before)
+                        # Process schedule slots
                         for slot in course['schedule']:
-                            cursor.execute("""
-                                           INSERT INTO time_slots (day, start_time, end_time)
-                                           VALUES (%s, %s, %s) ON CONFLICT (day, start_time, end_time)
-                                DO
-                                           UPDATE SET day = EXCLUDED.day
-                                               RETURNING id
-                                           """, (slot['day'], slot['start'], slot['end']))
-                            time_slot_id = cursor.fetchone()[0]
+                            # Insert time_slot
+                            if self.use_postgres:
+                                cursor.execute(f"""
+                                    INSERT INTO time_slots (day, start_time, end_time)
+                                    VALUES ({placeholder}, {placeholder}, {placeholder}) 
+                                    ON CONFLICT (day, start_time, end_time) DO
+                                    UPDATE SET day = EXCLUDED.day
+                                    RETURNING id
+                                """, (slot['day'], slot['start'], slot['end']))
+                                time_slot_id = cursor.fetchone()[0]
+                            else:
+                                cursor.execute(f"""
+                                    INSERT INTO time_slots (day, start_time, end_time)
+                                    VALUES ({placeholder}, {placeholder}, {placeholder}) 
+                                    ON CONFLICT (day, start_time, end_time) DO
+                                    UPDATE SET day = EXCLUDED.day
+                                """, (slot['day'], slot['start'], slot['end']))
+                                # Always SELECT to get ID
+                                cursor.execute(
+                                    "SELECT id FROM time_slots WHERE day = ? AND start_time = ? AND end_time = ?",
+                                    (slot['day'], slot['start'], slot['end']))
+                                time_slot_id = cursor.fetchone()[0]
 
+                            # Insert location (if exists)
                             location_id = None
                             if slot.get('location'):
-                                cursor.execute("""
-                                               INSERT INTO locations (name)
-                                               VALUES (%s) ON CONFLICT (name) DO
-                                               UPDATE SET name = EXCLUDED.name
-                                                   RETURNING id
-                                               """, (slot['location'],))
-                                location_id = cursor.fetchone()[0]
+                                if self.use_postgres:
+                                    cursor.execute(f"""
+                                        INSERT INTO locations (name)
+                                        VALUES ({placeholder}) ON CONFLICT (name) DO
+                                        UPDATE SET name = EXCLUDED.name
+                                        RETURNING id
+                                    """, (slot['location'],))
+                                    location_id = cursor.fetchone()[0]
+                                else:
+                                    cursor.execute(f"""
+                                        INSERT INTO locations (name)
+                                        VALUES ({placeholder}) ON CONFLICT (name) DO
+                                        UPDATE SET name = EXCLUDED.name
+                                    """, (slot['location'],))
+                                    # Always SELECT to get ID
+                                    cursor.execute("SELECT id FROM locations WHERE name = ?",
+                                                   (slot['location'],))
+                                    location_id = cursor.fetchone()[0]
 
-                            cursor.execute("""
-                                           INSERT INTO schedule_entries (time_slot_id, parity, location_id)
-                                           VALUES (%s, %s, %s) ON CONFLICT (time_slot_id, parity, location_id)
-                                DO
-                                           UPDATE SET time_slot_id = EXCLUDED.time_slot_id
-                                               RETURNING id
-                                           """, (time_slot_id, slot.get('parity', ''), location_id))
-                            schedule_entry_id = cursor.fetchone()[0]
+                            # Insert schedule_entry
+                            parity = slot.get('parity', '') or ''
 
-                            cursor.execute("""
-                                           INSERT INTO course_schedules (course_code, schedule_entry_id)
-                                           VALUES (%s, %s) ON CONFLICT DO NOTHING
-                                           """, (course['code'], schedule_entry_id))
+                            if self.use_postgres:
+                                cursor.execute(f"""
+                                    INSERT INTO schedule_entries (time_slot_id, parity, location_id)
+                                    VALUES ({placeholder}, {placeholder}, {placeholder}) 
+                                    ON CONFLICT (time_slot_id, parity, location_id) DO
+                                    UPDATE SET time_slot_id = EXCLUDED.time_slot_id
+                                    RETURNING id
+                                """, (time_slot_id, parity, location_id))
+                                schedule_entry_id = cursor.fetchone()[0]
+                            else:
+                                cursor.execute(f"""
+                                    INSERT INTO schedule_entries (time_slot_id, parity, location_id)
+                                    VALUES ({placeholder}, {placeholder}, {placeholder}) 
+                                    ON CONFLICT (time_slot_id, parity, location_id) DO
+                                    UPDATE SET time_slot_id = EXCLUDED.time_slot_id
+                                """, (time_slot_id, parity, location_id))
+
+                                # Always SELECT to get ID with proper NULL handling
+                                if location_id is None:
+                                    cursor.execute(
+                                        "SELECT id FROM schedule_entries WHERE time_slot_id = ? AND parity = ? AND location_id IS NULL",
+                                        (time_slot_id, parity))
+                                else:
+                                    cursor.execute(
+                                        "SELECT id FROM schedule_entries WHERE time_slot_id = ? AND parity = ? AND location_id = ?",
+                                        (time_slot_id, parity, location_id))
+                                schedule_entry_id = cursor.fetchone()[0]
+
+                            # Link course to schedule
+                            cursor.execute(f"""
+                                INSERT INTO course_schedules (course_code, schedule_entry_id)
+                                VALUES ({placeholder}, {placeholder}) ON CONFLICT DO NOTHING
+                            """, (course['code'], schedule_entry_id))
 
                         course_count += 1
 
@@ -477,6 +547,392 @@ class CourseDatabase:
             cursor.execute("SELECT COUNT(*) FROM courses")
             count = cursor.fetchone()[0]
             return count
+        finally:
+            cursor.close()
+            conn.close()
+
+    def is_initialized(self) -> bool:
+        """
+        Check if all required database tables exist.
+
+        Returns:
+            True if all tables exist, False otherwise
+        """
+        conn = self.get_connection()
+        cursor = conn.cursor()
+
+        try:
+            required_tables = ['faculties', 'departments', 'courses', 'instructors',
+                               'genders', 'time_slots', 'locations', 'schedule_entries',
+                               'course_schedules']
+
+            for table in required_tables:
+                if self.use_postgres:
+                    cursor.execute("""
+                                   SELECT EXISTS (SELECT
+                                                  FROM information_schema.tables
+                                                  WHERE table_name = %s)
+                                   """, (table,))
+                else:
+                    cursor.execute("""
+                                   SELECT name
+                                   FROM sqlite_master
+                                   WHERE type = 'table'
+                                     AND name = ?
+                                   """, (table,))
+
+                result = cursor.fetchone()
+                if not result or not result[0]:
+                    return False
+
+            return True
+
+        except Exception:
+            return False
+        finally:
+            cursor.close()
+            conn.close()
+
+    def initialize_if_needed(self, force: bool = False) -> bool:
+        """
+        Initialize database tables if they don't exist.
+
+        Args:
+            force: If True, drop existing tables and recreate
+
+        Returns:
+            True if initialization was performed, False if already initialized
+        """
+        if force or not self.is_initialized():
+            print("🔄 Initializing database...")
+            if force:
+                self.drop_all_tables()
+            self.create_tables()
+            print("✓ Database initialized")
+            return True
+        else:
+            print("✓ Database already initialized")
+            return False
+
+    def store_courses(self, available_courses: Dict = None, unavailable_courses: Dict = None,
+                      auto_init: bool = True, force_reinit: bool = False):
+        """
+        Store parsed course data to database.
+
+        Args:
+            available_courses: Dictionary of available courses from parser
+            unavailable_courses: Dictionary of unavailable courses from parser
+            auto_init: If True, automatically initialize database if needed (default: True)
+            force_reinit: If True, drop and recreate tables regardless of state
+        """
+        # Auto-initialize if needed
+        if auto_init:
+            self.initialize_if_needed(force=force_reinit)
+
+        total_courses = 0
+
+        # Store available courses
+        if available_courses:
+            count = self.upsert_courses(available_courses, is_available=True)
+            total_courses += count
+
+        # Store unavailable courses
+        if unavailable_courses:
+            count = self.upsert_courses(unavailable_courses, is_available=False)
+            total_courses += count
+
+        print(f"✓ Total courses in database: {total_courses}")
+
+    def search_courses(self, search_term: str, search_in: str = 'both', availability: str = 'both') -> List[Dict]:
+        """Search with support for multiple words in any order."""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+
+        try:
+            # Split search term by space/ZWNJ and normalize each part
+            search_parts = [
+                part.replace(' ', '').replace('\u200c', '')
+                for part in search_term.replace('\u200c', ' ').split()
+                if part.strip()
+            ]
+
+            if not search_parts:
+                return []
+
+            search_conditions = []
+            params = []
+
+            # For each search part, create conditions
+            for part in search_parts:
+                part_conditions = []
+                pattern = f"%{part}%"
+
+                if search_in in ['course', 'both']:
+                    if self.use_postgres:
+                        part_conditions.append(
+                            "REPLACE(REPLACE(c.name, ' ', ''), CHR(8204), '') LIKE %s"
+                        )
+                    else:
+                        part_conditions.append(
+                            "REPLACE(REPLACE(c.name, ' ', ''), CHAR(8204), '') LIKE ?"
+                        )
+                    params.append(pattern)
+
+                if search_in in ['instructor', 'both']:
+                    if self.use_postgres:
+                        part_conditions.append(
+                            "REPLACE(REPLACE(i.name, ' ', ''), CHR(8204), '') LIKE %s"
+                        )
+                    else:
+                        part_conditions.append(
+                            "REPLACE(REPLACE(i.name, ' ', ''), CHAR(8204), '') LIKE ?"
+                        )
+                    params.append(pattern)
+
+                if part_conditions:
+                    search_conditions.append(f"({' OR '.join(part_conditions)})")
+
+            # Combine with AND so all parts must match
+            where_clause = " AND ".join(search_conditions)
+
+            # Build availability filter
+            availability_filter = ""
+            if availability == 'available':
+                availability_filter = "AND c.is_available = TRUE"
+            elif availability == 'unavailable':
+                availability_filter = "AND c.is_available = FALSE"
+
+            query = f"""
+                SELECT 
+                    c.code,
+                    c.name,
+                    c.credits,
+                    d.name as department,
+                    f.name as faculty,
+                    i.name as instructor,
+                    g.name as gender,
+                    c.capacity,
+                    c.enrollment_conditions,
+                    c.exam_time,
+                    c.is_available,
+                    c.updated_at
+                FROM courses c
+                JOIN departments d ON c.department_id = d.id
+                JOIN faculties f ON d.faculty_id = f.id
+                LEFT JOIN instructors i ON c.instructor_id = i.id
+                LEFT JOIN genders g ON c.gender_id = g.id
+                WHERE {where_clause}
+                {availability_filter}
+                ORDER BY c.name
+            """
+
+            cursor.execute(query, params)
+
+            if self.use_postgres:
+                columns = [desc[0] for desc in cursor.description]
+                results = [dict(zip(columns, row)) for row in cursor.fetchall()]
+            else:
+                cursor.row_factory = sqlite3.Row
+                results = [dict(row) for row in cursor.fetchall()]
+            for course in results:
+                print(course)
+            return results
+
+        finally:
+            cursor.close()
+            conn.close()
+
+    def get_courses_by_department(self, department_name: str, availability: str = 'both') -> List[Dict]:
+        """
+        Get all courses for a specific department (works for both PostgreSQL and SQLite).
+        Args:
+            department_name: Name of the department
+            availability: 'available', 'unavailable', or 'both' (default: 'both')
+        Returns:
+            List of course dictionaries with full details
+        """
+        conn = self.get_connection()
+        cursor = conn.cursor()
+        try:
+            params = [department_name]
+            # Choose appropriate boolean based on backend
+            if self.use_postgres:
+                available_true = 'TRUE'
+                available_false = 'FALSE'
+            else:
+                available_true = '1'
+                available_false = '0'
+            availability_filter = ""
+            if availability == 'available':
+                availability_filter = f"AND c.is_available = {available_true}"
+            elif availability == 'unavailable':
+                availability_filter = f"AND c.is_available = {available_false}"
+
+            placeholder = self._get_placeholder()
+            query = f"""
+                SELECT
+                    c.code,
+                    c.name,
+                    c.credits,
+                    d.name as department,
+                    f.name as faculty,
+                    i.name as instructor,
+                    g.name as gender,
+                    c.capacity,
+                    c.enrollment_conditions,
+                    c.exam_time,
+                    c.is_available,
+                    c.updated_at
+                FROM courses c
+                JOIN departments d ON c.department_id = d.id
+                JOIN faculties f ON d.faculty_id = f.id
+                LEFT JOIN instructors i ON c.instructor_id = i.id
+                LEFT JOIN genders g ON c.gender_id = g.id
+                WHERE d.name = {placeholder}
+                {availability_filter}
+                ORDER BY c.name
+            """
+            cursor.execute(query, params)
+            if self.use_postgres:
+                columns = [desc[0] for desc in cursor.description]
+                results = [dict(zip(columns, row)) for row in cursor.fetchall()]
+            else:
+                cursor.row_factory = sqlite3.Row
+                results = [dict(row) for row in cursor.fetchall()]
+            for course in results:
+                print(course)
+            return results
+        finally:
+            cursor.close()
+            conn.close()
+
+    def get_all_courses(self, availability: str = 'both', return_hierarchy: bool = False):
+        """
+        Get all courses from the database.
+
+        Args:
+            availability: 'available', 'unavailable', or 'both' (default: 'both')
+            return_hierarchy: If True, returns hierarchical dict; if False, returns flat list (default: False)
+
+        Returns:
+            If return_hierarchy=False: List of course dictionaries
+            If return_hierarchy=True: Dict in format {faculty: {department: [courses]}}
+
+        Examples:
+            db.get_all_courses()  # Returns list
+            db.get_all_courses(return_hierarchy=True)  # Returns hierarchy
+            db.get_all_courses(availability='available', return_hierarchy=True)
+        """
+        conn = self.get_connection()
+        cursor = conn.cursor()
+
+        try:
+            # Determine correct boolean values
+            bool_true = 'TRUE' if self.use_postgres else '1'
+            bool_false = 'FALSE' if self.use_postgres else '0'
+
+            # Build availability filter
+            availability_filter = ""
+            if availability == 'available':
+                availability_filter = f"WHERE c.is_available = {bool_true}"
+            elif availability == 'unavailable':
+                availability_filter = f"WHERE c.is_available = {bool_false}"
+
+            query = f"""
+                SELECT 
+                    c.code,
+                    c.name,
+                    c.credits,
+                    d.name as department,
+                    f.name as faculty,
+                    i.name as instructor,
+                    g.name as gender,
+                    c.capacity,
+                    c.enrollment_conditions,
+                    c.exam_time,
+                    c.is_available,
+                    c.updated_at
+                FROM courses c
+                JOIN departments d ON c.department_id = d.id
+                JOIN faculties f ON d.faculty_id = f.id
+                LEFT JOIN instructors i ON c.instructor_id = i.id
+                LEFT JOIN genders g ON c.gender_id = g.id
+                {availability_filter}
+                ORDER BY f.name, d.name, c.name
+            """
+
+            cursor.execute(query)
+
+            if self.use_postgres:
+                columns = [desc[0] for desc in cursor.description]
+                results = [dict(zip(columns, row)) for row in cursor.fetchall()]
+            else:
+                cursor.row_factory = sqlite3.Row
+                results = [dict(row) for row in cursor.fetchall()]
+
+            # Return flat list if not hierarchy
+            if not return_hierarchy:
+                return results
+
+            # Build hierarchy structure
+            hierarchy = {}
+            for course in results:
+                faculty = course['faculty']
+                department = course['department']
+
+                # Initialize faculty if not exists
+                if faculty not in hierarchy:
+                    hierarchy[faculty] = {}
+
+                # Initialize department if not exists
+                if department not in hierarchy[faculty]:
+                    hierarchy[faculty][department] = []
+
+                # Add course to department (without faculty/department fields to avoid redundancy)
+                course_data = {k: v for k, v in course.items() if k not in ['faculty', 'department']}
+                hierarchy[faculty][department].append(course_data)
+
+            return hierarchy
+
+        finally:
+            cursor.close()
+            conn.close()
+
+    def get_faculties_with_departments(self) -> Dict[str, List[str]]:
+        """
+        Get all faculties with their departments in a hierarchical structure.
+        Perfect for GUI dropdowns and tree views.
+
+        Returns:
+            Dictionary where keys are faculty names and values are lists of department names
+
+        """
+        conn = self.get_connection()
+        cursor = conn.cursor()
+
+        try:
+            query = """
+                    SELECT f.name as faculty, \
+                           d.name as department
+                    FROM departments d
+                             JOIN faculties f ON d.faculty_id = f.id
+                    ORDER BY f.name, d.name \
+                    """
+
+            cursor.execute(query)
+
+            # Build hierarchical structure
+            result = {}
+            for row in cursor.fetchall():
+                faculty = row[0]
+                department = row[1]
+
+                if faculty not in result:
+                    result[faculty] = []
+                result[faculty].append(department)
+
+            return result
+
         finally:
             cursor.close()
             conn.close()
