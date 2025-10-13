@@ -130,10 +130,9 @@ class CourseListWidget(QtWidgets.QWidget):
         return widget
         
     def is_custom_course(self):
-        """Check if this course should show delete button (all JSON courses can be deleted)"""
-        # With JSON storage, we can allow deletion of all courses
-        # Optionally, you might want to protect some system courses
-        return True  # Allow deletion for all courses
+        """Check if this course should show delete button (user-added courses can be deleted)"""
+        # Check if this is a user-added course
+        return self.course_info.get('major') == 'دروس اضافه‌شده توسط کاربر'
                                        
     def delete_course(self):
         """Handle course deletion with confirmation"""
@@ -159,26 +158,24 @@ class CourseListWidget(QtWidgets.QWidget):
             if self.course_key in COURSES:
                 del COURSES[self.course_key]
             
-            # Save courses to JSON
-            from ..core.data_manager import save_courses_to_json
-            save_courses_to_json()
+            # Save user data and user-added courses
+            from ..core.data_manager import save_user_data, save_user_added_courses
+            save_user_added_courses()
             
-            # Remove from user_data
+            # Remove from user_data if it exists there
             user_data = main_window.user_data
             custom_courses = user_data.get('custom_courses', [])
             user_data['custom_courses'] = [c for c in custom_courses 
                                           if c.get('code') != self.course_info.get('code')]
             
             # Save updated user data
-            from ..core.data_manager import save_user_data
             save_user_data(user_data)
             
             # Remove from any placed schedules
             main_window.remove_course_from_schedule(self.course_key)
             
-            # Refresh the course list and info panel - FIXED
-            main_window.populate_course_list()
-            main_window.update_course_info_panel()  # Update info panel
+            # Refresh the UI to show the updated course list
+            main_window.refresh_ui()
             
             # Update status
             main_window.update_status()

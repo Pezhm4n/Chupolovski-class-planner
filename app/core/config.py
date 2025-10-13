@@ -1,3 +1,5 @@
+#!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
 Core configuration module for the Golestoon Class Planner application.
 
@@ -10,6 +12,7 @@ This module provides centralized configuration management including:
 
 import os
 import logging
+import json
 from pathlib import Path
 from dotenv import load_dotenv
 from PyQt5 import QtGui
@@ -18,7 +21,7 @@ from PyQt5 import QtGui
 COURSES = {}
 
 # Base directory for the application
-BASE_DIR = Path(__file__).resolve().parent.parent
+BASE_DIR = Path(__file__).parent.parent
 
 # Load environment variables
 def load_environment():
@@ -55,6 +58,7 @@ API_KEYS = {
 # File paths
 APP_DIR = Path(__file__).parent.parent
 USER_DATA_FILE = APP_DIR / 'data' / 'user_data.json'
+USER_ADDED_COURSES_FILE = APP_DIR / 'data' / 'user_added_courses.json'
 COURSES_DATA_FILE = APP_DIR / 'data' / 'courses_data.json'
 STYLES_FILE = APP_DIR / 'ui' / 'styles.qss'
 
@@ -109,6 +113,10 @@ def get_log_level():
     }
     return level_map.get(LOG_LEVEL.upper(), logging.INFO)
 
+# Import logger here to avoid circular imports
+from .logger import setup_logging
+logger = setup_logging()
+
 # ---------------------- QSS Style Loading ----------------------
 
 def load_qss_styles():
@@ -117,25 +125,72 @@ def load_qss_styles():
         if os.path.exists(STYLES_FILE):
             with open(STYLES_FILE, 'r', encoding='utf-8') as f:
                 qss_content = f.read()
-                # Import logger here to avoid circular imports
-                from .logger import setup_logging
-                logger = setup_logging()
                 logger.info(f"Successfully loaded styles from {STYLES_FILE}")
                 return qss_content
         else:
-            # Import logger here to avoid circular imports
-            from .logger import setup_logging
-            logger = setup_logging()
             logger.warning(f"QSS file not found: {STYLES_FILE}")
     except Exception as e:
-        # Import logger here to avoid circular imports
-        from .logger import setup_logging
-        logger = setup_logging()
         logger.error(f"Error loading QSS file: {e}")
     
     # Return empty string if no QSS file - app will use default styles
-    # Import logger here to avoid circular imports
-    from .logger import setup_logging
-    logger = setup_logging()
     logger.info("Using default Qt styles")
     return ""
+
+# ---------------------- Courses Loading ----------------------
+
+def load_courses_from_json():
+    """Load courses from JSON file"""
+    global COURSES
+    logger.info("Loading courses from JSON file...")
+    try:
+        with open(COURSES_DATA_FILE, 'r', encoding='utf-8') as f:
+            golestan_courses = json.load(f)
+            COURSES.clear()
+            COURSES.update(golestan_courses)
+            logger.info(f"Successfully loaded {len(COURSES)} courses from JSON file")
+            print(f"Loaded {len(COURSES)} courses from JSON file")
+    except Exception as e:
+        logger.error(f"Error loading courses from JSON file: {e}")
+        print(f"Error loading courses from JSON file: {e}")
+
+def load_user_added_courses():
+    """Load user-added courses from dedicated JSON file"""
+    global COURSES
+    try:
+        if USER_ADDED_COURSES_FILE.exists():
+            with open(USER_ADDED_COURSES_FILE, 'r', encoding='utf-8') as f:
+                user_added_data = json.load(f)
+                user_courses = user_added_data.get('courses', [])
+                
+                # Add user-added courses to COURSES dictionary
+                for course in user_courses:
+                    # Ensure the course has a proper key
+                    course_key = course.get('code', f"user_{len(COURSES)}")
+                    course['key'] = course_key
+                    course['major'] = 'دروس اضافه‌شده توسط کاربر'  # Set the correct major category
+                    COURSES[course_key] = course
+                    
+                logger.info(f"Successfully loaded {len(user_courses)} user-added courses")
+                print(f"Loaded {len(user_courses)} user-added courses")
+        else:
+            # Create the file with empty structure if it doesn't exist
+            with open(USER_ADDED_COURSES_FILE, 'w', encoding='utf-8') as f:
+                json.dump({"courses": []}, f, ensure_ascii=False, indent=2)
+            logger.info("Created empty user_added_courses.json file")
+    except Exception as e:
+        logger.error(f"Error loading user-added courses: {e}")
+        print(f"Error loading user-added courses: {e}")
+
+# Load courses at module level
+# Try to load from Golestan data first if files exist, fallback to JSON
+try:
+    if golestan_data_files_exist():
+        load_courses_from_golestan_data()
+        load_user_added_courses()  # Load user-added courses after Golestan courses
+    else:
+        load_courses_from_json()
+        load_user_added_courses()  # Load user-added courses after main courses
+except Exception as e:
+    logger.info("Failed to load from Golestan data, falling back to JSON")
+    load_courses_from_json()
+    load_user_added_courses()  # Load user-added courses after main courses
