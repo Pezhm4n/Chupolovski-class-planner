@@ -334,8 +334,15 @@ class CourseListWidget(QtWidgets.QWidget):
                 if pcol != col:
                     continue
                 # Skip conflict check with the same course
-                if info['course'] == course_key:
-                    continue
+                # Handle both single and dual course entries
+                if info.get('type') == 'dual':
+                    # For dual courses, check if either course matches
+                    if course_key in info.get('courses', []):
+                        continue
+                else:
+                    # For single courses, check directly
+                    if info.get('course') == course_key:
+                        continue
                 prow_start = prow
                 prow_span = info['rows']
                 if not (srow + span <= prow_start or prow_start + prow_span <= srow):
@@ -353,20 +360,39 @@ class CourseListWidget(QtWidgets.QWidget):
             self.conflict_indicator.hide()
     
     def enterEvent(self, event):
-        """Show additional information when mouse enters the widget"""
-        self.additional_info_widget.show()
+        """Show additional information when mouse enters the widget with safety wrapper"""
+        logger.info("overlay_hover_enter: Course list widget hover enter")
+        try:
+            # Safety check for parent
+            if not hasattr(self, 'parent_list') or not self.parent_list:
+                logger.warning("overlay_hover_parent_missing: Parent list not available during hover enter")
+                super().enterEvent(event)
+                return
+                
+            self.additional_info_widget.show()
+        except Exception as e:
+            logger.warning(f"overlay_hover_enter_error: Error in enterEvent for CourseListWidgetItem: {e}")
         super().enterEvent(event)
     
     def leaveEvent(self, event):
-        """Hide additional information when mouse leaves the widget"""
-        self.additional_info_widget.hide()
-        main_window = self.get_main_window()
-        if main_window:
-            main_window.clear_preview()
-            main_window.last_hover_key = None
-            # Hide conflict indicator when mouse leaves
-            self.conflict_indicator.hide()
-        
+        """Hide additional information when mouse leaves the widget with safety wrapper"""
+        logger.info("overlay_hover_leave: Course list widget hover leave")
+        try:
+            # Safety check for parent
+            if not hasattr(self, 'parent_list') or not self.parent_list:
+                logger.warning("overlay_hover_parent_missing: Parent list not available during hover leave")
+                super().leaveEvent(event)
+                return
+                
+            self.additional_info_widget.hide()
+            main_window = self.get_main_window()
+            if main_window:
+                main_window.clear_preview()
+                main_window.last_hover_key = None
+                # Hide conflict indicator when mouse leaves
+                self.conflict_indicator.hide()
+        except Exception as e:
+            logger.warning(f"overlay_hover_leave_error: Error in leaveEvent for CourseListWidgetItem: {e}")
         super().leaveEvent(event)
 
 class AnimatedCourseWidget(QtWidgets.QFrame):
@@ -463,20 +489,52 @@ class AnimatedCourseWidget(QtWidgets.QFrame):
             logger.error(f"Error adding to auto schedule list: {e}")
             
     def enterEvent(self, event):
-        """Handle mouse enter event for hover effects"""
-        # For conflicting courses, show a subtle highlight without red border
-        if self.has_conflicts:
-            self.setStyleSheet("QWidget#course-cell { background-color: rgba(231, 76, 60, 0.2) !important; } QWidget#course-cell[conflict=\"true\"] { background-color: rgba(231, 76, 60, 0.3) !important; }")
-        else:
-            # Apply subtle hover styling for non-conflicting courses
-            self.setStyleSheet("QWidget#course-cell { background-color: rgba(25, 118, 210, 0.2) !important; }")
+        """Handle mouse enter event for hover effects with safety wrapper"""
+        logger.info("overlay_hover_enter: Animated course widget hover enter")
+        try:
+            # Safety check for parent
+            if not hasattr(self, 'parent') or not self.parent():
+                logger.warning("overlay_hover_parent_missing: Parent not available during hover enter")
+                super().enterEvent(event)
+                return
+                
+            # Additional safety check for deleted widget
+            import sip
+            if sip.isdeleted(self):
+                logger.warning("overlay_hover_widget_deleted: Widget is deleted during hover enter")
+                return
+                
+            # For conflicting courses, show a subtle highlight without red border
+            if self.has_conflicts:
+                self.setStyleSheet("QWidget#course-cell { background-color: rgba(231, 76, 60, 0.2) !important; } QWidget#course-cell[conflict=\"true\"] { background-color: rgba(231, 76, 60, 0.3) !important; }")
+            else:
+                # Apply subtle hover styling for non-conflicting courses
+                self.setStyleSheet("QWidget#course-cell { background-color: rgba(25, 118, 210, 0.2) !important; }")
+        except Exception as e:
+            logger.warning(f"overlay_hover_enter_error: Error in enterEvent for AnimatedCourseWidget: {e}")
         super().enterEvent(event)
         
     def leaveEvent(self, event):
-        """Handle mouse leave event to restore normal styling"""
-        # Restore original styling
-        if self.original_style:
-            self.setStyleSheet(self.original_style)
-        else:
-            self.setStyleSheet("")
+        """Handle mouse leave event to restore normal styling with safety wrapper"""
+        logger.info("overlay_hover_leave: Animated course widget hover leave")
+        try:
+            # Safety check for parent
+            if not hasattr(self, 'parent') or not self.parent():
+                logger.warning("overlay_hover_parent_missing: Parent not available during hover leave")
+                super().leaveEvent(event)
+                return
+                
+            # Additional safety check for deleted widget
+            import sip
+            if sip.isdeleted(self):
+                logger.warning("overlay_hover_widget_deleted: Widget is deleted during hover leave")
+                return
+                
+            # Restore original styling
+            if self.original_style:
+                self.setStyleSheet(self.original_style)
+            else:
+                self.setStyleSheet("")
+        except Exception as e:
+            logger.warning(f"overlay_hover_leave_error: Error in leaveEvent for AnimatedCourseWidget: {e}")
         super().leaveEvent(event)

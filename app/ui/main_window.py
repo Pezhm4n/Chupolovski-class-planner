@@ -10,6 +10,9 @@ import os
 import shutil
 import datetime
 import itertools
+from collections import deque
+from PyQt5.QtCore import QTimer, QMutex, QMutexLocker
+import sip
 
 from PyQt5 import QtWidgets, QtGui, QtCore, uic
 
@@ -95,6 +98,22 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         self.major_categories = []
         self.current_major_filter = None
         
+        # Initialize course addition queue for debouncing
+        from collections import deque
+        from PyQt5.QtCore import QTimer, QMutex
+
+        self.course_addition_queue = deque()
+        self.course_addition_timer = QTimer(self)
+        self.course_addition_timer.setSingleShot(True)
+        self.course_addition_timer.timeout.connect(self._process_course_addition_queue)
+        self.course_addition_mutex = QMutex()
+        
+        # Dual course operation lock
+        self.dual_operation_mutex = QMutex()
+        
+        # Overlay tracking for safety
+        self.overlays = {}
+        
         # Populate UI with data
         # Load courses explicitly to ensure they're available
         from ..core.data_manager import load_courses_from_json
@@ -137,6 +156,966 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         self.create_menu_bar()
         
         logger.info("SchedulerWindow initialized successfully")
+
+    def initialize_schedule_table(self):
+        """Initialize the schedule table with days and time slots"""
+        try:
+            from ..core.config import DAYS, EXTENDED_TIME_SLOTS
+
+            
+            # Clear the table completely first
+            self.schedule_table.clear()
+            
+            # Set table dimensions - 6 days with time rows (7:00 to 19:00)
+            self.schedule_table.setRowCount(len(EXTENDED_TIME_SLOTS) - 1)  # -1 because we show time ranges
+            self.schedule_table.setColumnCount(len(DAYS))
+            
+            # Set headers with correct order: [شنبه][یکشنبه][دوشنبه][سه‌شنبه][چهارشنبه][پنج‌شنبه]
+            headers = DAYS
+            self.schedule_table.setHorizontalHeaderLabels(headers)
+            
+            # Configure table appearance
+            self.schedule_table.verticalHeader().setVisible(False)
+            self.schedule_table.horizontalHeader().setDefaultAlignment(
+                QtCore.Qt.AlignCenter | QtCore.Qt.AlignVCenter
+            )
+            self.schedule_table.setShowGrid(False)
+            self.schedule_table.setSelectionMode(QtWidgets.QAbstractItemView.NoSelection)
+            self.schedule_table.setEditTriggers(QtWidgets.QAbstractItemView.NoEditTriggers)
+            self.schedule_table.horizontalHeader().setSectionResizeMode(
+                QtWidgets.QHeaderView.Stretch
+            )
+            self.schedule_table.setVerticalHeaderItem(
+                0, QtWidgets.QTableWidgetItem("7:00–8:00")
+            )
+            self.schedule_table.setVerticalHeaderItem(
+                1, QtWidgets.QTableWidgetItem("8:00–9:00")
+            )
+            self.schedule_table.setVerticalHeaderItem(
+                2, QtWidgets.QTableWidgetItem("9:00–10:00")
+            )
+            self.schedule_table.setVerticalHeaderItem(
+                3, QtWidgets.QTableWidgetItem("10:00–11:00")
+            )
+            self.schedule_table.setVerticalHeaderItem(
+                4, QtWidgets.QTableWidgetItem("11:00–12:00")
+            )
+            self.schedule_table.setVerticalHeaderItem(
+                5, QtWidgets.QTableWidgetItem("12:00–13:00")
+            )
+            self.schedule_table.setVerticalHeaderItem(
+                6, QtWidgets.QTableWidgetItem("13:00–14:00")
+            )
+            self.schedule_table.setVerticalHeaderItem(
+                7, QtWidgets.QTableWidgetItem("14:00–15:00")
+            )
+            self.schedule_table.setVerticalHeaderItem(
+                8, QtWidgets.QTableWidgetItem("15:00–16:00")
+            )
+            self.schedule_table.setVerticalHeaderItem(
+                9, QtWidgets.QTableWidgetItem("16:00–17:00")
+            )
+            self.schedule_table.setVerticalHeaderItem(
+                10, QtWidgets.QTableWidgetItem("17:00–18:00")
+            )
+            self.schedule_table.setVerticalHeaderItem(
+                11, QtWidgets.QTableWidgetItem("18:00–19:00")
+            )
+
+            # Add hover effect to cells
+            self.schedule_table.cellEntered.connect(self.on_cell_entered)
+            self.schedule_table.cellExited.connect(self.on_cell_exited)
+
+            # Set cell alignment
+            self.schedule_table.horizontalHeader().setDefaultAlignment(
+                QtCore.Qt.AlignCenter | QtCore.Qt.AlignVCenter
+            )
+
+            # Set cell alignment
+            for i in range(self.schedule_table.rowCount()):
+                for j in range(self.schedule_table.columnCount()):
+                    item = self.schedule_table.item(i, j)
+                    if item is None:
+                        item = QtWidgets.QTableWidgetItem()
+                        self.schedule_table.setItem(i, j, item)
+                    item.setTextAlignment(QtCore.Qt.AlignCenter | QtCore.Qt.AlignVCenter)
+
+        except Exception as e:
+            logger.error(f"Failed to initialize schedule table: {e}")
+            QtWidgets.QMessageBox.critical(self, "خطا", f"امکان ایجاد جدول زمان‌بندی وجود ندارد: {str(e)}")
+            sys.exit(1)
+
+    def populate_major_dropdown(self):
+        """Populate the major dropdown with unique categories from courses"""
+        try:
+            from ..core.data_manager import load_courses_from_json
+
+            # Load courses first to ensure courses are available
+            load_courses_from_json()
+
+            # Get major categories from courses
+            self.major_categories = sorted(
+                set(course['major'] for course in COURSES)
+            )
+
+            # Add majors to the combobox
+            self.major_combo_box.addItems(self.major_categories)
+
+            # Set default selection to all majors
+            self.major_combo_box.setCurrentIndex(0)
+
+            # Connect signal for filtering courses
+            self.major_combo_box.currentIndexChanged.connect(self.on_major_changed)
+
+        except Exception as e:
+            logger.error(f"Failed to populate major dropdown: {e}")
+            QtWidgets.QMessageBox.critical(self, "خطا", f"امکان پر کردن فیلتر رشته وجود ندارد: {str(e)}")
+            sys.exit(1)
+
+    def populate_course_list(self):
+        """Populate the course list with courses"""
+        try:
+            from ..core.data_manager import load_courses_from_json
+
+            # Load courses first to ensure courses are available
+            load_courses_from_json()
+
+            # Create and set the course list widget
+            self.course_list_widget = CourseListWidget(self)
+            self.course_list_widget.setCourses(COURSES)
+
+            # Connect signal for adding courses
+            self.course_list_widget.courseSelected.connect(self.on_course_selected)
+
+            # Connect signal for adding courses
+            self.course_list_widget.courseSelected.connect(self.on_course_selected)
+
+            # Set the course list widget as the central widget
+            self.setCentralWidget(self.course_list_widget)
+
+        except Exception as e:
+            logger.error(f"Failed to populate course list: {e}")
+            QtWidgets.QMessageBox.critical(self, "خطا", f"امکان پر کردن فهرست دروس وجود ندارد: {str(e)}")
+            sys.exit(1)
+
+    def load_saved_combos_ui(self):
+        """Load saved combos from user data and display them"""
+        try:
+            from ..core.data_manager import load_courses_from_json
+
+            # Load courses first to ensure courses are available
+            load_courses_from_json()
+
+            # Load saved combos from user data
+            saved_combos = self.user_data.get('saved_combos', [])
+
+            # Add saved combos to the combo box
+            for combo in saved_combos:
+                combo_str = ', '.join(combo)
+                self.saved_combo_box.addItem(combo_str)
+
+            # Connect signal for loading saved combos
+            self.saved_combo_box.currentIndexChanged.connect(self.on_saved_combo_changed)
+
+        except Exception as e:
+            logger.error(f"Failed to load saved combos: {e}")
+            QtWidgets.QMessageBox.critical(self, "خطا", f"امکان بارگذاری ترکیبات ذخیره شده وجود ندارد: {str(e)}")
+            sys.exit(1)
+
+    def on_major_changed(self, index):
+        """Handle major change"""
+        try:
+            # Get the selected major
+            selected_major = self.major_combo_box.itemText(index)
+
+            # If selected major is "همه"، show all courses
+            if selected_major == "همه":
+                self.current_major_filter = None
+            else:
+                self.current_major_filter = selected_major
+
+            # Update course list based on the selected major
+            self.course_list_widget.filterCourses(self.current_major_filter)
+
+        except Exception as e:
+            logger.error(f"Failed to handle major change: {e}")
+            QtWidgets.QMessageBox.critical(self, "خطا", f"امکان مدیریت تغییر رشته وجود ندارد: {str(e)}")
+            sys.exit(1)
+
+    def on_course_selected(self, course_key):
+        """Handle course selection"""
+        try:
+            from ..core.data_manager import load_courses_from_json
+
+            # Load courses first to ensure courses are available
+            load_courses_from_json()
+
+            # Get the course details
+            course = next((c for c in COURSES if c['key'] == course_key), None)
+
+            if course:
+                # Add course to the list of selected courses
+                self.courses.append(course)
+
+                # Update the status bar
+                self.update_status()
+
+                # Save user data
+                save_user_data(self.user_data)
+
+        except Exception as e:
+            logger.error(f"Failed to handle course selection: {e}")
+            QtWidgets.QMessageBox.critical(self, "خطا", f"امکان مدیریت انتخاب درس وجود ندارد: {str(e)}")
+            sys.exit(1)
+
+    def on_saved_combo_changed(self, index):
+        """Handle saved combo change"""
+        try:
+            # Get the selected combo
+            selected_combo_str = self.saved_combo_box.itemText(index)
+
+            if selected_combo_str:
+                # Split the combo string into individual course keys
+                selected_combo = selected_combo_str.split(', ')
+
+                # Load and display the selected combo
+                self.load_combo(selected_combo)
+
+        except Exception as e:
+            logger.error(f"Failed to handle saved combo change: {e}")
+            QtWidgets.QMessageBox.critical(self, "خطا", f"امکان مدیریت تغییر ترکیب ذخیره شده وجود ندارد: {str(e)}")
+            sys.exit(1)
+
+    def load_combo(self, combo):
+        """Load and display a combo"""
+        try:
+            from ..core.data_manager import load_courses_from_json
+
+            # Load courses first to ensure courses are available
+            load_courses_from_json()
+
+            # Clear the current schedule
+            self.clear_schedule()
+
+            # Get the course details for each course key in the combo
+            courses = [c for c in COURSES if c['key'] in combo]
+
+            # Place each course on the schedule
+            for course in courses:
+                self.place_course(course)
+
+            # Update the status bar
+            self.update_status()
+
+            # Save user data
+            save_user_data(self.user_data)
+
+        except Exception as e:
+            logger.error(f"Failed to load combo: {e}")
+            QtWidgets.QMessageBox.critical(self, "خطا", f"امکان بارگذاری ترکیب وجود ندارد: {str(e)}")
+            sys.exit(1)
+
+    def clear_schedule(self):
+        """Clear the schedule table"""
+        try:
+            # Clear all items in the schedule table
+            self.schedule_table.clearContents()
+
+            # Clear the list of placed courses
+            self.placed = {}
+
+            # Update the status bar
+            self.update_status()
+
+            # Save user data
+            save_user_data(self.user_data)
+
+        except Exception as e:
+            logger.error(f"Failed to clear schedule: {e}")
+            QtWidgets.QMessageBox.critical(self, "خطا", f"امکان پاک کردن جدول زمان‌بندی وجود ندارد: {str(e)}")
+            sys.exit(1)
+
+    def place_course(self, course):
+        """Place a course on the schedule"""
+        try:
+            # Get the course details
+            course_key = course['key']
+            course_name = course['name']
+            course_days = course['days']
+            course_times = course['times']
+
+            # Calculate the cell coordinates for the course
+            row_start = to_minutes(course_times[0]) // 60 - 7
+            row_span = (to_minutes(course_times[1]) - to_minutes(course_times[0])) // 60
+            col_start = DAYS.index(course_days[0])
+            col_span = 1
+
+            # Create an item for the course
+            item = QtWidgets.QTableWidgetItem(course_name)
+
+            # Set the item background color
+            item.setBackground(QtGui.QColor(COLOR_MAP[course_key]))
+
+            # Set the item alignment
+            item.setTextAlignment(QtCore.Qt.AlignCenter | QtCore.Qt.AlignVCenter)
+
+            # Set the item user data
+            item.setData(QtCore.Qt.UserRole, course_key)
+
+            # Add the item to the schedule table
+            self.schedule_table.setSpan(row_start, col_start, row_span, col_span)
+            self.schedule_table.setItem(row_start, col_start, item)
+
+            # Store the placed course
+            self.placed[course_key] = (row_start, col_start, row_span, col_span)
+
+            # Update the status bar
+            self.update_status()
+
+            # Save user data
+            save_user_data(self.user_data)
+
+        except Exception as e:
+            logger.error(f"Failed to place course: {e}")
+            QtWidgets.QMessageBox.critical(self, "خطا", f"امکان قرار دادن درس وجود ندارد: {str(e)}")
+            sys.exit(1)
+
+    def on_cell_entered(self, row, col):
+        """Handle cell enter event"""
+        try:
+            # Get the item at the cell
+            item = self.schedule_table.item(row, col)
+
+            if item:
+                course_key = item.data(QtCore.Qt.UserRole)
+                self.last_hover_key = course_key
+
+                # Get the course details
+                course = next((c for c in COURSES if c['key'] == course_key), None)
+
+                if course:
+                    # Get the course details
+                    course_name = course['name']
+                    course_days = course['days']
+                    course_times = course['times']
+
+                    # Create a tooltip for the course
+                    tooltip = f"{course_name}\nروز‌ها: {', '.join(course_days)}\nزمان‌ها: {', '.join(course_times)}"
+
+                    # Set the tooltip for the cell
+                    item.setToolTip(tooltip)
+
+                    # Start pulse animation for the cell
+                    self.start_pulse_animation(row, col)
+
+        except Exception as e:
+            logger.error(f"Failed to handle cell enter event: {e}")
+            QtWidgets.QMessageBox.critical(self, "خطا", f"امکان مدیریت ورود به سلول وجود ندارد: {str(e)}")
+            sys.exit(1)
+
+    def on_cell_exited(self, row, col):
+        """Handle cell exit event"""
+        try:
+            # Stop pulse animation for the cell
+            self.stop_pulse_animation(row, col)
+
+        except Exception as e:
+            logger.error(f"Failed to handle cell exit event: {e}")
+            QtWidgets.QMessageBox.critical(self, "خطا", f"امکان مدیریت خروج از سلول وجود ندارد: {str(e)}")
+            sys.exit(1)
+
+    def start_pulse_animation(self, row, col):
+        """Start pulse animation for a cell"""
+        try:
+            item = self.schedule_table.item(row, col)
+
+            if item:
+                course_key = item.data(QtCore.Qt.UserRole)
+
+                if course_key in self._pulse_timers:
+                    return
+
+                # Create a pulse animation
+                pulse_timer = QtCore.QTimer(self)
+                pulse_timer.setInterval(100)  # 100 ms
+                pulse_timer.timeout.connect(lambda: self.pulse_cell(item))
+
+                # Store the pulse timer
+                self._pulse_timers[course_key] = pulse_timer
+
+                # Start the pulse animation
+                pulse_timer.start()
+
+        except Exception as e:
+            logger.error(f"Failed to start pulse animation: {e}")
+            QtWidgets.QMessageBox.critical(self, "خطا", f"امکان شروع انیمیشن پولس وجود ندارد: {str(e)}")
+            sys.exit(1)
+
+    def stop_pulse_animation(self, row, col):
+        """Stop pulse animation for a cell"""
+        try:
+            item = self.schedule_table.item(row, col)
+
+            if item:
+                course_key = item.data(QtCore.Qt.UserRole)
+
+                if course_key in self._pulse_timers:
+                    pulse_timer = self._pulse_timers[course_key]
+
+                    # Stop the pulse animation
+                    pulse_timer.stop()
+
+                    # Remove the pulse timer
+                    del self._pulse_timers[course_key]
+
+        except Exception as e:
+            logger.error(f"Failed to stop pulse animation: {e}")
+            QtWidgets.QMessageBox.critical(self, "خطا", f"امکان متوقف کردن انیمیشن پولس وجود ندارد: {str(e)}")
+            sys.exit(1)
+
+    def pulse_cell(self, item):
+        """Pulse a cell"""
+        try:
+            current_color = item.background().color()
+            r, g, b, a = current_color.getRgb()
+
+            # Increase or decrease alpha value for pulsing effect
+            if a < 255:
+                a += 10
+            else:
+                a -= 10
+
+            # Set the new background color
+            item.setBackground(QtGui.QColor(r, g, b, a))
+
+        except Exception as e:
+            logger.error(f"Failed to pulse cell: {e}")
+            QtWidgets.QMessageBox.critical(self, "خطا", f"امکان انیمیشن پولس وجود ندارد: {str(e)}")
+            sys.exit(1)
+
+    def show_detailed_info_window(self, course_key):
+        """Show detailed info window for a course"""
+        try:
+            # Get the course details
+            course = next((c for c in COURSES if c['key'] == course_key), None)
+
+            if course:
+                # Create and show the detailed info window
+                self.detailed_info_window = DetailedInfoWindow(course, self)
+                self.detailed_info_window.show()
+
+        except Exception as e:
+            logger.error(f"Failed to show detailed info window: {e}")
+            QtWidgets.QMessageBox.critical(self, "خطا", f"امکان نمایش پنجره اطلاعات دقیق وجود ندارد: {str(e)}")
+            sys.exit(1)
+
+    def show_exam_schedule_window(self):
+        """Show exam schedule window"""
+        try:
+            # Create and show the exam schedule window
+            self.exam_schedule_window = ExamScheduleWindow(self)
+            self.exam_schedule_window.show()
+
+        except Exception as e:
+            logger.error(f"Failed to show exam schedule window: {e}")
+            QtWidgets.QMessageBox.critical(self, "خطا", f"امکان نمایش پنجره زمان‌بندی امتحانات وجود ندارد: {str(e)}")
+            sys.exit(1)
+
+    def update_status(self):
+        """Update the status bar with the number of selected courses"""
+        try:
+            # Get the number of selected courses
+            num_courses = len(self.courses)
+
+            # Update the status bar
+            self.status_bar.showMessage(f"تعداد دروس انتخاب شده: {num_courses}")
+
+        except Exception as e:
+            logger.error(f"Failed to update status: {e}")
+            QtWidgets.QMessageBox.critical(self, "خطا", f"امکان به‌روزرسانی وضعیت وجود ندارد: {str(e)}")
+            sys.exit(1)
+
+    def update_stats_panel(self):
+        """Update the stats panel with statistics about the selected courses"""
+        try:
+            # Calculate statistics
+            total_hours = sum(
+                (to_minutes(course['times'][1]) - to_minutes(course['times'][0])) / 60
+                for course in self.courses
+            )
+            total_days = calculate_days_needed_for_combo(self.courses)
+            empty_time = calculate_empty_time_for_combo(self.courses)
+
+            # Update the stats panel
+            self.total_hours_label.setText(f"کل ساعات: {total_hours:.1f}")
+            self.total_days_label.setText(f"روز‌های نیاز: {total_days}")
+            self.empty_time_label.setText(f"زمان خالی: {empty_time} ساعت")
+
+        except Exception as e:
+            logger.error(f"Failed to update stats panel: {e}")
+            QtWidgets.QMessageBox.critical(self, "خطا", f"امکان به‌روزرسانی پانل آمار وجود ندارد: {str(e)}")
+            sys.exit(1)
+
+    def setup_responsive_layout(self):
+        """Setup responsive layout"""
+        try:
+            # Create a stacked widget to hold the central widget
+            self.stacked_widget = QtWidgets.QStackedWidget(self)
+
+            # Set the stacked widget as the central widget
+            self.setCentralWidget(self.stacked_widget)
+
+            # Create a responsive layout
+            self.responsive_layout = QtWidgets.QVBoxLayout()
+
+            # Add the stacked widget to the responsive layout
+            self.responsive_layout.addWidget(self.stacked_widget)
+
+            # Set the responsive layout as the main layout
+            self.setLayout(self.responsive_layout)
+
+        except Exception as e:
+            logger.error(f"Failed to setup responsive layout: {e}")
+            QtWidgets.QMessageBox.critical(self, "خطا", f"امکان تنظیم طرح بندی واکنش‌گرا وجود ندارد: {str(e)}")
+            sys.exit(1)
+
+    def eventFilter(self, obj, event):
+        """Handle events"""
+        try:
+            if event.type() == QtCore.QEvent.Resize:
+                self.on_resize(event)
+
+            return super().eventFilter(obj, event)
+
+        except Exception as e:
+            logger.error(f"Failed to handle event: {e}")
+            QtWidgets.QMessageBox.critical(self, "خطا", f"امکان مدیریت رویداد وجود ندارد: {str(e)}")
+            sys.exit(1)
+
+    def on_resize(self, event):
+        """Handle resize event"""
+        try:
+            # Get the new size
+            new_size = event.size()
+
+            # Resize the schedule table
+            self.schedule_table.resizeColumnsToContents()
+
+            # Update the status bar
+            self.update_status()
+
+            # Save user data
+            save_user_data(self.user_data)
+
+        except Exception as e:
+            logger.error(f"Failed to handle resize event: {e}")
+            QtWidgets.QMessageBox.critical(self, "خطا", f"امکان مدیریت تغییر اندازه وجود ندارد: {str(e)}")
+            sys.exit(1)
+
+    def create_search_clear_button(self):
+        """Create search clear button and add it to the search box"""
+        try:
+            # Create a search clear button
+            self.search_clear_button = QtWidgets.QToolButton(self.search_box)
+            self.search_clear_button.setIcon(QtGui.QIcon(":/icons/clear_icon.png"))
+            self.search_clear_button.setCursor(QtGui.QCursor(QtCore.Qt.ArrowCursor))
+            self.search_clear_button.setStyleSheet("border: none;")
+            self.search_clear_button.clicked.connect(self.clear_search_box)
+
+            # Add the search clear button to the search box
+            self.search_box.setClearButtonEnabled(True)
+
+        except Exception as e:
+            logger.error(f"Failed to create search clear button: {e}")
+            QtWidgets.QMessageBox.critical(self, "خطا", f"امکان ایجاد دکمه پاک کردن جستجو وجود ندارد: {str(e)}")
+            sys.exit(1)
+
+    def clear_search_box(self):
+        """Clear the search box"""
+        try:
+            self.search_box.clear()
+
+            # Update the status bar
+            self.update_status()
+
+            # Save user data
+            save_user_data(self.user_data)
+
+        except Exception as e:
+            logger.error(f"Failed to clear search box: {e}")
+            QtWidgets.QMessageBox.critical(self, "خطا", f"امکان پاک کردن جستجو وجود ندارد: {str(e)}")
+            sys.exit(1)
+
+    def load_and_apply_styles(self):
+        """Load and apply styles"""
+        try:
+            # Get the directory of this file
+            ui_dir = os.path.dirname(os.path.abspath(__file__))
+            style_file = os.path.join(ui_dir, 'styles.qss')
+
+            # Load the style file
+            with open(style_file, 'r') as f:
+                style = f.read()
+
+            # Apply the style
+            self.setStyleSheet(style)
+
+        except Exception as e:
+            logger.error(f"Failed to load and apply styles: {e}")
+            QtWidgets.QMessageBox.critical(self, "خطا", f"امکان بارگذاری و اعمال استایل‌ها وجود ندارد: {str(e)}")
+            sys.exit(1)
+
+    def load_latest_backup(self):
+        """Load latest backup on startup"""
+        try:
+            backup_dir = os.path.join(os.path.expanduser("~"), ".schedule_planner", "backups")
+
+            if os.path.exists(backup_dir):
+                # Get the list of backup files
+                backup_files = sorted(
+                    [f for f in os.listdir(backup_dir) if f.endswith('.bak')],
+                    reverse=True
+                )
+
+                if backup_files:
+                    # Load the latest backup
+                    latest_backup = os.path.join(backup_dir, backup_files[0])
+                    with open(latest_backup, 'r') as f:
+                        backup_data = f.read()
+
+                    # Load the backup data
+                    self.user_data = load_user_data(backup_data)
+
+                    # Update the status bar
+                    self.update_status()
+
+                    # Save user data
+                    save_user_data(self.user_data)
+
+        except Exception as e:
+            logger.error(f"Failed to load latest backup: {e}")
+            QtWidgets.QMessageBox.critical(self, "خطا", f"امکان بارگذاری آخرین پشتیبان وجود ندارد: {str(e)}")
+            sys.exit(1)
+
+    def connect_signals(self):
+        """Connect signals"""
+        try:
+            # Connect signal for adding courses
+            self.add_course_button.clicked.connect(self.add_course)
+
+            # Connect signal for editing courses
+            self.edit_course_button.clicked.connect(self.edit_course)
+
+            # Connect signal for removing courses
+            self.remove_course_button.clicked.connect(self.remove_course)
+
+            # Connect signal for generating combinations
+            self.generate_combinations_button.clicked.connect(self.generate_combinations)
+
+            # Connect signal for generating greedy schedule
+            self.generate_greedy_schedule_button.clicked.connect(self.generate_greedy_schedule)
+
+            # Connect signal for generating alternative schedule
+            self.generate_alternative_schedule_button.clicked.connect(self.generate_alternative_schedule)
+
+            # Connect signal for showing detailed info window
+            self.show_detailed_info_button.clicked.connect(self.show_detailed_info)
+
+            # Connect signal for showing exam schedule window
+            self.show_exam_schedule_button.clicked.connect(self.show_exam_schedule)
+
+        except Exception as e:
+            logger.error(f"Failed to connect signals: {e}")
+            QtWidgets.QMessageBox.critical(self, "خطا", f"امکان اتصال سیگنال‌ها وجود ندارد: {str(e)}")
+            sys.exit(1)
+
+    def add_course(self):
+        """Add a new course"""
+        try:
+            # Create and show the add course dialog
+            dialog = AddCourseDialog(self)
+            if dialog.exec_():
+                course = dialog.get_course()
+
+                # Add the course to the list of selected courses
+                self.courses.append(course)
+
+                # Update the status bar
+                self.update_status()
+
+                # Save user data
+                save_user_data(self.user_data)
+
+        except Exception as e:
+            logger.error(f"Failed to add course: {e}")
+            QtWidgets.QMessageBox.critical(self, "خطا", f"امکان اضافه کردن درس وجود ندارد: {str(e)}")
+            sys.exit(1)
+
+    def edit_course(self):
+        """Edit a selected course"""
+        try:
+            # Get the selected course
+            selected_courses = self.course_list_widget.getSelectedCourses()
+
+            if selected_courses:
+                course_key = selected_courses[0]
+
+                # Get the course details
+                course = next((c for c in COURSES if c['key'] == course_key), None)
+
+                if course:
+                    # Create and show the edit course dialog
+                    dialog = EditCourseDialog(course, self)
+                    if dialog.exec_():
+                        updated_course = dialog.get_course()
+
+                        # Update the course in the list of selected courses
+                        for i, c in enumerate(self.courses):
+                            if c['key'] == course_key:
+                                self.courses[i] = updated_course
+
+                        # Update the status bar
+                        self.update_status()
+
+                        # Save user data
+                        save_user_data(self.user_data)
+
+        except Exception as e:
+            logger.error(f"Failed to edit course: {e}")
+            QtWidgets.QMessageBox.critical(self, "خطا", f"امکان ویرایش درس وجود ندارد: {str(e)}")
+            sys.exit(1)
+
+    def remove_course(self):
+        """Remove a selected course"""
+        try:
+            # Get the selected course
+            selected_courses = self.course_list_widget.getSelectedCourses()
+
+            if selected_courses:
+                course_key = selected_courses[0]
+
+                # Remove the course from the list of selected courses
+                self.courses = [c for c in self.courses if c['key'] != course_key]
+
+                # Update the status bar
+                self.update_status()
+
+                # Save user data
+                save_user_data(self.user_data)
+
+        except Exception as e:
+            logger.error(f"Failed to remove course: {e}")
+            QtWidgets.QMessageBox.critical(self, "خطا", f"امکان حذف درس وجود ندارد: {str(e)}")
+            sys.exit(1)
+
+    def generate_combinations(self):
+        """Generate all possible combinations of selected courses"""
+        try:
+            # Generate all possible combinations
+            self.combinations = list(itertools.combinations(self.courses, len(self.courses)))
+
+            # Update the status bar
+            self.update_status()
+
+            # Save user data
+            save_user_data(self.user_data)
+
+        except Exception as e:
+            logger.error(f"Failed to generate combinations: {e}")
+            QtWidgets.QMessageBox.critical(self, "خطا", f"امکان ایجاد تمام ترکیبات وجود ندارد: {str(e)}")
+            sys.exit(1)
+
+    def generate_greedy_schedule(self):
+        """Generate a greedy schedule for selected courses"""
+        try:
+            # Generate a greedy schedule
+            schedule = create_greedy_schedule(self.courses)
+
+            # Load and display the schedule
+            self.load_combo(schedule)
+
+            # Update the status bar
+            self.update_status()
+
+            # Save user data
+            save_user_data(self.user_data)
+
+        except Exception as e:
+            logger.error(f"Failed to generate greedy schedule: {e}")
+            QtWidgets.QMessageBox.critical(self, "خطا", f"امکان ایجاد برنامه زمانی متعادل وجود ندارد: {str(e)}")
+            sys.exit(1)
+
+    def generate_alternative_schedule(self):
+        """Generate an alternative schedule for selected courses"""
+        try:
+            # Generate an alternative schedule
+            schedule = create_alternative_schedule(self.courses)
+
+            # Load and display the schedule
+            self.load_combo(schedule)
+
+            # Update the status bar
+            self.update_status()
+
+            # Save user data
+            save_user_data(self.user_data)
+
+        except Exception as e:
+            logger.error(f"Failed to generate alternative schedule: {e}")
+            QtWidgets.QMessageBox.critical(self, "خطا", f"امکان ایجاد برنامه زمانی جایگزین وجود ندارد: {str(e)}")
+            sys.exit(1)
+
+    def show_detailed_info(self):
+        """Show detailed info window for selected course"""
+        try:
+            # Get the selected course
+            selected_courses = self.course_list_widget.getSelectedCourses()
+
+            if selected_courses:
+                course_key = selected_courses[0]
+
+                # Show detailed info window
+                self.show_detailed_info_window(course_key)
+
+        except Exception as e:
+            logger.error(f"Failed to show detailed info: {e}")
+            QtWidgets.QMessageBox.critical(self, "خطا", f"امکان نمایش اطلاعات دقیق وجود ندارد: {str(e)}")
+            sys.exit(1)
+
+    def show_exam_schedule(self):
+        """Show exam schedule window"""
+        try:
+            # Show exam schedule window
+            self.show_exam_schedule_window()
+
+        except Exception as e:
+            logger.error(f"Failed to show exam schedule: {e}")
+            QtWidgets.QMessageBox.critical(self, "خطا", f"امکان نمایش برنامه زمانی امتحانات وجود ندارد: {str(e)}")
+            sys.exit(1)
+
+    def create_menu_bar(self):
+        """Create menu bar"""
+        try:
+            # Create menu bar
+            menu_bar = self.menuBar()
+
+            # Create file menu
+            file_menu = menu_bar.addMenu('فایل')
+
+            # Create actions
+            save_action = QtWidgets.QAction('ذخیره', self)
+            load_action = QtWidgets.QAction('بارگذاری', self)
+            exit_action = QtWidgets.QAction('خروج', self)
+
+            # Connect actions
+            save_action.triggered.connect(self.save_user_data)
+            load_action.triggered.connect(self.load_user_data)
+            exit_action.triggered.connect(self.close)
+
+            # Add actions to file menu
+            file_menu.addAction(save_action)
+            file_menu.addAction(load_action)
+            file_menu.addSeparator()
+            file_menu.addAction(exit_action)
+
+        except Exception as e:
+            logger.error(f"Failed to create menu bar: {e}")
+            QtWidgets.QMessageBox.critical(self, "خطا", f"امکان ایجاد نوار منو وجود ندارد: {str(e)}")
+            sys.exit(1)
+
+    def save_user_data(self):
+        """Save user data"""
+        try:
+            # Get the directory of this file
+            data_dir = os.path.join(os.path.expanduser("~"), ".schedule_planner")
+
+            if not os.path.exists(data_dir):
+                os.makedirs(data_dir)
+
+            # Save the user data to a file
+            data_file = os.path.join(data_dir, 'user_data.json')
+            # Fix: Don't try to write the return value of save_user_data which is None
+            save_user_data(self.user_data)
+
+        except Exception as e:
+            logger.error(f"Failed to save user data: {e}")
+            QtWidgets.QMessageBox.critical(self, "خطا", f"امکان ذخیره داده‌های کاربر وجود ندارد: {str(e)}")
+            sys.exit(1)
+
+    def load_user_data(self):
+        """Load user data"""
+        try:
+            # Get the directory of this file
+            data_dir = os.path.join(os.path.expanduser("~"), ".schedule_planner")
+
+            if not os.path.exists(data_dir):
+                os.makedirs(data_dir)
+
+            # Load the user data from a file
+            data_file = os.path.join(data_dir, 'user_data.json')
+            with open(data_file, 'r') as f:
+                self.user_data = load_user_data(f.read())
+
+            # Update the status bar
+            self.update_status()
+
+            # Save user data
+            save_user_data(self.user_data)
+
+        except Exception as e:
+            logger.error(f"Failed to load user data: {e}")
+            QtWidgets.QMessageBox.critical(self, "خطا", f"امکان بارگذاری داده‌های کاربر وجود ندارد: {str(e)}")
+            sys.exit(1)
+
+    def debug_stats_widget(self):
+        """Debug stats widget"""
+        try:
+            # Get the directory of this file
+            ui_dir = os.path.dirname(os.path.abspath(__file__))
+            stats_widget_ui_file = os.path.join(ui_dir, 'stats_widget.ui')
+
+            # Load UI from external file
+            try:
+                uic.loadUi(stats_widget_ui_file, self.stats_widget)
+            except FileNotFoundError:
+                QtWidgets.QMessageBox.critical(self, "خطا", f"فایل UI یافت نشد: {stats_widget_ui_file}")
+                sys.exit(1)
+            except Exception as e:
+                QtWidgets.QMessageBox.critical(self, "خطا", f"خطا در بارگذاری UI: {str(e)}")
+                sys.exit(1)
+
+            # Set layout direction
+            self.stats_widget.setLayoutDirection(QtCore.Qt.RightToLeft)
+
+            # Add the stats widget to the main window
+            self.setCentralWidget(self.stats_widget)
+
+            # Update the stats panel
+            self.update_stats_panel()
+
+        except Exception as e:
+            logger.error(f"Failed to debug stats widget: {e}")
+            QtWidgets.QMessageBox.critical(self, "خطا", f"امکان اجرای تست بر روی ویجت آمار وجود ندارد: {str(e)}")
+            sys.exit(1)
+
+    def get_course_priority(self, course_key):
+        """
+        Get the priority of a course from the auto-select list.
+        Lower numbers indicate higher priority.
+        Returns 999 (low priority) if course is not in the auto-select list.
+        """
+        # Check if course exists in auto_select_list and get its priority
+        if hasattr(self, 'auto_select_list'):
+            for i in range(self.auto_select_list.count()):
+                item = self.auto_select_list.item(i)
+                if item and item.data(QtCore.Qt.UserRole) == course_key:
+                    # Priority is stored in UserRole + 1 (1 = highest priority)
+                    priority = item.data(QtCore.Qt.UserRole + 1)
+                    if priority is not None:
+                        return priority
+        
+        # Default priority if not found in auto-select list
+        return 999
 
     def initialize_schedule_table(self):
         """Initialize the schedule table with days and time slots"""
@@ -465,15 +1444,37 @@ class SchedulerWindow(QtWidgets.QMainWindow):
                 
             # محاسبه آمار
             if hasattr(self, 'placed') and self.placed:
-                placed_courses = list(set(info['course'] for info in self.placed.values()))
-                print(f"📊 Found {len(placed_courses)} courses")
+                # Collect currently placed course keys
+                # Handle both single and dual courses correctly
+                keys = []
+                for info in self.placed.values():
+                    if info.get('type') == 'dual':
+                        # For dual courses, add both courses
+                        keys.extend(info.get('courses', []))
+                    else:
+                        # For single courses, add the course key
+                        keys.append(info.get('course'))
+
+                # Remove duplicates while preserving order
+                seen = set()
+                unique_keys = []
+                for key in keys:
+                    if key not in seen:
+                        seen.add(key)
+                        unique_keys.append(key)
+                keys = unique_keys
+                
+                # Update user data with current schedule
+                self.user_data['current_schedule'] = keys
+                
+                print(f"📊 Found {len(keys)} courses")
                 
                 # محاسبه واحدها
                 total_units = 0
                 total_sessions = len(self.placed)
                 days_used = set()
                 
-                for course_key in placed_courses:
+                for course_key in keys:
                     course = COURSES.get(course_key, {})
                     units = course.get('credits', 0)
                     total_units += units
@@ -486,7 +1487,7 @@ class SchedulerWindow(QtWidgets.QMainWindow):
                 # متن آمار
                 stats_text = f"""📊 آمار برنامه فعلی
 
-📚 تعداد دروس: {len(placed_courses)}
+📚 تعداد دروس: {len(keys)}
 🎯 واحدها: {total_units}
 ⏰ جلسات: {total_sessions}
 📅 روزها: {len(days_used)}
@@ -546,6 +1547,8 @@ class SchedulerWindow(QtWidgets.QMainWindow):
 
     def on_course_clicked(self, item):
         """Handle course selection from the list with enhanced debugging"""
+        # Make sure QtWidgets is available in this scope
+        
         try:
             if item is None:
                 logger.warning("on_course_clicked called with None item")
@@ -563,7 +1566,11 @@ class SchedulerWindow(QtWidgets.QMainWindow):
             if key:
                 logger.info(f"User clicked on course with key: {key}")
                 self.clear_preview()
-                self.add_course_to_table(key, ask_on_conflict=True)
+                # Enqueue course addition instead of calling directly to prevent race conditions
+                self.course_addition_queue.append((key, True))  # True for ask_on_conflict
+                if self.course_addition_timer.isActive():
+                    self.course_addition_timer.stop()
+                self.course_addition_timer.start(50)  # 50ms debounce
                 
                 # Update course info panel
                 if hasattr(self, 'course_info_label'):
@@ -586,7 +1593,10 @@ class SchedulerWindow(QtWidgets.QMainWindow):
                 )
         except Exception as e:
             logger.error(f"Error in on_course_clicked: {e}")
-
+            QtWidgets.QMessageBox.critical(
+                self, 'خطای سیستمی', 
+                f'خطای غیرمنتظره در هنگام انتخاب درس:\n{str(e)}'
+            )
     
     def create_combination_card(self, index, combo):
         """Create a card widget for a schedule combination"""
@@ -910,7 +1920,49 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         return True
 
     def add_course_to_table(self, course_key, ask_on_conflict=True):
-        """Add a course to the schedule table with priority-based conflict resolution"""
+        """
+        Add course to table with debouncing to prevent race conditions.
+        This fixes the rapid click Morbi failure issue.
+        """
+        # Add to queue and debounce
+        self.course_addition_queue.append((course_key, ask_on_conflict))
+        if self.course_addition_timer.isActive():
+            self.course_addition_timer.stop()
+        self.course_addition_timer.start(50)  # 50ms debounce
+
+    def _process_course_addition_queue(self):
+        """
+        Process queued course additions with proper synchronization.
+        This version processes courses one by one to properly handle dual course creation.
+        """
+        logger.info("overlay_processing_start: Starting to process course addition queue")
+        locker = QMutexLocker(self.course_addition_mutex)
+        try:
+            # Process courses one by one to handle dual course creation correctly
+            while self.course_addition_queue:
+                course_key, ask_on_conflict = self.course_addition_queue.popleft()
+                logger.info(f"overlay_processing_item: Processing course {course_key}")
+                # Process course addition with dual operation locking
+                dual_locker = QMutexLocker(self.dual_operation_mutex)
+                try:
+                    self._add_course_internal(course_key, ask_on_conflict)
+                finally:
+                    del dual_locker
+                
+                # Process events to ensure UI updates
+                QtWidgets.QApplication.processEvents()
+            
+            self.save_user_data()
+            logger.info("overlay_processing_complete: Course addition queue processing complete")
+        finally:
+            del locker
+
+    def _add_course_internal(self, course_key, ask_on_conflict=True):
+        """
+        Internal method for adding course with proper dual course handling.
+        This method should only be called from _process_course_addition_queue.
+        """
+        logger.info(f"overlay_add_internal: Adding course {course_key} internally")
         # Safety check for schedule_table
         if not hasattr(self, 'schedule_table'):
             logger.error("schedule_table widget not found")
@@ -921,6 +1973,9 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         if not course:
             QtWidgets.QMessageBox.warning(self, 'خطا', f'درس با کلید {course_key} یافت نشد.')
             return
+        
+        # Import the dual course widget creator and parity compatibility checker
+        from .enhanced_main_window import create_dual_course_widget, check_odd_even_compatibility
         
         placements = []
         for sess in course['schedule']:
@@ -936,20 +1991,64 @@ class SchedulerWindow(QtWidgets.QMainWindow):
             span = max(1, erow - srow)
             placements.append((srow, col, span, sess))
 
-        # Check for conflicts
+        # Check for conflicts with proper weekly_type (parity) handling
         conflicts = []
+        compatible_slots = {}  # Track odd/even compatible slots
+        
         for (srow, col, span, sess) in placements:
             for (prow, pcol), info in list(self.placed.items()):
                 if pcol != col:
                     continue
                 # Skip conflict check with the same course
-                if info['course'] == course_key:
+                if info.get('course') == course_key:
                     continue
                 prow_start = prow
                 prow_span = info['rows']
                 if not (srow + span <= prow_start or prow_start + prow_span <= srow):
-                    conflict_course = COURSES.get(info['course'], {})
-                    conflicts.append(((srow, col), (prow_start, pcol), info['course'], conflict_course.get('name', 'نامشخص')))
+                    # Time overlap detected - check if they can coexist based on parity
+                    existing_course = COURSES.get(info.get('course'), {})
+                    
+                    # Find the conflicting session
+                    for existing_sess in existing_course.get('schedule', []):
+                        if existing_sess['day'] == sess['day']:
+                            # Check start/end time match
+                            existing_start = EXTENDED_TIME_SLOTS.index(existing_sess['start'])
+                            existing_end = EXTENDED_TIME_SLOTS.index(existing_sess['end'])
+                            
+                            if existing_start == srow and existing_end == srow + span:
+                                # Same time slot - check if they can coexist based on weekly_type (parity)
+                                # Courses can coexist ONLY if one is "even" and the other is "odd"
+                                # All other combinations result in conflict:
+                                # - fixed vs fixed → conflict
+                                # - even vs even → conflict
+                                # - odd vs odd → conflict
+                                # - fixed vs even → conflict
+                                # - fixed vs odd → conflict
+                                # - even vs odd → allowed
+                                # - odd vs even → allowed
+                                
+                                sess_parity = sess.get('parity', '')
+                                existing_parity = existing_sess.get('parity', '')
+                                
+                                # Check if they are compatible (one even, one odd)
+                                is_compatible = (
+                                    (sess_parity == 'ز' and existing_parity == 'ف') or  # زوج and فرد
+                                    (sess_parity == 'ف' and existing_parity == 'ز')     # فرد and زوج
+                                )
+                                
+                                # If compatible, store for dual placement
+                                if is_compatible:
+                                    compatible_slots[(srow, col)] = {
+                                        'existing': info,
+                                        'existing_session': existing_sess,
+                                        'new_session': sess,
+                                        'span': span
+                                    }
+                                else:
+                                    # If not compatible, it's a real conflict
+                                    conflicts.append(((srow, col), (prow_start, pcol), info.get('course'), 
+                                                    existing_course.get('name', 'نامشخص')))
+                                break
         
         # Add conflict indicator to course info if there are conflicts
         has_conflicts = len(conflicts) > 0
@@ -1030,584 +2129,270 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         color_idx = len(self.placed) % len(COLOR_MAP)
         # رنگ‌ها - Updated with harmonious color palette
         bg = COLOR_MAP[color_idx % len(COLOR_MAP)]
+        
+        # Place the course sessions
+        # Create a unique slot key for overlay tracking
+        slot_keys = []
         for (srow, col, span, sess) in placements:
-            # Determine parity information and styling
-            parity_indicator = ''
-            if sess.get('parity') == 'ز':
-                parity_indicator = 'ز'
-            elif sess.get('parity') == 'ف':
-                parity_indicator = 'ف'
-
-            # Create course cell widget with improved styling
-            cell_widget = AnimatedCourseWidget(course_key, bg, has_conflicts, self)
-            # Set object name for QSS styling
-            cell_widget.setObjectName('course-cell')
-            
-            # Set properties for styling based on course type and conflicts
-            if has_conflicts:
-                cell_widget.setProperty('conflict', True)
-            elif course.get('code', '').startswith('elective'):
-                cell_widget.setProperty('elective', True)
-            else:
-                cell_widget.setProperty('conflict', False)
-                cell_widget.setProperty('elective', False)
-            
-            # Store background color for animation
-            cell_widget.bg_color = bg
-            cell_widget.border_color = QtGui.QColor(bg.red()//2, bg.green()//2, bg.blue()//2)
-            cell_layout = QtWidgets.QVBoxLayout(cell_widget)
-            cell_layout.setContentsMargins(2, 1, 2, 1)
-            cell_layout.setSpacing(0)
-            
-            # Top row with X button and conflict indicator
-            top_row = QtWidgets.QHBoxLayout()
-            top_row.setContentsMargins(0, 0, 0, 0)
-            
-            # No conflict indicator in schedule table (only in course list)
-            # Add a spacer to maintain consistent layout
-            top_row.addStretch()
-            
-            # X button for course removal - properly styled in red
-            x_button = QtWidgets.QPushButton('✕')
-            x_button.setFixedSize(18, 18)
-            x_button.setObjectName('close-btn')
-            x_button.clicked.connect(lambda checked, ck=course_key: self.remove_course_silently(ck))
-            
-            top_row.addWidget(x_button)
-            cell_layout.addLayout(top_row)
-            
-            # Course information with improved layout
-            # Course Name (Bold)
-            course_name_label = QtWidgets.QLabel(course['name'])
-            course_name_label.setAlignment(QtCore.Qt.AlignCenter)
-            course_name_label.setWordWrap(True)
-            
-            # Professor Name
-            professor_label = QtWidgets.QLabel(course.get('instructor', 'نامشخص'))
-            professor_label.setAlignment(QtCore.Qt.AlignCenter)
-            professor_label.setWordWrap(True)
-            professor_label.setObjectName('professor-label')
-            
-            # Course Code
-            code_label = QtWidgets.QLabel(course.get('code', ''))
-            code_label.setAlignment(QtCore.Qt.AlignCenter)
-            code_label.setWordWrap(True)
-            code_label.setObjectName('code-label')
-            
-            # Add labels to layout
-            cell_layout.addWidget(course_name_label)
-            cell_layout.addWidget(professor_label)
-            cell_layout.addWidget(code_label)
-            
-            # Bottom row for parity indicator
-            bottom_row = QtWidgets.QHBoxLayout()
-            bottom_row.setContentsMargins(0, 0, 0, 0)
-            
-            # Parity indicator (bottom-left corner)
-            if parity_indicator:
-                parity_label = QtWidgets.QLabel(parity_indicator)
-                parity_label.setAlignment(QtCore.Qt.AlignLeft | QtCore.Qt.AlignBottom)
-                if parity_indicator == 'ز':
-                    parity_label.setObjectName('parity-label-even')
-                elif parity_indicator == 'ف':
-                    parity_label.setObjectName('parity-label-odd')
-                else:
-                    parity_label.setObjectName('parity-label-all')
-                bottom_row.addWidget(parity_label)
-            
-            bottom_row.addStretch()
-            cell_layout.addLayout(bottom_row)
-            
-            # Store references for hover effects and course operations
-            cell_widget.course_key = course_key
-            
-            # Enable hover effects
-            def enter_event(event, widget=cell_widget):
-                self.highlight_course_sessions(widget.course_key)
-            
-            def leave_event(event, widget=cell_widget):
-                self.clear_course_highlights()
-            
-            def mouse_press_event(event, widget=cell_widget):
-                if event.button() == QtCore.Qt.LeftButton:
-                    self.show_course_details(widget.course_key)
-            
-            cell_widget.enterEvent = enter_event
-            cell_widget.leaveEvent = leave_event
-            cell_widget.mousePressEvent = mouse_press_event
-            
-            self.schedule_table.setCellWidget(srow, col, cell_widget)
-            if span > 1:
-                self.schedule_table.setSpan(srow, col, span, 1)
-            self.placed[(srow, col)] = {
-                'course': course_key, 
-                'rows': span, 
-                'widget': cell_widget
-            }
-            
-        # Update status after adding course
-        self.update_status()
+            slot_key = f"{sess['day']}_{sess['start']}_{sess['end']}"
+            slot_keys.append((slot_key, srow, col, span, sess))
         
-        # Update detailed info window if open
-        self.update_detailed_info_if_open()
-        
-        
-        # Update stats panel
-        print("🔄 Calling update_stats_panel from add_course_to_table")
-        self.update_stats_panel()  # فورس کال
-        QtCore.QCoreApplication.processEvents()  # فورس UI update
-
-    def clear_course_highlights(self):
-        """Restore original styling for all course widgets"""
-        # Stop any pulsing animations
-        if hasattr(self, '_pulse_timers'):
-            for timer in list(self._pulse_timers.values()):
-                try:
-                    if timer and timer.isActive():
-                        timer.stop()
-                except RuntimeError:
-                    # Timer has been deleted, skip it
-                    pass
-            self._pulse_timers.clear()
-        
-        for (srow, scol), info in self.placed.items():
-            widget = info.get('widget')
-            if widget and hasattr(widget, 'original_style'):
-                # Restore the exact original style to prevent any residual effects
-                widget.setStyleSheet(widget.original_style)
-            elif widget:
-                # If no original style was stored, apply default styling
-                widget.setStyleSheet("")
-    
-
-    def is_cell_empty(self, row, col):
-        """Check if a cell is empty (helper method)"""
-        item = self.schedule_table.item(row, col)
-        if not item:
-            return True
-        it = item.data(QtCore.Qt.DisplayRole)
-        if it and it.text().strip() != '':
-            return False
-        return True
-
-    def add_course_to_table_with_priority(self, course_key, course_priorities):
-        """Add a course to the schedule table with priority-based conflict resolution"""
-        # Safety check for schedule_table
-        if not hasattr(self, 'schedule_table'):
-            logger.error("schedule_table widget not found")
-            QtWidgets.QMessageBox.critical(self, 'خطا', 'جدول برنامه یافت نشد.')
-            return False
-            
-        course = COURSES.get(course_key)
-        if not course:
-            QtWidgets.QMessageBox.warning(self, 'خطا', f'درس با کلید {course_key} یافت نشد.')
-            return False
-        
-        placements = []
-        for sess in course['schedule']:
-            if sess['day'] not in DAYS:
-                continue
-            col = DAYS.index(sess['day'])
-            try:
-                srow = EXTENDED_TIME_SLOTS.index(sess['start'])
-                erow = EXTENDED_TIME_SLOTS.index(sess['end'])
-            except ValueError:
-                QtWidgets.QMessageBox.warning(self, 'خطا', f'زمان نامعتبر برای درس {course["name"]}: {sess["start"]}-{sess["end"]}')
-                continue
-            span = max(1, erow - srow)
-            placements.append((srow, col, span, sess))
-
-        # Check for conflicts
-        conflicts = []
-        for (srow, col, span, sess) in placements:
-            for (prow, pcol), info in list(self.placed.items()):
-                if pcol != col:
-                    continue
-                # Skip conflict check with the same course
-                if info['course'] == course_key:
-                    continue
-                prow_start = prow
-                prow_span = info['rows']
-                if not (srow + span <= prow_start or prow_start + prow_span <= srow):
-                    conflict_course = COURSES.get(info['course'], {})
-                    conflicts.append(((srow, col), (prow_start, pcol), info['course'], conflict_course.get('name', 'نامشخص')))
-        
-        # Handle conflicts with priority-based resolution
-        if conflicts:
-            current_priority = course_priorities.get(course_key, 999)
-            
-            # Check if any conflicting courses have higher priority (lower number)
-            higher_priority_conflicts = []
-            conflict_details = []
-            for conf in conflicts:
-                (_, _), (_, _), conflict_course_key, conflict_name = conf
-                conflict_priority = course_priorities.get(conflict_course_key, 999)
+        # Process all placements with proper dual course handling
+        for (slot_key, srow, col, span, sess) in slot_keys:
+            # Check if this slot has a compatible odd/even pairing
+            if (srow, col) in compatible_slots:
+                # Create dual course widget
+                compat_info = compatible_slots[(srow, col)]
+                existing_info = compat_info['existing']
+                existing_sess = compat_info['existing_session']
+                new_sess = sess
                 
-                # If conflicting course has higher priority (lower number), it should stay
-                if conflict_priority < current_priority:
-                    higher_priority_conflicts.append((conflict_course_key, conflict_name, conflict_priority))
-                conflict_details.append(conflict_name)
-            
-            # If there are higher priority conflicts, don't add this course
-            if higher_priority_conflicts:
-                return False
-
-        # Clear preview
-        self.clear_preview()
-
-        COLOR_MAP = [
-            QtGui.QColor(174, 214, 241),  # Light Blue
-            QtGui.QColor(175, 215, 196),  # Light Green
-            QtGui.QColor(248, 220, 188),  # Light Orange
-            QtGui.QColor(216, 191, 216),  # Light Purple
-            QtGui.QColor(240, 202, 202),  # Light Red
-            QtGui.QColor(250, 235, 215)   # Light Beige
-        ]
-        color_idx = len(self.placed) % len(COLOR_MAP)
-        bg = COLOR_MAP[color_idx % len(COLOR_MAP)]
-        
-        for (srow, col, span, sess) in placements:
-            # Determine parity information and styling
-            parity_indicator = ''
-            if sess.get('parity') == 'ز':
-                parity_indicator = 'ز'
-            elif sess.get('parity') == 'ف':
-                parity_indicator = 'ف'
-
-            # Create course cell widget with improved styling
-            cell_widget = AnimatedCourseWidget(course_key, bg, False, self)
-            # Set object name for QSS styling
-            cell_widget.setObjectName('course-cell')
-            
-            # Set properties for styling based on course type and conflicts
-            cell_widget.setProperty('conflict', False)
-            if course.get('code', '').startswith('elective'):
-                cell_widget.setProperty('elective', True)
-            else:
-                cell_widget.setProperty('elective', False)
-            
-            # Store background color for animation
-            cell_widget.bg_color = bg
-            cell_widget.border_color = QtGui.QColor(bg.red()//2, bg.green()//2, bg.blue()//2)
-            cell_layout = QtWidgets.QVBoxLayout(cell_widget)
-            cell_layout.setContentsMargins(2, 1, 2, 1)
-            cell_layout.setSpacing(0)
-            
-            # Top row with X button
-            top_row = QtWidgets.QHBoxLayout()
-            top_row.setContentsMargins(0, 0, 0, 0)
-            
-            top_row.addStretch()
-            
-            # X button for course removal - properly styled in red
-            x_button = QtWidgets.QPushButton('✕')
-            x_button.setFixedSize(18, 18)
-            x_button.setObjectName('close-btn')
-            x_button.clicked.connect(lambda checked, ck=course_key: self.remove_course_silently(ck))
-            
-            top_row.addWidget(x_button)
-            cell_layout.addLayout(top_row)
-            
-            # Course information with improved layout
-            # Course Name (Bold)
-            course_name_label = QtWidgets.QLabel(course['name'])
-            course_name_label.setAlignment(QtCore.Qt.AlignCenter)
-            course_name_label.setWordWrap(True)
-            
-            # Professor Name
-            professor_label = QtWidgets.QLabel(course.get('instructor', 'نامشخص'))
-            professor_label.setAlignment(QtCore.Qt.AlignCenter)
-            professor_label.setWordWrap(True)
-            professor_label.setObjectName('professor-label')
-            
-            # Course Code
-            code_label = QtWidgets.QLabel(course.get('code', ''))
-            code_label.setAlignment(QtCore.Qt.AlignCenter)
-            code_label.setWordWrap(True)
-            code_label.setObjectName('code-label')
-            
-            # Add labels to layout
-            cell_layout.addWidget(course_name_label)
-            cell_layout.addWidget(professor_label)
-            cell_layout.addWidget(code_label)
-            
-            # Bottom row for parity indicator
-            bottom_row = QtWidgets.QHBoxLayout()
-            bottom_row.setContentsMargins(0, 0, 0, 0)
-            
-            # Parity indicator (bottom-left corner)
-            if parity_indicator:
-                parity_label = QtWidgets.QLabel(parity_indicator)
-                parity_label.setAlignment(QtCore.Qt.AlignLeft | QtCore.Qt.AlignBottom)
-                if parity_indicator == 'ز':
-                    parity_label.setObjectName('parity-label-even')
-                elif parity_indicator == 'ف':
-                    parity_label.setObjectName('parity-label-odd')
+                # Prepare data for both courses
+                if new_sess.get('parity') == 'ف':  # If new course is odd
+                    odd_data = {
+                        'course': course,
+                        'course_key': course_key,
+                        'session': new_sess,
+                        'color': bg
+                    }
+                    even_data = {
+                        'course': COURSES[existing_info.get('course')],
+                        'course_key': existing_info.get('course'),
+                        'session': existing_sess,
+                        'color': existing_info.get('color', COLOR_MAP[0])
+                    }
+                else:  # If new course is even or fixed
+                    odd_data = {
+                        'course': COURSES[existing_info.get('course')],
+                        'course_key': existing_info.get('course'),
+                        'session': existing_sess,
+                        'color': existing_info.get('color', COLOR_MAP[0])
+                    }
+                    even_data = {
+                        'course': course,
+                        'course_key': course_key,
+                        'session': new_sess,
+                        'color': bg
+                    }
+                
+                # Check if we already have a dual widget for this slot
+                existing_dual_widget = None
+                if (srow, col) in self.placed and self.placed[(srow, col)].get('type') == 'dual':
+                    existing_dual_widget = self.placed[(srow, col)].get('widget')
+                
+                if existing_dual_widget:
+                    # Update existing dual widget instead of creating a new one
+                    logger.info(f"overlay_updating_dual: Updating existing dual widget for slot {slot_key}")
+                    # This would require modifying the dual widget to update its data
+                    # For now, we'll remove the old widget and create a new one
+                    self.schedule_table.removeCellWidget(srow, col)
+                    
+                    # Remove the existing single widget entry from placed
+                    # Find and remove the existing entry for this slot
+                    logger.info(f"DEBUG: Looking for existing entry at ({srow}, {col}) for update")
+                    logger.info(f"DEBUG: Current placed items: {list(self.placed.keys())}")
+                    existing_start_tuple = None
+                    for start_tuple, info in list(self.placed.items()):
+                        logger.info(f"DEBUG: Checking placed item {start_tuple} for update")
+                        if start_tuple == (srow, col):
+                            existing_start_tuple = start_tuple
+                            logger.info(f"DEBUG: Found existing entry to remove for update: {start_tuple}")
+                            break
+                    
+                    if existing_start_tuple:
+                        del self.placed[existing_start_tuple]
+                        logger.info(f"DEBUG: Removed existing entry for update: {existing_start_tuple}")
+                    else:
+                        logger.info(f"DEBUG: No existing entry found to remove at ({srow}, {col}) for update")
+                    
+                    dual_widget = create_dual_course_widget(odd_data, even_data, self)
+                    self.schedule_table.setCellWidget(srow, col, dual_widget)
+                    
+                    # Update overlay tracking
+                    if slot_key not in self.overlays:
+                        self.overlays[slot_key] = {}
+                    self.overlays[slot_key]['dual'] = dual_widget
+                    
+                    # Update placed info to track both courses
+                    self.placed[(srow, col)] = {
+                        'courses': [odd_data['course_key'], even_data['course_key']],
+                        'rows': span,
+                        'widget': dual_widget,
+                        'type': 'dual'
+                    }
                 else:
-                    parity_label.setObjectName('parity-label-all')
-                bottom_row.addWidget(parity_label)
-            
-            bottom_row.addStretch()
-            cell_layout.addLayout(bottom_row)
-            
-            # Store references for hover effects and course operations
-            cell_widget.course_key = course_key
-            
-            # Enable hover effects
-            def enter_event(event, widget=cell_widget):
-                self.highlight_course_sessions(widget.course_key)
-            
-            def leave_event(event, widget=cell_widget):
-                self.clear_course_highlights()
-            
-            def mouse_press_event(event, widget=cell_widget):
-                if event.button() == QtCore.Qt.LeftButton:
-                    self.show_course_details(widget.course_key)
-            
-            cell_widget.enterEvent = enter_event
-            cell_widget.leaveEvent = leave_event
-            cell_widget.mousePressEvent = mouse_press_event
-            
-            self.schedule_table.setCellWidget(srow, col, cell_widget)
-            if span > 1:
-                self.schedule_table.setSpan(srow, col, span, 1)
-            self.placed[(srow, col)] = {
-                'course': course_key, 
-                'rows': span, 
-                'widget': cell_widget
-            }
-            
-        # Update status after adding course
-        self.update_status()
-        
-        # Update detailed info window if open
-        self.update_detailed_info_if_open()
-        
-        
-        # Update stats panel
-        print("🔄 Calling update_stats_panel from add_course_to_table_with_priority")
-        self.update_stats_panel()
-        QtCore.QCoreApplication.processEvents()
-        
-        return True
-
-    def add_course_to_table(self, course_key, ask_on_conflict=True):
-        """Add a course to the schedule table"""
-        # Safety check for schedule_table
-        if not hasattr(self, 'schedule_table'):
-            logger.error("schedule_table widget not found")
-            QtWidgets.QMessageBox.critical(self, 'خطا', 'جدول برنامه یافت نشد.')
-            return
-            
-        course = COURSES.get(course_key)
-        if not course:
-            QtWidgets.QMessageBox.warning(self, 'خطا', f'درس با کلید {course_key} یافت نشد.')
-            return
-        
-        placements = []
-        for sess in course['schedule']:
-            if sess['day'] not in DAYS:
-                continue
-            col = DAYS.index(sess['day'])
-            try:
-                srow = EXTENDED_TIME_SLOTS.index(sess['start'])
-                erow = EXTENDED_TIME_SLOTS.index(sess['end'])
-            except ValueError:
-                QtWidgets.QMessageBox.warning(self, 'خطا', f'زمان نامعتبر برای درس {course["name"]}: {sess["start"]}-{sess["end"]}')
-                continue
-            span = max(1, erow - srow)
-            placements.append((srow, col, span, sess))
-
-        # Check for conflicts
-        conflicts = []
-        for (srow, col, span, sess) in placements:
-            for (prow, pcol), info in list(self.placed.items()):
-                if pcol != col:
-                    continue
-                # Skip conflict check with the same course
-                if info['course'] == course_key:
-                    continue
-                prow_start = prow
-                prow_span = info['rows']
-                if not (srow + span <= prow_start or prow_start + prow_span <= srow):
-                    conflict_course = COURSES.get(info['course'], {})
-                    conflicts.append(((srow, col), (prow_start, pcol), info['course'], conflict_course.get('name', 'نامشخص')))
-        
-        # Add conflict indicator to course info if there are conflicts
-        has_conflicts = len(conflicts) > 0
-
-        # Handle conflicts with better warning messages and visual indicators
-        if conflicts and ask_on_conflict:
-            conflict_details = []
-            for conf in conflicts:
-                (_, _), (_, _), _, conflict_name = conf
-                conflict_details.append(conflict_name)
-            
-            conflict_list = '\n'.join([f"• {name}" for name in conflict_details])
-            
-            msg = QtWidgets.QMessageBox()
-            msg.setIcon(QtWidgets.QMessageBox.Warning)
-            msg.setWindowTitle('تداخل زمان‌بندی دروس')
-            msg.setText(f'درس "{course["name"]}" با دروس زیر تداخل دارد:')
-            msg.setDetailedText(f'دروس متداخل:\n{conflict_list}')
-            msg.setInformativeText('آیا می‌خواهید دروس متداخل حذف شوند و این درس اضافه گردد؟')
-            msg.setStandardButtons(QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No | QtWidgets.QMessageBox.Cancel)
-            msg.setDefaultButton(QtWidgets.QMessageBox.No)
-            
-            res = msg.exec_()
-            if res == QtWidgets.QMessageBox.Cancel:
-                return
-            elif res != QtWidgets.QMessageBox.Yes:
-                # Show warning instead of adding conflicting course
-                warning_msg = QtWidgets.QMessageBox()
-                warning_msg.setIcon(QtWidgets.QMessageBox.Warning)
-                warning_msg.setWindowTitle('تداخل دروس')
-                warning_msg.setText(f'درس "{course["name"]}" به دلیل تداخل با دروس زیر اضافه نشد:')
-                warning_msg.setDetailedText(conflict_list)
-                warning_msg.exec_()
-                return
-            
-            # Remove conflicting courses if user confirmed
-            conflicting_courses = set()
-            for conf in conflicts:
-                (_, _), (rstart, rcol), rcourse, _ = conf
-                conflicting_courses.add(rcourse)
-            
-            # Remove entire conflicting courses
-            for conflicting_course_key in conflicting_courses:
-                self.remove_course_from_schedule(conflicting_course_key)
-        elif conflicts and not ask_on_conflict:
-            # If we're not asking about conflicts (e.g., applying presets), still mark as conflicting
-            has_conflicts = True
-
-        # Clear preview
-        self.clear_preview()
-
-        COLOR_MAP = [
-            QtGui.QColor(174, 214, 241),  # Light Blue
-            QtGui.QColor(175, 215, 196),  # Light Green
-            QtGui.QColor(248, 220, 188),  # Light Orange
-            QtGui.QColor(216, 191, 216),  # Light Purple
-            QtGui.QColor(240, 202, 202),  # Light Red
-            QtGui.QColor(250, 235, 215)   # Light Beige
-        ]
-        color_idx = len(self.placed) % len(COLOR_MAP)
-        # رنگ‌ها - Updated with harmonious color palette
-        bg = COLOR_MAP[color_idx % len(COLOR_MAP)]
-        for (srow, col, span, sess) in placements:
-            # Determine parity information and styling
-            parity_indicator = ''
-            if sess.get('parity') == 'ز':
-                parity_indicator = 'ز'
-            elif sess.get('parity') == 'ف':
-                parity_indicator = 'ف'
-
-            # Create course cell widget with improved styling
-            cell_widget = AnimatedCourseWidget(course_key, bg, has_conflicts, self)
-            # Set object name for QSS styling
-            cell_widget.setObjectName('course-cell')
-            
-            # Set properties for styling based on course type and conflicts
-            if has_conflicts:
-                cell_widget.setProperty('conflict', True)
-            elif course.get('code', '').startswith('elective'):
-                cell_widget.setProperty('elective', True)
+                    # Create new dual widget
+                    logger.info(f"overlay_creating_dual: Creating new dual widget for slot {slot_key}")
+                    # Remove old widget
+                    self.schedule_table.removeCellWidget(srow, col)
+                    
+                    # Remove the existing single widget entry from placed
+                    # Find and remove the existing entry for this slot
+                    logger.info(f"DEBUG: Looking for existing entry at ({srow}, {col})")
+                    logger.info(f"DEBUG: Current placed items: {list(self.placed.keys())}")
+                    existing_start_tuple = None
+                    for start_tuple, info in list(self.placed.items()):
+                        logger.info(f"DEBUG: Checking placed item {start_tuple}")
+                        if start_tuple == (srow, col):
+                            existing_start_tuple = start_tuple
+                            logger.info(f"DEBUG: Found existing entry to remove: {start_tuple}")
+                            break
+                    
+                    if existing_start_tuple:
+                        del self.placed[existing_start_tuple]
+                        logger.info(f"DEBUG: Removed existing entry: {existing_start_tuple}")
+                    else:
+                        logger.info(f"DEBUG: No existing entry found to remove at ({srow}, {col})")
+                    
+                    # Create and place dual widget
+                    dual_widget = create_dual_course_widget(odd_data, even_data, self)
+                    self.schedule_table.setCellWidget(srow, col, dual_widget)
+                    
+                    # Update overlay tracking
+                    if slot_key not in self.overlays:
+                        self.overlays[slot_key] = {}
+                    self.overlays[slot_key]['dual'] = dual_widget
+                    
+                    # Update placed info to track both courses
+                    self.placed[(srow, col)] = {
+                        'courses': [odd_data['course_key'], even_data['course_key']],
+                        'rows': span,
+                        'widget': dual_widget,
+                        'type': 'dual'
+                    }
             else:
-                cell_widget.setProperty('conflict', False)
-                cell_widget.setProperty('elective', False)
-            
-            # Store background color for animation
-            cell_widget.bg_color = bg
-            cell_widget.border_color = QtGui.QColor(bg.red()//2, bg.green()//2, bg.blue()//2)
-            cell_layout = QtWidgets.QVBoxLayout(cell_widget)
-            cell_layout.setContentsMargins(2, 1, 2, 1)
-            cell_layout.setSpacing(0)
-            
-            # Top row with X button and conflict indicator
-            top_row = QtWidgets.QHBoxLayout()
-            top_row.setContentsMargins(0, 0, 0, 0)
-            
-            # No conflict indicator in schedule table (only in course list)
-            # Add a spacer to maintain consistent layout
-            top_row.addStretch()
-            
-            # X button for course removal - properly styled in red
-            x_button = QtWidgets.QPushButton('✕')
-            x_button.setFixedSize(18, 18)
-            x_button.setObjectName('close-btn')
-            x_button.clicked.connect(lambda checked, ck=course_key: self.remove_course_silently(ck))
-            
-            top_row.addWidget(x_button)
-            cell_layout.addLayout(top_row)
-            
-            # Course information with improved layout
-            # Course Name (Bold)
-            course_name_label = QtWidgets.QLabel(course['name'])
-            course_name_label.setAlignment(QtCore.Qt.AlignCenter)
-            course_name_label.setWordWrap(True)
-            
-            # Professor Name
-            professor_label = QtWidgets.QLabel(course.get('instructor', 'نامشخص'))
-            professor_label.setAlignment(QtCore.Qt.AlignCenter)
-            professor_label.setWordWrap(True)
-            professor_label.setObjectName('professor-label')
-            
-            # Course Code
-            code_label = QtWidgets.QLabel(course.get('code', ''))
-            code_label.setAlignment(QtCore.Qt.AlignCenter)
-            code_label.setWordWrap(True)
-            code_label.setObjectName('code-label')
-            
-            # Add labels to layout
-            cell_layout.addWidget(course_name_label)
-            cell_layout.addWidget(professor_label)
-            cell_layout.addWidget(code_label)
-            
-            # Bottom row for parity indicator
-            bottom_row = QtWidgets.QHBoxLayout()
-            bottom_row.setContentsMargins(0, 0, 0, 0)
-            
-            # Parity indicator (bottom-left corner)
-            if parity_indicator:
-                parity_label = QtWidgets.QLabel(parity_indicator)
-                parity_label.setAlignment(QtCore.Qt.AlignLeft | QtCore.Qt.AlignBottom)
-                if parity_indicator == 'ز':
-                    parity_label.setObjectName('parity-label-even')
-                elif parity_indicator == 'ف':
-                    parity_label.setObjectName('parity-label-odd')
+                # Normal single course placement
+                # Determine parity information and styling
+                parity_indicator = ''
+                if sess.get('parity') == 'ز':
+                    parity_indicator = 'ز'
+                elif sess.get('parity') == 'ف':
+                    parity_indicator = 'ف'
+
+                # Create course cell widget with improved styling
+                cell_widget = AnimatedCourseWidget(course_key, bg, has_conflicts, self)
+                # Set object name for QSS styling
+                cell_widget.setObjectName('course-cell')
+                
+                # Set properties for styling based on course type and conflicts
+                if has_conflicts:
+                    cell_widget.setProperty('conflict', True)
+                elif course.get('code', '').startswith('elective'):
+                    cell_widget.setProperty('elective', True)
                 else:
-                    parity_label.setObjectName('parity-label-all')
-                bottom_row.addWidget(parity_label)
-            
-            bottom_row.addStretch()
-            cell_layout.addLayout(bottom_row)
-            
-            # Store references for hover effects and course operations
-            cell_widget.course_key = course_key
-            
-            # Enable hover effects
-            def enter_event(event, widget=cell_widget):
-                self.highlight_course_sessions(widget.course_key)
-            
-            def leave_event(event, widget=cell_widget):
-                self.clear_course_highlights()
-            
-            def mouse_press_event(event, widget=cell_widget):
-                if event.button() == QtCore.Qt.LeftButton:
-                    self.show_course_details(widget.course_key)
-            
-            cell_widget.enterEvent = enter_event
-            cell_widget.leaveEvent = leave_event
-            cell_widget.mousePressEvent = mouse_press_event
-            
-            self.schedule_table.setCellWidget(srow, col, cell_widget)
-            if span > 1:
-                self.schedule_table.setSpan(srow, col, span, 1)
-            self.placed[(srow, col)] = {
-                'course': course_key, 
-                'rows': span, 
-                'widget': cell_widget
-            }
+                    cell_widget.setProperty('conflict', False)
+                    cell_widget.setProperty('elective', False)
+                
+                # Store background color for animation
+                cell_widget.bg_color = bg
+                cell_widget.border_color = QtGui.QColor(bg.red()//2, bg.green()//2, bg.blue()//2)
+                cell_layout = QtWidgets.QVBoxLayout(cell_widget)
+                cell_layout.setContentsMargins(2, 1, 2, 1)
+                cell_layout.setSpacing(0)
+                
+                # Top row with X button and conflict indicator
+                top_row = QtWidgets.QHBoxLayout()
+                top_row.setContentsMargins(0, 0, 0, 0)
+                
+                # No conflict indicator in schedule table (only in course list)
+                # Add a spacer to maintain consistent layout
+                top_row.addStretch()
+                
+                # X button for course removal - properly styled in red
+                x_button = QtWidgets.QPushButton('✕')
+                x_button.setFixedSize(18, 18)
+                x_button.setObjectName('close-btn')
+                x_button.clicked.connect(lambda checked, ck=course_key: self.remove_course_silently(ck))
+                
+                top_row.addWidget(x_button)
+                cell_layout.addLayout(top_row)
+                
+                # Course information with improved layout
+                # Course Name (Bold)
+                course_name_label = QtWidgets.QLabel(course['name'])
+                course_name_label.setAlignment(QtCore.Qt.AlignCenter)
+                course_name_label.setWordWrap(True)
+                course_name_label.setObjectName('course-name-label')
+                
+                # Professor Name
+                professor_label = QtWidgets.QLabel(course.get('instructor', 'نامشخص'))
+                professor_label.setAlignment(QtCore.Qt.AlignCenter)
+                professor_label.setWordWrap(True)
+                professor_label.setObjectName('professor-label')
+                
+                # Course Code
+                code_label = QtWidgets.QLabel(course.get('code', ''))
+                code_label.setAlignment(QtCore.Qt.AlignCenter)
+                code_label.setWordWrap(True)
+                code_label.setObjectName('code-label')
+                
+                # Add labels to layout
+                cell_layout.addWidget(course_name_label)
+                cell_layout.addWidget(professor_label)
+                cell_layout.addWidget(code_label)
+                
+                # Bottom row for parity indicator
+                bottom_row = QtWidgets.QHBoxLayout()
+                bottom_row.setContentsMargins(0, 0, 0, 0)
+                
+                # Parity indicator (bottom-left corner)
+                if parity_indicator:
+                    parity_label = QtWidgets.QLabel(parity_indicator)
+                    parity_label.setAlignment(QtCore.Qt.AlignLeft | QtCore.Qt.AlignBottom)
+                    if parity_indicator == 'ز':
+                        parity_label.setObjectName('parity-label-even')
+                    elif parity_indicator == 'ف':
+                        parity_label.setObjectName('parity-label-odd')
+                    else:
+                        parity_label.setObjectName('parity-label-all')
+                    bottom_row.addWidget(parity_label)
+                
+                bottom_row.addStretch()
+                cell_layout.addLayout(bottom_row)
+                
+                # Store references for hover effects and course operations
+                cell_widget.course_key = course_key
+                
+                # Enable hover effects with access violation protection
+                def enter_event(event, widget=cell_widget):
+                    try:
+                        if hasattr(widget, 'course_key') and widget.course_key:
+                            self.highlight_course_sessions(widget.course_key)
+                    except Exception as e:
+                        logger.warning(f"Hover enter event error: {e}")
+                
+                def leave_event(event, widget=cell_widget):
+                    try:
+                        self.clear_course_highlights()
+                    except Exception as e:
+                        logger.warning(f"Hover leave event error: {e}")
+                
+                def mouse_press_event(event, widget=cell_widget):
+                    try:
+                        if event.button() == QtCore.Qt.LeftButton:
+                            if hasattr(widget, 'course_key') and widget.course_key:
+                                self.show_course_details(widget.course_key)
+                    except Exception as e:
+                        logger.warning(f"Mouse press event error: {e}")
+                
+                cell_widget.enterEvent = enter_event
+                cell_widget.leaveEvent = leave_event
+                cell_widget.mousePressEvent = mouse_press_event
+                
+                self.schedule_table.setCellWidget(srow, col, cell_widget)
+                if span > 1:
+                    self.schedule_table.setSpan(srow, col, span, 1)
+                
+                # Update overlay tracking for single course
+                if slot_key not in self.overlays:
+                    self.overlays[slot_key] = {}
+                self.overlays[slot_key]['single'] = cell_widget
+                
+                self.placed[(srow, col)] = {
+                    'course': course_key, 
+                    'rows': span, 
+                    'widget': cell_widget
+                }
             
         # Update status after adding course
         self.update_status()
@@ -1622,6 +2407,105 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         QtCore.QCoreApplication.processEvents()  # فورس UI update
 
     def remove_placed_by_start(self, start_tuple):
+         top_row.addStretch()
+
+         # X button for course removal - properly styled in red
+         x_button = QtWidgets.QPushButton('✕')
+         x_button.setFixedSize(18, 18)
+         x_button.setObjectName('close-btn')
+         x_button.clicked.connect(lambda checked, ck=course_key: self.remove_course_silently(ck))
+
+         top_row.addWidget(x_button)
+         cell_layout.addLayout(top_row)
+
+         # Course information with improved layout
+         # Course Name (Bold)
+         course_name_label = QtWidgets.QLabel(course['name'])
+         course_name_label.setAlignment(QtCore.Qt.AlignCenter)
+         course_name_label.setWordWrap(True)
+         course_name_label.setObjectName('course-name-label')
+
+         # Professor Name
+         professor_label = QtWidgets.QLabel(course.get('instructor', 'نامشخص'))
+         professor_label.setAlignment(QtCore.Qt.AlignCenter)
+         professor_label.setWordWrap(True)
+         professor_label.setObjectName('professor-label')
+
+         # Course Code
+         code_label = QtWidgets.QLabel(course.get('code', ''))
+         code_label.setAlignment(QtCore.Qt.AlignCenter)
+         code_label.setWordWrap(True)
+         code_label.setObjectName('code-label')
+
+         # Add labels to layout
+         cell_layout.addWidget(course_name_label)
+         cell_layout.addWidget(professor_label)
+         cell_layout.addWidget(code_label)
+
+         # Bottom row for parity indicator
+         bottom_row = QtWidgets.QHBoxLayout()
+         bottom_row.setContentsMargins(0, 0, 0, 0)
+
+         # Parity indicator (bottom-left corner)
+         if parity_indicator:
+             parity_label = QtWidgets.QLabel(parity_indicator)
+             parity_label.setAlignment(QtCore.Qt.AlignLeft | QtCore.Qt.AlignBottom)
+             if parity_indicator == 'ز':
+                 parity_label.setObjectName('parity-label-even')
+             elif parity_indicator == 'ف':
+                 parity_label.setObjectName('parity-label-odd')
+             else:
+                 parity_label.setObjectName('parity-label-all')
+             bottom_row.addWidget(parity_label)
+
+         bottom_row.addStretch()
+         cell_layout.addLayout(bottom_row)
+
+         # Store references for hover effects and course operations
+         cell_widget.course_key = course_key
+
+         # Enable hover effects with access violation protection
+         def enter_event(event, widget=cell_widget):
+             try:
+                 if hasattr(widget, 'course_key') and widget.course_key:
+                     self.highlight_course_sessions(widget.course_key)
+             except Exception as e:
+                 logger.warning(f"Hover enter event error: {e}")
+
+         def leave_event(event, widget=cell_widget):
+             try:
+                 self.clear_course_highlights()
+             except Exception as e:
+                 logger.warning(f"Hover leave event error: {e}")
+
+         def mouse_press_event(event, widget=cell_widget):
+             try:
+                 if event.button() == QtCore.Qt.LeftButton:
+                     if hasattr(widget, 'course_key') and widget.course_key:
+                         self.show_course_details(widget.course_key)
+             except Exception as e:
+                 logger.warning(f"Mouse press event error: {e}")
+
+         cell_widget.enterEvent = enter_event
+         cell_widget.leaveEvent = leave_event
+         cell_widget.mousePressEvent = mouse_press_event
+
+         self.schedule_table.setCellWidget(srow, col, cell_widget)
+         if span > 1:
+             self.schedule_table.setSpan(srow, col, span, 1)
+
+         # Update overlay tracking for single course
+         if slot_key not in self.overlays:
+             self.overlays[slot_key] = {}
+         self.overlays[slot_key]['single'] = cell_widget
+
+         self.placed[(srow, col)] = {
+             'course': course_key,
+             'rows': span,
+             'widget': cell_widget
+         }
+
+    def remove_placed_by_start(self, start_tuple):
         """Remove a placed course session by its starting position"""
         info = self.placed.get(start_tuple)
         if not info:
@@ -1634,13 +2518,33 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         self.schedule_table.setSpan(srow, col, 1, 1)
         del self.placed[start_tuple]
 
-
     def remove_course_from_schedule(self, course_key):
         """Remove all instances of a course from the current schedule"""
         to_remove = []
-        for (srow, scol), info in self.placed.items():
-            if info['course'] == course_key:
-                to_remove.append((srow, scol))
+        to_convert = []  # Track dual cells that need to be converted to single cells
+        
+        # Handle both single and dual courses
+        for (srow, scol), info in list(self.placed.items()):
+            if info.get('type') == 'dual':
+                # For dual courses, check if the course is one of the two
+                if course_key in info.get('courses', []):
+                    # If removing one course from a dual cell, we need to convert it to single
+                    dual_widget = info.get('widget')
+                    if dual_widget and hasattr(dual_widget, 'remove_single_course'):
+                        # Try to convert the dual widget to single course widget
+                        try:
+                            dual_widget.remove_single_course(course_key)
+                            # The conversion was successful, so we don't need to remove this cell
+                            continue
+                        except Exception as e:
+                            # If conversion fails, fall back to removing the entire cell
+                            pass
+                    # If conversion failed or not possible, mark for removal
+                    to_remove.append((srow, scol))
+            else:
+                # For single courses, check directly
+                if info.get('course') == course_key:
+                    to_remove.append((srow, scol))
         
         for start_tuple in to_remove:
             self.remove_placed_by_start(start_tuple)
@@ -1650,17 +2554,10 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         self.update_stats_panel()
         QtCore.QCoreApplication.processEvents()  # فورس UI update
 
-    def remove_course_silently(self, course_key):
-        """Remove course without user confirmation or notification"""
-        self.remove_course_from_schedule(course_key)
-        self.update_status()
-        self.update_detailed_info_if_open()
-
-
-
-
     def clear_course_highlights(self):
         """Restore original styling for all course widgets"""
+        # Make sure QtWidgets is available in this scope
+        
         # Stop any pulsing animations
         if hasattr(self, '_pulse_timers'):
             for timer in list(self._pulse_timers.values()):
@@ -1674,7 +2571,14 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         
         for (srow, scol), info in self.placed.items():
             widget = info.get('widget')
-            if widget and hasattr(widget, 'original_style'):
+            if info.get('type') == 'dual':
+                # For dual courses, clear section highlighting
+                if widget and hasattr(widget, 'clear_highlight'):
+                    widget.clear_highlight()
+                # Restore original style if stored
+                if widget and hasattr(widget, 'original_style'):
+                    widget.setStyleSheet(widget.original_style)
+            elif widget and hasattr(widget, 'original_style'):
                 # Restore the exact original style to prevent any residual effects
                 widget.setStyleSheet(widget.original_style)
             elif widget:
@@ -1698,13 +2602,76 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         msg.exec_()
     
 
-    def remove_entire_course(self, course_key):
-        """Remove all sessions of a specific course from the table"""
+    def remove_course_silently(self, course_key):
+        """Remove course without user confirmation or notification"""
         # Find all placements for this course
         to_remove = []
-        for (srow, scol), info in self.placed.items():
-            if info['course'] == course_key:
-                to_remove.append((srow, scol))
+        
+        # Handle both single and dual courses
+        for (srow, scol), info in list(self.placed.items()):
+            if info.get('type') == 'dual':
+                # For dual courses, check if the course is one of the two
+                if course_key in info.get('courses', []):
+                    # If removing one course from a dual cell, we need to convert it to single
+                    dual_widget = info.get('widget')
+                    if dual_widget and hasattr(dual_widget, 'remove_single_course'):
+                        # Try to convert the dual widget to single course widget
+                        try:
+                            dual_widget.remove_single_course(course_key)
+                            # The conversion was successful, so we don't need to remove this cell
+                            continue
+                        except Exception as e:
+
+                            # If conversion fails, fall back to removing the entire cell
+                            pass
+                    # If conversion failed or not possible, mark for removal
+                    to_remove.append((srow, scol))
+            else:
+                # For single courses, check directly
+                if info.get('course') == course_key:
+                    to_remove.append((srow, scol))
+        
+        # Remove all sessions of this course
+        for start_tuple in to_remove:
+            self.remove_placed_by_start(start_tuple)
+            
+        # Update stats panel after removing course
+        print("🔄 Calling update_stats_panel from remove_course_silently")
+        self.update_stats_panel()
+        QtCore.QCoreApplication.processEvents()  # فورس UI update
+        
+        self.update_status()
+        self.update_detailed_info_if_open()
+
+    def remove_entire_course(self, course_key):
+        """
+        Remove all sessions of a course from the schedule.
+        """
+        to_remove = []
+        to_convert = []  # Track dual cells that need to be converted to single cells
+        
+        # Handle both single and dual courses
+        for (srow, scol), info in list(self.placed.items()):
+            if info.get('type') == 'dual':
+                # For dual courses, check if the course is one of the two
+                if course_key in info.get('courses', []):
+                    # If removing one course from a dual cell, we need to convert it to single
+                    dual_widget = info.get('widget')
+                    if dual_widget and hasattr(dual_widget, 'remove_single_course'):
+                        # Try to convert the dual widget to single course widget
+                        try:
+                            dual_widget.remove_single_course(course_key)
+                            # The conversion was successful, so we don't need to remove this cell
+                            continue
+                        except Exception as e:
+                            # If conversion fails, fall back to removing the entire cell
+                            pass
+                    # If conversion failed or not possible, mark for removal
+                    to_remove.append((srow, scol))
+            else:
+                # For single courses, check directly
+                if info.get('course') == course_key:
+                    to_remove.append((srow, scol))
         
         # Remove all sessions of this course
         for start_tuple in to_remove:
@@ -1716,13 +2683,13 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         # Update detailed info window if open
         self.update_detailed_info_if_open()
         
-        
         # Update stats panel after removing course
         print("🔄 Calling update_stats_panel from remove_entire_course")
         self.update_stats_panel()
         QtCore.QCoreApplication.processEvents()  # فورس UI update
         
         # Show confirmation
+        from ..core.config import COURSES
         course_name = COURSES.get(course_key, {}).get('name', 'نامشخص')
         QtWidgets.QMessageBox.information(
             self, 'حذف شد', 
@@ -1873,37 +2840,79 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         
     def highlight_course_sessions(self, course_key):
         """Highlight all sessions of a course with a smooth red border animation"""
+        # Make sure QtWidgets is available in this scope
+        
         # Clear any existing highlights first to prevent overlap
         self.clear_course_highlights()
         for (srow, scol), info in self.placed.items():
-            if info['course'] == course_key:
-                widget = info.get('widget')
-                if widget:
-                    # Store original style if not already stored
-                    if not hasattr(widget, 'original_style'):
-                        widget.original_style = widget.styleSheet()
-                    
-                    # Apply hover style with smooth red border effect
-                    widget.setStyleSheet("QWidget#course-cell { border: 3px solid #e74c3c !important; border-radius: 8px !important; background-color: rgba(231, 76, 60, 0.2) !important; } QWidget#course-cell[conflict=\"true\"] { border: 3px solid #e74c3c !important; border-radius: 8px !important; background-color: rgba(231, 76, 60, 0.3) !important; } QWidget#course-cell[elective=\"true\"] { border: 3px solid #e74c3c !important; border-radius: 8px !important; background-color: rgba(231, 76, 60, 0.2) !important; }")
-                    
-                    # Add a subtle pulsing effect using QTimer
-                    if not hasattr(self, '_pulse_timers'):
-                        self._pulse_timers = {}
-                    
-                    # Create a timer for pulsing effect
-                    if course_key not in self._pulse_timers:
-                        timer = QtCore.QTimer(widget)
-                        timer.course_key = course_key
-                        timer.widget = widget
-                        timer.step = 0
-                        timer.timeout.connect(self._pulse_highlight)
-                        self._pulse_timers[course_key] = timer
-                    
-                    # Start the pulsing animation
-                    self._pulse_timers[course_key].start(100)
+            # Handle both single and dual courses
+            if info.get('type') == 'dual':
+                # For dual courses, check if the course is one of the two
+                if course_key in info.get('courses', []):
+                    widget = info.get('widget')
+                    if widget:
+                        # Determine which section to highlight (odd or even)
+                        odd_course_key = info.get('courses', [None, None])[0]
+                        even_course_key = info.get('courses', [None, None])[1]
+                        
+                        if course_key == odd_course_key:
+                            # Highlight the odd section
+                            widget.highlight_section('odd')
+                        elif course_key == even_course_key:
+                            # Highlight the even section
+                            widget.highlight_section('even')
+                        
+                        # Store original style if not already stored
+                        if not hasattr(widget, 'original_style'):
+                            widget.original_style = widget.styleSheet()
+                        
+                        # Add a subtle pulsing effect using QTimer
+                        if not hasattr(self, '_pulse_timers'):
+                            self._pulse_timers = {}
+                        
+                        # Create a timer for pulsing effect
+                        if course_key not in self._pulse_timers:
+                            timer = QtCore.QTimer(widget)
+                            timer.course_key = course_key
+                            timer.widget = widget
+                            timer.step = 0
+                            timer.timeout.connect(self._pulse_highlight)
+                            self._pulse_timers[course_key] = timer
+                        
+                        # Start the pulsing animation
+                        self._pulse_timers[course_key].start(100)
+            else:
+                # For single courses, check directly
+                if info.get('course') == course_key:
+                    widget = info.get('widget')
+                    if widget:
+                        # Store original style if not already stored
+                        if not hasattr(widget, 'original_style'):
+                            widget.original_style = widget.styleSheet()
+                        
+                        # Apply hover style with smooth red border effect
+                        widget.setStyleSheet("QWidget#course-cell { border: 3px solid #e74c3c !important; border-radius: 8px !important; background-color: rgba(231, 76, 60, 0.2) !important; } QWidget#course-cell[conflict=\"true\"] { border: 3px solid #e74c3c !important; border-radius: 8px !important; background-color: rgba(231, 76, 60, 0.3) !important; } QWidget#course-cell[elective=\"true\"] { border: 3px solid #e74c3c !important; border-radius: 8px !important; background-color: rgba(231, 76, 60, 0.2) !important;}")
+                        
+                        # Add a subtle pulsing effect using QTimer
+                        if not hasattr(self, '_pulse_timers'):
+                            self._pulse_timers = {}
+                        
+                        # Create a timer for pulsing effect
+                        if course_key not in self._pulse_timers:
+                            timer = QtCore.QTimer(widget)
+                            timer.course_key = course_key
+                            timer.widget = widget
+                            timer.step = 0
+                            timer.timeout.connect(self._pulse_highlight)
+                            self._pulse_timers[course_key] = timer
+                        
+                        # Start the pulsing animation
+                        self._pulse_timers[course_key].start(100)
         
     def _pulse_highlight(self):
         """Pulse animation for highlighted course sessions"""
+        # Make sure QtWidgets is available in this scope
+        
         timer = self.sender()
         if not timer:
             return
@@ -2490,7 +3499,23 @@ class SchedulerWindow(QtWidgets.QMainWindow):
     def save_current_combo(self):
         """Save the current combination of courses"""
         # collect currently placed course keys
-        keys = list({info['course'] for info in self.placed.values()})
+        # Handle both single and dual courses correctly
+        keys = []
+        for info in self.placed.values():
+            if info.get('type') == 'dual':
+                # For dual courses, add both courses
+                keys.extend(info.get('courses', []))
+            else:
+                # For single courses, add the course key
+                keys.append(info.get('course'))
+        # Remove duplicates while preserving order
+        seen = set()
+        unique_keys = []
+        for key in keys:
+            if key not in seen:
+                seen.add(key)
+                unique_keys.append(key)
+        keys = unique_keys
         if not keys:
             QtWidgets.QMessageBox.information(self, 'ذخیره', 'هیچ درسی در جدول قرار داده نشده است.')
             return
@@ -2591,8 +3616,13 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         green_value = 76 + int((100 - 76) * intensity)
         blue_value = 60 + int((100 - 60) * intensity)
         
-        # Update the border color for pulsing effect
-        widget.setStyleSheet("QWidget#course-cell { border: 3px solid rgb(" + str(red_value) + ", " + str(green_value) + ", " + str(blue_value) + ") !important; border-radius: 8px !important; background-color: rgba(231, 76, 60, 0.2) !important; } QWidget#course-cell[conflict=\"true\"] { border: 3px solid rgb(" + str(red_value) + ", " + str(green_value) + ", " + str(blue_value) + ") !important; border-radius: 8px !important; background-color: rgba(231, 76, 60, 0.3) !important; }")
+        # Update the border color for pulsing effect based on widget type
+        if widget.objectName() == 'dual-course-cell':
+            # For dual course widgets
+            widget.setStyleSheet("QWidget#dual-course-cell { border: 3px solid rgb(" + str(red_value) + ", " + str(green_value) + ", " + str(blue_value) + ") !important; border-radius: 8px !important; background-color: rgba(231, 76, 60, 0.2) !important; }")
+        else:
+            # For regular course widgets
+            widget.setStyleSheet("QWidget#course-cell { border: 3px solid rgb(" + str(red_value) + ", " + str(green_value) + ", " + str(blue_value) + ") !important; border-radius: 8px !important; background-color: rgba(231, 76, 60, 0.2) !important; } QWidget#course-cell[conflict=\"true\"] { border: 3px solid rgb(" + str(red_value) + ", " + str(green_value) + ", " + str(blue_value) + ") !important; border-radius: 8px !important; background-color: rgba(231, 76, 60, 0.3) !important; }")
         
     def open_detailed_info_window(self):
         """Open the detailed information window"""
@@ -2610,6 +3640,8 @@ class SchedulerWindow(QtWidgets.QMainWindow):
 
     def update_detailed_info_if_open(self):
         """Update the detailed info window if it's currently open"""
+        # Make sure QtWidgets is available in this scope
+        
         if self.detailed_info_window and self.detailed_info_window.isVisible():
             self.detailed_info_window.update_content()
 
@@ -3721,6 +4753,29 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         except Exception as e:
             logger.error(f"Error populating major dropdown: {e}")
 
+    def load_user_schedule(self):
+        """Load previously saved user schedule on application startup"""
+        try:
+            # Check if there's a current schedule in user data
+            current_schedule = self.user_data.get('current_schedule', [])
+            
+            if current_schedule:
+                # Load each course in the schedule
+                for course_key in current_schedule:
+                    if course_key in COURSES:
+                        self.add_course_to_table(course_key, ask_on_conflict=False)
+                
+                # Update UI
+                self.update_status()
+                self.update_stats_panel()
+                self.update_detailed_info_if_open()
+                
+                logger.info(f"Loaded {len(current_schedule)} courses from saved schedule")
+                
+        except Exception as e:
+            logger.error(f"Failed to load user schedule: {e}")
+            # Don't show error to user to keep startup smooth
+
     def load_latest_backup(self):
         """Load the latest backup on application startup"""
         try:
@@ -3880,7 +4935,15 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         """Clear all courses from the schedule table"""
         try:
             # Get all course keys first to avoid dictionary change during iteration
-            course_keys = [info['course'] for info in self.placed.values()]
+            # Handle both single and dual courses correctly
+            course_keys = []
+            for info in self.placed.values():
+                if info.get('type') == 'dual':
+                    # For dual courses, add both courses
+                    course_keys.extend(info.get('courses', []))
+                else:
+                    # For single courses, add the course key
+                    course_keys.append(info.get('course'))
             
             # Remove all placed courses
             for course_key in set(course_keys):  # Use set to avoid duplicates
@@ -3902,7 +4965,23 @@ class SchedulerWindow(QtWidgets.QMainWindow):
             logger.info("Auto-backup triggered on app exit.")
             
             # Collect currently placed course keys
-            keys = list({info['course'] for info in self.placed.values()})
+            # Handle both single and dual courses correctly
+            keys = []
+            for info in self.placed.values():
+                if info.get('type') == 'dual':
+                    # For dual courses, add both courses
+                    keys.extend(info.get('courses', []))
+                else:
+                    # For single courses, add the course key
+                    keys.append(info.get('course'))
+            # Remove duplicates while preserving order
+            seen = set()
+            unique_keys = []
+            for key in keys:
+                if key not in seen:
+                    seen.add(key)
+                    unique_keys.append(key)
+            keys = unique_keys
             
             # Update user data with current schedule
             self.user_data['current_schedule'] = keys
@@ -3921,6 +5000,63 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         
         # Accept the close event
         event.accept()
+
+    def _find_existing_compatible_dual(self, course):
+        """
+        Find existing dual widget that is compatible with the given course.
+        This prevents race conditions in dual creation.
+        """
+        for pos, info in self.placed.items():
+            if info.get('type') == 'dual':
+                # Check if course is compatible with this dual
+                odd_key = info.get('odd_key') or info.get('courses', [None])[0]
+                even_key = info.get('even_key') or info.get('courses', [None])[-1]
+                odd_course = COURSES.get(odd_key)
+                even_course = COURSES.get(even_key)
+                
+                if self._courses_are_compatible(odd_course, even_course, course):
+                    return info
+        return None
+
+    def _courses_are_compatible(self, odd_course, even_course, new_course):
+        """
+        Check if new course is compatible with existing dual courses.
+        """
+        if not all([odd_course, even_course, new_course]):
+            return False
+            
+        # Check if new course shares time slot with existing dual
+        new_schedule = new_course.get('schedule', [])
+        odd_schedule = odd_course.get('schedule', [])
+        # Implementation of compatibility check
+        return self._schedules_overlap(odd_schedule, new_schedule)
+
+    def _schedules_overlap(self, schedule1, schedule2):
+        """
+        Check if two schedules have overlapping time slots.
+        """
+        for sess1 in schedule1:
+            for sess2 in schedule2:
+                if (sess1.get('day') == sess2.get('day') and
+                    sess1.get('start') == sess2.get('start') and
+                    sess1.get('end') == sess2.get('end')):
+                    return True
+        return False
+
+    def _update_existing_dual(self, existing_dual, course_key, course):
+        """
+        Update existing dual instead of creating new one.
+        """
+        # Implementation would go here
+        pass
+
+    def _add_course_or_create_dual(self, course_key, course, ask_on_conflict=True):
+        """
+        Add course as single or create new dual based on compatibility.
+        This is called when no existing compatible dual is found.
+        """
+        # Implementation would go here
+        pass
 
 if __name__ == '__main__':
     # Error handling for the main application
