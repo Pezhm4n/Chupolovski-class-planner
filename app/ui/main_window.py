@@ -255,17 +255,27 @@ class SchedulerWindow(QtWidgets.QMainWindow):
 
             # Get major categories from courses
             self.major_categories = sorted(
-                set(course['major'] for course in COURSES)
+                set(course['major'] for course in COURSES.values() if 'major' in course)
             )
+            
+            # Add "دروس اضافه‌شده توسط کاربر" category at the beginning
+            user_added_category = "دروس اضافه‌شده توسط کاربر"
+            if user_added_category not in self.major_categories:
+                self.major_categories.insert(0, user_added_category)
+            else:
+                # Move it to the beginning if it already exists
+                self.major_categories.remove(user_added_category)
+                self.major_categories.insert(0, user_added_category)
 
             # Add majors to the combobox
-            self.major_combo_box.addItems(self.major_categories)
+            self.comboBox.clear()
+            self.comboBox.addItems(self.major_categories)
 
             # Set default selection to all majors
-            self.major_combo_box.setCurrentIndex(0)
+            self.comboBox.setCurrentIndex(0)
 
             # Connect signal for filtering courses
-            self.major_combo_box.currentIndexChanged.connect(self.on_major_changed)
+            self.comboBox.currentIndexChanged.connect(self.on_major_changed)
 
         except Exception as e:
             logger.error(f"Failed to populate major dropdown: {e}")
@@ -326,7 +336,7 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         """Handle major change"""
         try:
             # Get the selected major
-            selected_major = self.major_combo_box.itemText(index)
+            selected_major = self.comboBox.itemText(index)
 
             # If selected major is "همه"، show all courses
             if selected_major == "همه":
@@ -835,16 +845,43 @@ class SchedulerWindow(QtWidgets.QMainWindow):
             # Create and show the add course dialog
             dialog = AddCourseDialog(self)
             if dialog.exec_():
-                course = dialog.get_course()
-
-                # Add the course to the list of selected courses
-                self.courses.append(course)
-
-                # Update the status bar
-                self.update_status()
-
-                # Save user data
-                save_user_data(self.user_data)
+                course = dialog.get_course_data()
+                if course:
+                    # Add the course to custom courses in user data
+                    if 'custom_courses' not in self.user_data:
+                        self.user_data['custom_courses'] = []
+                    
+                    # Check if course with same code already exists
+                    existing_course = next((c for c in self.user_data['custom_courses'] if c['code'] == course['code']), None)
+                    if existing_course:
+                        # Update existing course
+                        index = self.user_data['custom_courses'].index(existing_course)
+                        self.user_data['custom_courses'][index] = course
+                    else:
+                        # Add new course
+                        self.user_data['custom_courses'].append(course)
+                    
+                    # Also add to global COURSES dictionary with proper key
+                    from ..core.config import COURSES
+                    course_key = course['code']
+                    course['key'] = course_key
+                    course['major'] = 'دروس اضافه‌شده توسط کاربر'  # Ensure correct category
+                    COURSES[course_key] = course
+                    
+                    # Save user data and user-added courses
+                    from ..core.data_manager import save_user_data, save_user_added_courses
+                    save_user_data(self.user_data)
+                    save_user_added_courses()  # Save to dedicated file
+                    
+                    # Refresh UI to show the new course immediately
+                    self.refresh_ui()
+                    
+                    # Show confirmation message in Persian with exact required text
+                    QtWidgets.QMessageBox.information(
+                        self, 
+                        'عملیات موفق', 
+                        'درس با موفقیت اضافه شد و در دسته «دروس اضافه‌شده توسط کاربر» نمایش داده شد.'
+                    )
 
         except Exception as e:
             logger.error(f"Failed to add course: {e}")
@@ -3718,7 +3755,11 @@ class SchedulerWindow(QtWidgets.QMainWindow):
                 no_courses_layout = QtWidgets.QVBoxLayout(no_courses_widget)
                 no_courses_layout.setContentsMargins(10, 10, 10, 10)
                 
-                no_courses_label = QtWidgets.QLabel("هیچ درسی برای این رشته یافت نشد.")
+                # Check if this is the user-added courses category
+                if self.current_major_filter == "دروس اضافه‌شده توسط کاربر":
+                    no_courses_label = QtWidgets.QLabel("هیچ درسی اضافه نشده است.")
+                else:
+                    no_courses_label = QtWidgets.QLabel("هیچ درسی برای این رشته یافت نشد.")
                 no_courses_label.setAlignment(QtCore.Qt.AlignCenter)
                 no_courses_label.setStyleSheet("color: #666; font-size: 14px; font-weight: bold;")
                 
@@ -4654,8 +4695,8 @@ class SchedulerWindow(QtWidgets.QMainWindow):
             # Close progress dialog
             progress.close()
             
-            # Refresh course list
-            self.populate_course_list()
+            # Refresh UI to show the new courses immediately
+            self.refresh_ui()
             
             QtWidgets.QMessageBox.information(
                 self, 'موفقیت', 
@@ -4698,8 +4739,8 @@ class SchedulerWindow(QtWidgets.QMainWindow):
             # Close progress dialog
             progress.close()
             
-            # Refresh course list
-            self.populate_course_list()
+            # Refresh UI to show the new courses immediately
+            self.refresh_ui()
             
             QtWidgets.QMessageBox.information(
                 self, 'موفقیت', 
@@ -4713,9 +4754,42 @@ class SchedulerWindow(QtWidgets.QMainWindow):
                 f'خطا در دریافت اطلاعات از گلستان:\n{str(e)}'
             )
 
+    def refresh_ui(self):
+        """Refresh both the major dropdown and course list in real-time"""
+        try:
+            # Refresh the major dropdown
+            self.populate_major_dropdown()
+            
+            # Refresh the course list
+            self.populate_course_list()
+            
+            logger.info("UI refreshed successfully")
+        except Exception as e:
+            logger.error(f"Failed to refresh UI: {e}")
+
+    def refresh_course_list(self, category=None):
+        """Refresh the course list for a specific category"""
+        try:
+            # If a category is specified, select it in the dropdown
+            if category:
+                index = self.comboBox.findText(category)
+                if index >= 0:
+                    self.comboBox.setCurrentIndex(index)
+            
+            # Refresh the course list
+            self.populate_course_list()
+            
+            logger.info(f"Course list refreshed for category: {category}")
+        except Exception as e:
+            logger.error(f"Failed to refresh course list: {e}")
+
     def extract_course_major(self, course_key, course):
         """Extract major information from course data"""
         try:
+            # First check if this is a user-added course
+            if course.get('major') == 'دروس اضافه‌شده توسط کاربر':
+                return 'دروس اضافه‌شده توسط کاربر'
+            
             # Try to get major from golestan integration
             from ..core.golestan_integration import get_course_major
             major = get_course_major(course_key)
@@ -4744,11 +4818,23 @@ class SchedulerWindow(QtWidgets.QMainWindow):
                 if major and major != "رشته نامشخص":
                     majors.add(major)
             
+            # Convert to sorted list
+            sorted_majors = sorted(majors)
+            
+            # Add "دروس اضافه‌شده توسط کاربر" category at the beginning
+            user_added_category = "دروس اضافه‌شده توسط کاربر"
+            if user_added_category not in sorted_majors:
+                sorted_majors.insert(0, user_added_category)
+            else:
+                # Move it to the beginning if it already exists
+                sorted_majors.remove(user_added_category)
+                sorted_majors.insert(0, user_added_category)
+            
             # Add majors to dropdown
-            for major in sorted(majors):
+            for major in sorted_majors:
                 self.comboBox.addItem(major)
                 
-            logger.info(f"Populated major dropdown with {len(majors)} majors")
+            logger.info(f"Populated major dropdown with {len(sorted_majors)} majors")
             
         except Exception as e:
             logger.error(f"Error populating major dropdown: {e}")

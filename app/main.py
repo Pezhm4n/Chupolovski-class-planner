@@ -13,8 +13,6 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 if current_dir not in sys.path:
     sys.path.insert(0, current_dir)
 
-from PyQt5.QtWidgets import QApplication
-
 # Handle both direct execution and module execution
 # First, try relative imports (for python -m app.main)
 try:
@@ -64,6 +62,9 @@ logger = setup_logging()
 
 def main():
     """Main function to run the application"""
+    # Import QApplication here to avoid issues with early imports
+    from PyQt5.QtWidgets import QApplication
+    
     app = QApplication(sys.argv)
     app.setApplicationName('Golestoon Class Planner')
     app.setApplicationVersion(__version__)
