@@ -100,9 +100,15 @@ class ExamScheduleMixin:
         # Get currently placed courses from the main window
         placed_courses = set()
         if hasattr(self.parent_window, 'placed'):
+            # Handle both single and dual courses correctly
             for info in self.parent_window.placed.values():
-                placed_courses.add(info['course'])
-        
+                if info.get('type') == 'dual':
+                    # For dual courses, add both courses
+                    placed_courses.update(info.get('courses', []))
+                else:
+                    # For single courses, add the course key
+                    placed_courses.add(info.get('course'))
+
         # Prepare table data
         exam_data = []
         for course_key in placed_courses:
