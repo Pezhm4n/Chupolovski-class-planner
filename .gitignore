@@ -41,4 +41,11 @@ app/data/user_data.json
 
 app/output.txt
 
-app/data/.db_initialized
+*.patch
+
+app/data/user_added_courses.json
+
+# Local credentials file (gitignored for security)
+app/data/local_credentials.json
+
+app/data/courses_data.json

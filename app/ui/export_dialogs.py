@@ -86,8 +86,14 @@ class ExportMixin:
                 # Get placed courses for statistics
                 if hasattr(self.parent_window, 'placed'):
                     placed_courses = set()
+                    # Handle both single and dual courses correctly
                     for info in self.parent_window.placed.values():
-                        placed_courses.add(info['course'])
+                        if info.get('type') == 'dual':
+                            # For dual courses, add both courses
+                            placed_courses.update(info.get('courses', []))
+                        else:
+                            # For single courses, add the course key
+                            placed_courses.add(info.get('course'))
                     
                     for course_key in placed_courses:
                         course = COURSES.get(course_key, {})
@@ -201,15 +207,21 @@ class ExportMixin:
             # Get placed courses for statistics
             if hasattr(self.parent_window, 'placed'):
                 placed_courses = set()
+                # Handle both single and dual courses correctly
                 for info in self.parent_window.placed.values():
-                    placed_courses.add(info['course'])
-                
-                for course_key in placed_courses:
-                    course = COURSES.get(course_key, {})
-                    total_units += course.get('credits', 0)
-                    instructors.add(course.get('instructor', 'نامشخص'))
-                    for session in course.get('schedule', []):
-                        days_used.add(session.get('day', ''))
+                    if info.get('type') == 'dual':
+                        # For dual courses, add both courses
+                        placed_courses.update(info.get('courses', []))
+                    else:
+                        # For single courses, add the course key
+                        placed_courses.add(info.get('course'))
+                    
+                    for course_key in placed_courses:
+                        course = COURSES.get(course_key, {})
+                        total_units += course.get('credits', 0)
+                        instructors.add(course.get('instructor', 'نامشخص'))
+                        for session in course.get('schedule', []):
+                            days_used.add(session.get('day', ''))
                 
                 total_sessions = len(self.parent_window.placed)
             
@@ -470,15 +482,21 @@ class ExportMixin:
             # Get placed courses for statistics
             if hasattr(self.parent_window, 'placed'):
                 placed_courses = set()
+                # Handle both single and dual courses correctly
                 for info in self.parent_window.placed.values():
-                    placed_courses.add(info['course'])
-                
-                for course_key in placed_courses:
-                    course = COURSES.get(course_key, {})
-                    total_units += course.get('credits', 0)
-                    instructors.add(course.get('instructor', 'نامشخص'))
-                    for session in course.get('schedule', []):
-                        days_used.add(session.get('day', ''))
+                    if info.get('type') == 'dual':
+                        # For dual courses, add both courses
+                        placed_courses.update(info.get('courses', []))
+                    else:
+                        # For single courses, add the course key
+                        placed_courses.add(info.get('course'))
+                    
+                    for course_key in placed_courses:
+                        course = COURSES.get(course_key, {})
+                        total_units += course.get('credits', 0)
+                        instructors.add(course.get('instructor', 'نامشخص'))
+                        for session in course.get('schedule', []):
+                            days_used.add(session.get('day', ''))
                 
                 total_sessions = len(self.parent_window.placed)
             

@@ -13,8 +13,6 @@ current_dir = os.path.dirname(os.path.abspath(__file__))
 if current_dir not in sys.path:
     sys.path.insert(0, current_dir)
 
-from PyQt5.QtWidgets import QApplication
-
 # Handle both direct execution and module execution
 # First, try relative imports (for python -m app.main)
 try:
@@ -39,18 +37,34 @@ except (ImportError, ValueError):
         if parent_dir not in sys.path:
             sys.path.insert(0, parent_dir)
         
-        from app.__version__ import __version__
-        from app.ui.main_window import SchedulerWindow
-        from app.core.data_manager import load_courses_from_json
-        from app.core.config import load_qss_styles
-        from app.core.logger import setup_logging
-        USING_RELATIVE_IMPORTS = False
+        try:
+            from app.__version__ import __version__
+            from app.ui.main_window import SchedulerWindow
+            from app.core.data_manager import load_courses_from_json
+            from app.core.config import load_qss_styles
+            from app.core.logger import setup_logging
+            USING_RELATIVE_IMPORTS = False
+        except ImportError:
+            # Final fallback - import directly from the app directory
+            app_dir = os.path.join(current_dir, 'app')
+            if app_dir not in sys.path:
+                sys.path.insert(0, app_dir)
+            
+            from __version__ import __version__
+            from ui.main_window import SchedulerWindow
+            from core.data_manager import load_courses_from_json
+            from core.config import load_qss_styles
+            from core.logger import setup_logging
+            USING_RELATIVE_IMPORTS = False
 
 logger = setup_logging()
 
 
 def main():
     """Main function to run the application"""
+    # Import QApplication here to avoid issues with early imports
+    from PyQt5.QtWidgets import QApplication
+    
     app = QApplication(sys.argv)
     app.setApplicationName('Golestoon Class Planner')
     app.setApplicationVersion(__version__)
