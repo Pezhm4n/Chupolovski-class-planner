@@ -35,6 +35,10 @@ from .widgets import (
 )
 from .dialogs import AddCourseDialog, EditCourseDialog, DetailedInfoWindow, ExamScheduleWindow
 
+# Import credential handling modules
+from ..core.credentials import load_local_credentials
+from .credentials_dialog import get_golestan_credentials
+
 # Set up logger
 logger = setup_logging()
 
@@ -1031,34 +1035,93 @@ class SchedulerWindow(QtWidgets.QMainWindow):
             sys.exit(1)
 
     def create_menu_bar(self):
-        """Create menu bar"""
+        """Create the application menu bar with data and usage history options"""
         try:
-            # Create menu bar
-            menu_bar = self.menuBar()
-
-            # Create file menu
-            file_menu = menu_bar.addMenu('فایل')
-
-            # Create actions
-            save_action = QtWidgets.QAction('ذخیره', self)
-            load_action = QtWidgets.QAction('بارگذاری', self)
-            exit_action = QtWidgets.QAction('خروج', self)
-
-            # Connect actions
-            save_action.triggered.connect(self.save_user_data)
-            load_action.triggered.connect(self.load_user_data)
-            exit_action.triggered.connect(self.close)
-
-            # Add actions to file menu
-            file_menu.addAction(save_action)
-            file_menu.addAction(load_action)
-            file_menu.addSeparator()
-            file_menu.addAction(exit_action)
-
+            print("DEBUG: create_menu_bar called")
+            # Use the menu bar from the UI file if available
+            if hasattr(self, 'menubar'):
+                menubar = self.menubar
+            else:
+                # Create menu bar if not available in UI
+                menubar = self.menuBar()
+            
+            # Use the data menu from the UI file if available
+            if hasattr(self, 'menu_data'):
+                data_menu = self.menu_data
+                print("DEBUG: Using UI file menu_data")
+                
+                # Connect the reset Golestan credentials action if it exists in the UI
+                if hasattr(self, 'action_reset_golestan_credentials'):
+                    print("DEBUG: Connecting action_reset_golestan_credentials")
+                    # Disconnect any existing connections first to prevent duplicates
+                    try:
+                        self.action_reset_golestan_credentials.triggered.disconnect(self.reset_golestan_credentials)
+                    except TypeError:
+                        # No existing connection, that's fine
+                        pass
+                    self.action_reset_golestan_credentials.triggered.connect(self.reset_golestan_credentials)
+                
+                # Connect the fetch Golestan action if it exists in the UI
+                if hasattr(self, 'action_fetch_golestan'):
+                    print("DEBUG: Connecting action_fetch_golestan")
+                    # Disconnect any existing connections first to prevent duplicates
+                    try:
+                        self.action_fetch_golestan.triggered.disconnect(self.fetch_from_golestan)
+                    except TypeError:
+                        # No existing connection, that's fine
+                        pass
+                    self.action_fetch_golestan.triggered.connect(self.fetch_from_golestan)
+                    
+                # Connect the manual fetch action if it exists in the UI
+                if hasattr(self, 'action_manual_fetch'):
+                    print("DEBUG: Connecting action_manual_fetch")
+                    # Disconnect any existing connections first to prevent duplicates
+                    try:
+                        self.action_manual_fetch.triggered.disconnect(self.manual_fetch_from_golestan)
+                    except TypeError:
+                        # No existing connection, that's fine
+                        pass
+                    self.action_manual_fetch.triggered.connect(self.manual_fetch_from_golestan)
+            else:
+                print("DEBUG: Creating menu from code")
+                # Create settings menu if data menu not available in UI
+                settings_menu = menubar.addMenu('تنظیمات')
+                
+                # Create data submenu
+                data_menu = settings_menu.addMenu('داده‌ها')
+                
+                # Add manage Golestan credentials action
+                manage_golestan_action = QtWidgets.QAction('مدیریت اطلاعات ورود گلستان', self)
+                manage_golestan_action.triggered.connect(self.manage_golestan_credentials)
+                data_menu.addAction(manage_golestan_action)
+                
+                # Add forget saved credentials action
+                forget_credentials_action = QtWidgets.QAction('فراموش کردن اطلاعات ذخیره شده', self)
+                forget_credentials_action.triggered.connect(self.forget_saved_credentials)
+                data_menu.addAction(forget_credentials_action)
+                
+                # Add reset Golestan credentials action with icon
+                reset_credentials_action = QtWidgets.QAction('فراموش کردن اطلاعات ورود به گلستان', self)
+                # Add a simple trash icon if available
+                try:
+                    reset_credentials_action.setIcon(QtGui.QIcon.fromTheme('edit-clear'))
+                except:
+                    pass  # Ignore if icon is not available
+                reset_credentials_action.triggered.connect(self.reset_golestan_credentials)
+                data_menu.addAction(reset_credentials_action)
+            
+            # Create "Usage History" menu
+            history_menu = menubar.addMenu('سوابق استفاده')
+            
+            # Add date to menu title
+            current_date = datetime.datetime.now().strftime('%Y/%m/%d')
+            history_menu.setTitle(f'سوابق استفاده ({current_date})')
+            
+            # Connect menu to populate with backup history when clicked
+            history_menu.aboutToShow.connect(self.populate_backup_history_menu)
+            
         except Exception as e:
-            logger.error(f"Failed to create menu bar: {e}")
-            QtWidgets.QMessageBox.critical(self, "خطا", f"امکان ایجاد نوار منو وجود ندارد: {str(e)}")
-            sys.exit(1)
+            logger.error(f"Error creating menu bar: {e}")
 
     def save_user_data(self):
         """Save user data"""
@@ -3183,9 +3246,21 @@ class SchedulerWindow(QtWidgets.QMainWindow):
             
             # Add Golestan fetch actions
             if hasattr(self, 'action_fetch_golestan'):
+                # Disconnect any existing connections first to prevent duplicates
+                try:
+                    self.action_fetch_golestan.triggered.disconnect(self.fetch_from_golestan)
+                except TypeError:
+                    # No existing connection, that's fine
+                    pass
                 self.action_fetch_golestan.triggered.connect(self.fetch_from_golestan)
             
             if hasattr(self, 'action_manual_fetch'):
+                # Disconnect any existing connections first to prevent duplicates
+                try:
+                    self.action_manual_fetch.triggered.disconnect(self.manual_fetch_from_golestan)
+                except TypeError:
+                    # No existing connection, that's fine
+                    pass
                 self.action_manual_fetch.triggered.connect(self.manual_fetch_from_golestan)
             
             # Add exam schedule actions
@@ -4677,33 +4752,137 @@ class SchedulerWindow(QtWidgets.QMainWindow):
                 f'خطا در صدور برنامه امتحانات:\n{str(e)}'
             )
 
+    def reset_golestan_credentials(self):
+        """Reset Golestan credentials - delete saved credentials file and show confirmation"""
+        try:
+            from ..core.credentials import LOCAL_CREDENTIALS_FILE, delete_local_credentials
+            
+            # Delete the local credentials file
+            if delete_local_credentials():
+                # Show confirmation message in Persian
+                QtWidgets.QMessageBox.information(
+                    self, 
+                    "موفقیت", 
+                    "اطلاعات ذخیره‌شده گلستان حذف شد. دفعه بعد هنگام دریافت خودکار دروس، دوباره اطلاعات ورود درخواست می‌شود."
+                )
+                logger.info("Golestan credentials file deleted successfully")
+            else:
+                logger.error("Failed to delete Golestan credentials file")
+                QtWidgets.QMessageBox.critical(
+                    self, 
+                    "خطا", 
+                    "خطا در حذف اطلاعات ذخیره‌شده گلستان."
+                )
+        except Exception as e:
+            logger.error(f"Error in reset golestan credentials: {e}")
+            QtWidgets.QMessageBox.critical(
+                self, 
+                "خطا", 
+                f"خطا در حذف اطلاعات ذخیره‌شده گلستان:\n{str(e)}"
+            )
+
     def fetch_from_golestan(self):
         """Fetch courses from Golestan system automatically"""
+        print("DEBUG: fetch_from_golestan called - COUNT TRACKER")
+        if not hasattr(self, '_fetch_call_count'):
+            self._fetch_call_count = 0
+        self._fetch_call_count += 1
+        print(f"DEBUG: fetch_from_golestan call count: {self._fetch_call_count}")
         try:
             from ..core.golestan_integration import update_courses_from_golestan
+            from ..core.credentials import load_local_credentials
+            from .credentials_dialog import GolestanCredentialsDialog
             
-            # Show progress dialog
-            progress = QtWidgets.QProgressDialog('در حال دریافت اطلاعات از گلستان...', 'لغو', 0, 0, self)
-            progress.setWindowModality(QtCore.Qt.WindowModal)
-            progress.show()
+            # Check if credentials dialog is already open
+            if hasattr(self, 'credentials_dialog_open') and self.credentials_dialog_open:
+                print("DEBUG: credentials_dialog_open is True, returning early")
+                return
+            print("DEBUG: Setting credentials_dialog_open = True")
+            self.credentials_dialog_open = True
             
-            QtWidgets.QApplication.processEvents()  # Update UI
-            
-            # Fetch courses from Golestan
-            update_courses_from_golestan()
-            
-            # Close progress dialog
-            progress.close()
-            
-            # Refresh UI to show the new courses immediately
-            self.refresh_ui()
-            
-            QtWidgets.QMessageBox.information(
-                self, 'موفقیت', 
-                'اطلاعات دروس با موفقیت از سامانه گلستان دریافت شد.'
-            )
-            
+            try:
+                print("DEBUG: Checking for local credentials")
+                # Check if local credentials exist
+                credentials = load_local_credentials()
+                
+                # If credentials don't exist, prompt user
+                if credentials is None:
+                    print("DEBUG: No local credentials found, prompting user")
+                    # Check if a dialog is already open
+                    if hasattr(self, '_golestan_dialog') and self._golestan_dialog is not None and self._golestan_dialog.isVisible():
+                        # Bring existing dialog to front
+                        print("DEBUG: Dialog already visible, bringing to front")
+                        self._golestan_dialog.raise_()
+                        self._golestan_dialog.activateWindow()
+                        return
+                    
+                    # Create and show dialog to get credentials
+                    print("DEBUG: Creating GolestanCredentialsDialog")
+                    self._golestan_dialog = GolestanCredentialsDialog(self)
+                    print("DEBUG: Calling get_credentials()")
+                    result = self._golestan_dialog.get_credentials()
+                    print(f"DEBUG: get_credentials() returned: {result}")
+                    
+                    # Clean up reference
+                    self._golestan_dialog = None
+                    
+                    # If user cancelled or failed to provide credentials, stop the process
+                    if result[0] is None or result[1] is None:
+                        print("DEBUG: User cancelled or failed to provide credentials")
+                        return  # User cancelled, stop the process
+                    
+                    student_number, password, remember = result
+                    
+                    # Save credentials if user requested
+                    if remember:
+                        print("DEBUG: Saving credentials")
+                        from ..core.credentials import save_local_credentials
+                        save_local_credentials(student_number, password, remember)
+                    
+                    # Use provided credentials for this fetch
+                    credentials = {
+                        'student_number': student_number,
+                        'password': password
+                    }
+                else:
+                    print("DEBUG: Using existing local credentials")
+                    # Use existing credentials
+                    student_number = credentials['student_number']
+                    password = credentials['password']
+                
+                # Show progress dialog
+                print("DEBUG: Showing progress dialog")
+                progress = QtWidgets.QProgressDialog('در حال دریافت اطلاعات از گلستان...', 'لغو', 0, 0, self)
+                progress.setWindowModality(QtCore.Qt.WindowModal)
+                progress.show()
+                
+                QtWidgets.QApplication.processEvents()  # Update UI
+                
+                # Fetch courses from Golestan with credentials
+                print("DEBUG: Fetching courses from Golestan")
+                update_courses_from_golestan(username=student_number, password=password)
+                
+                # Close progress dialog
+                progress.close()
+                
+                # Refresh UI to show the new courses immediately
+                self.refresh_ui()
+                
+                QtWidgets.QMessageBox.information(
+                    self, 'موفقیت', 
+                    'اطلاعات دروس با موفقیت از سامانه گلستان دریافت شد.'
+                )
+                
+            finally:
+                # Always reset the dialog open flag
+                print("DEBUG: Setting credentials_dialog_open = False in finally block")
+                self.credentials_dialog_open = False
+                
         except Exception as e:
+            # Reset the dialog open flag in case of error
+            if hasattr(self, 'credentials_dialog_open'):
+                print(f"DEBUG: Setting credentials_dialog_open = False in exception handler: {e}")
+                self.credentials_dialog_open = False
             logger.error(f"Error fetching from Golestan: {e}")
             QtWidgets.QMessageBox.critical(
                 self, 'خطا', 
@@ -4749,6 +4928,189 @@ class SchedulerWindow(QtWidgets.QMainWindow):
             
         except Exception as e:
             logger.error(f"Error manual fetching from Golestan: {e}")
+            QtWidgets.QMessageBox.critical(
+                self, 'خطا', 
+                f'خطا در دریافت اطلاعات از گلستان:\n{str(e)}'
+            )
+
+    def manage_golestan_credentials(self):
+        """Manage Golestan credentials - view (masked) or remove saved credentials"""
+        try:
+            from ..core.credentials import LOCAL_CREDENTIALS_FILE, load_local_credentials, delete_local_credentials
+            
+            # Check if credentials file exists
+            if not LOCAL_CREDENTIALS_FILE.exists():
+                QtWidgets.QMessageBox.information(
+                    self, 
+                    "اطلاعات ورود گلستان", 
+                    "هیچ اطلاعات ورودی ذخیره‌شده‌ای یافت نشد."
+                )
+                return
+            
+            # Load credentials to show masked info
+            creds = load_local_credentials()
+            if not creds:
+                QtWidgets.QMessageBox.warning(
+                    self, 
+                    "خطا", 
+                    "خطا در خواندن اطلاعات ورود ذخیره‌شده."
+                )
+                return
+            
+            # Show credential info (masked)
+            student_number = creds['student_number']
+            masked_student = student_number[:3] + '*' * (len(student_number) - 3) if len(student_number) > 3 else '*' * len(student_number)
+
+            
+            reply = QtWidgets.QMessageBox.question(
+                self,
+                "مدیریت اطلاعات ورود گلستان",
+                f"اطلاعات ورود ذخیره‌شده:\n\nشماره دانشجویی: {masked_student}\n\nآیا می‌خواهید این اطلاعات را حذف کنید؟",
+                QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
+                QtWidgets.QMessageBox.No
+            )
+            
+            if reply == QtWidgets.QMessageBox.Yes:
+                # Delete credentials file
+                if delete_local_credentials():
+                    QtWidgets.QMessageBox.information(
+                        self, 
+                        "موفقیت", 
+                        "اطلاعات ورود گلستان با موفقیت حذف شد."
+                    )
+                else:
+                    QtWidgets.QMessageBox.warning(
+                        self, 
+                        "خطا", 
+                        "خطا در حذف اطلاعات ورود."
+                    )
+        except Exception as e:
+            logger.error(f"Error managing Golestan credentials: {e}")
+            QtWidgets.QMessageBox.critical(
+                self, 
+                "خطا", 
+                f"خطا در مدیریت اطلاعات ورود گلستان:\n{str(e)}"
+            )
+
+    def forget_saved_credentials(self):
+        """Forget saved credentials - clear saved credentials and prompt for new ones"""
+        print("DEBUG: forget_saved_credentials called")
+        try:
+            # Check if credentials dialog is already open
+            if hasattr(self, 'credentials_dialog_open') and self.credentials_dialog_open:
+                print("DEBUG: credentials_dialog_open is True in forget_saved_credentials, returning early")
+                return
+            print("DEBUG: Setting credentials_dialog_open = True in forget_saved_credentials")
+            self.credentials_dialog_open = True
+            
+            try:
+                from ..core.credentials import delete_local_credentials
+                from .credentials_dialog import GolestanCredentialsDialog
+                
+                # Delete existing credentials
+                print("DEBUG: Deleting local credentials")
+                if delete_local_credentials():
+                    logger.info("Existing Golestan credentials cleared successfully")
+                    print("DEBUG: Existing Golestan credentials cleared successfully")
+                else:
+                    logger.warning("Failed to clear Golestan credentials")
+                    print("DEBUG: Failed to clear Golestan credentials")
+                
+                # Check if a dialog is already open
+                if hasattr(self, '_golestan_dialog') and self._golestan_dialog is not None and self._golestan_dialog.isVisible():
+                    # Bring existing dialog to front
+                    print("DEBUG: Dialog already visible in forget_saved_credentials, bringing to front")
+                    self._golestan_dialog.raise_()
+                    self._golestan_dialog.activateWindow()
+                    return
+                
+                # Open credential dialog to get new credentials
+                print("DEBUG: Creating GolestanCredentialsDialog in forget_saved_credentials")
+                self._golestan_dialog = GolestanCredentialsDialog(self)
+                print("DEBUG: Calling get_credentials() in forget_saved_credentials")
+                result = self._golestan_dialog.get_credentials()
+                print(f"DEBUG: get_credentials() returned in forget_saved_credentials: {result}")
+                
+                # Clean up reference
+                self._golestan_dialog = None
+                
+                # If user provided credentials, save them
+                if result[0] is not None and result[1] is not None:
+                    student_number, password, remember = result
+                    
+                    # Save new credentials
+                    print("DEBUG: Saving new credentials in forget_saved_credentials")
+                    from ..core.credentials import save_local_credentials
+                    if save_local_credentials(student_number, password, remember):
+                        logger.info("New Golestan credentials saved successfully")
+                        print("DEBUG: New Golestan credentials saved successfully")
+                        
+                        # Show success message
+                        QtWidgets.QMessageBox.information(
+                            self, 
+                            "موفقیت", 
+                            "اطلاعات ورود گلستان با موفقیت ذخیره شد. این اطلاعات فقط روی این دستگاه نگهداری می‌شود."
+                        )
+                        
+                        # Simulate automatic course fetch with new credentials
+                        self.fetch_from_golestan_with_new_credentials(student_number, password)
+                    else:
+                        logger.error("Failed to save new Golestan credentials")
+                        QtWidgets.QMessageBox.critical(
+                            self, 
+                            "خطا", 
+                            "خطا در ذخیره اطلاعات ورود جدید."
+                        )
+                else:
+                    # User cancelled the dialog
+                    logger.info("User cancelled credential entry")
+                    print("DEBUG: User cancelled credential entry")
+                    
+            finally:
+                # Always reset the dialog open flag
+                print("DEBUG: Setting credentials_dialog_open = False in finally block of forget_saved_credentials")
+                self.credentials_dialog_open = False
+                
+        except Exception as e:
+            # Reset the dialog open flag in case of error
+            if hasattr(self, 'credentials_dialog_open'):
+                print(f"DEBUG: Setting credentials_dialog_open = False in exception handler of forget_saved_credentials: {e}")
+                self.credentials_dialog_open = False
+            logger.error(f"Error in forget saved credentials: {e}")
+            QtWidgets.QMessageBox.critical(
+                self, 
+                "خطا", 
+                f"خطا در فراموش کردن اطلاعات ذخیره شده:\n{str(e)}"
+            )
+
+    def fetch_from_golestan_with_new_credentials(self, username, password):
+        """Fetch courses from Golestan using newly entered credentials"""
+        try:
+            from ..core.golestan_integration import update_courses_from_golestan
+            
+            # Show progress dialog
+            progress = QtWidgets.QProgressDialog('در حال دریافت اطلاعات از گلستان...', 'لغو', 0, 0, self)
+            progress.setWindowModality(QtCore.Qt.WindowModal)
+            progress.show()
+            
+            QtWidgets.QApplication.processEvents()  # Update UI
+            
+            # Fetch courses from Golestan with new credentials
+            update_courses_from_golestan(username=username, password=password)
+            
+            # Close progress dialog
+            progress.close()
+            
+            # Refresh UI to show the new courses immediately
+            self.refresh_ui()
+            
+            QtWidgets.QMessageBox.information(
+                self, 'موفقیت', 
+                'اطلاعات دروس با موفقیت از سامانه گلستان دریافت شد.'
+            )
+            
+        except Exception as e:
+            logger.error(f"Error fetching from Golestan with new credentials: {e}")
             QtWidgets.QMessageBox.critical(
                 self, 'خطا', 
                 f'خطا در دریافت اطلاعات از گلستان:\n{str(e)}'
@@ -4899,11 +5261,48 @@ class SchedulerWindow(QtWidgets.QMainWindow):
             logger.error(f"Error loading latest backup: {e}")
 
     def create_menu_bar(self):
-        """Create the application menu bar with usage history option"""
+        """Create the application menu bar with data and usage history options"""
         try:
-            # Create menu bar
-            menubar = self.menuBar()
+            # Use the menu bar from the UI file if available
+            if hasattr(self, 'menubar'):
+                menubar = self.menubar
+            else:
+                # Create menu bar if not available in UI
+                menubar = self.menuBar()
             
+            # Use the data menu from the UI file if available
+            if hasattr(self, 'menu_data'):
+                data_menu = self.menu_data
+                
+                # Connect the reset Golestan credentials action if it exists in the UI
+                if hasattr(self, 'action_reset_golestan_credentials'):
+                    # Disconnect any existing connections first to prevent duplicates
+                    try:
+                        self.action_reset_golestan_credentials.triggered.disconnect(self.reset_golestan_credentials)
+                    except TypeError:
+                        # No existing connection, that's fine
+                        pass
+                    self.action_reset_golestan_credentials.triggered.connect(self.reset_golestan_credentials)
+                
+                # Connect the fetch Golestan action if it exists in the UI
+                if hasattr(self, 'action_fetch_golestan'):
+                    # Disconnect any existing connections first to prevent duplicates
+                    try:
+                        self.action_fetch_golestan.triggered.disconnect(self.fetch_from_golestan)
+                    except TypeError:
+                        # No existing connection, that's fine
+                        pass
+                    self.action_fetch_golestan.triggered.connect(self.fetch_from_golestan)
+                    
+                # Connect the manual fetch action if it exists in the UI
+                if hasattr(self, 'action_manual_fetch'):
+                    # Disconnect any existing connections first to prevent duplicates
+                    try:
+                        self.action_manual_fetch.triggered.disconnect(self.manual_fetch_from_golestan)
+                    except TypeError:
+                        # No existing connection, that's fine
+                        pass
+                    self.action_manual_fetch.triggered.connect(self.manual_fetch_from_golestan)
             # Create "Usage History" menu
             history_menu = menubar.addMenu('سوابق استفاده')
             
@@ -5086,6 +5485,77 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         
         # Accept the close event
         event.accept()
+    
+    def update_user_data(self):
+        """Update user data with current schedule"""
+        keys = []
+        for pos, info in self.placed.items():
+            if info.get('type') == 'dual':
+                keys.append(info.get('odd_key') or info.get('courses', [None])[0])
+                keys.append(info.get('even_key') or info.get('courses', [None])[-1])
+            else:
+                keys.append(info.get('course_key'))
+        # Update user data with current schedule
+        self.user_data['current_schedule'] = keys
+
+    def manage_golestan_credentials(self):
+        """Manage Golestan credentials - view (masked) or remove saved credentials"""
+        try:
+            from ..core.credentials import LOCAL_CREDENTIALS_FILE, load_local_credentials, delete_local_credentials
+            
+            # Check if credentials file exists
+            if not LOCAL_CREDENTIALS_FILE.exists():
+                QtWidgets.QMessageBox.information(
+                    self, 
+                    "اطلاعات ورود گلستان", 
+                    "هیچ اطلاعات ورودی ذخیره‌شده‌ای یافت نشد."
+                )
+                return
+            
+            # Load credentials to show masked info
+            creds = load_local_credentials()
+            if not creds:
+                QtWidgets.QMessageBox.warning(
+                    self, 
+                    "خطا", 
+                    "خطا در خواندن اطلاعات ورود ذخیره‌شده."
+                )
+                return
+            
+            # Show credential info (masked)
+            student_number = creds['student_number']
+            masked_student = student_number[:3] + '*' * (len(student_number) - 3) if len(student_number) > 3 else '*' * len(student_number)
+
+            
+            reply = QtWidgets.QMessageBox.question(
+                self,
+                "مدیریت اطلاعات ورود گلستان",
+                f"اطلاعات ورود ذخیره‌شده:\n\nشماره دانشجویی: {masked_student}\n\nآیا می‌خواهید این اطلاعات را حذف کنید؟",
+                QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
+                QtWidgets.QMessageBox.No
+            )
+            
+            if reply == QtWidgets.QMessageBox.Yes:
+                # Delete credentials file
+                if delete_local_credentials():
+                    QtWidgets.QMessageBox.information(
+                        self, 
+                        "موفقیت", 
+                        "اطلاعات ورود گلستان با موفقیت حذف شد."
+                    )
+                else:
+                    QtWidgets.QMessageBox.warning(
+                        self, 
+                        "خطا", 
+                        "خطا در حذف اطلاعات ورود."
+                    )
+        except Exception as e:
+            logger.error(f"Error managing Golestan credentials: {e}")
+            QtWidgets.QMessageBox.critical(
+                self, 
+                "خطا", 
+                f"خطا در مدیریت اطلاعات ورود گلستان:\n{str(e)}"
+            )
 
     def _find_existing_compatible_dual(self, course):
         """
@@ -5097,6 +5567,7 @@ class SchedulerWindow(QtWidgets.QMainWindow):
                 # Check if course is compatible with this dual
                 odd_key = info.get('odd_key') or info.get('courses', [None])[0]
                 even_key = info.get('even_key') or info.get('courses', [None])[-1]
+
                 odd_course = COURSES.get(odd_key)
                 even_course = COURSES.get(even_key)
                 
@@ -5143,15 +5614,4 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         """
         # Implementation would go here
         pass
-
-if __name__ == '__main__':
-    # Error handling for the main application
-    try:
-        sys.exit(main())
-    except Exception as e:
-        print(f"Critical error: {e}")
-        import traceback
-        traceback.print_exc()
-        sys.exit(1)
-
 
