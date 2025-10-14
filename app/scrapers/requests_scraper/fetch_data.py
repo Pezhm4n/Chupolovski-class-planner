@@ -6,7 +6,7 @@ from bs4 import BeautifulSoup
 from dotenv import load_dotenv
 from requests.cookies import create_cookie
 from pathlib import Path
-from app.scrapers.requests_scraper.models import Student
+from app.data.student_db import StudentDatabase
 from app.scrapers.requests_scraper.parsers import parse_courses_from_xml, parse_student_info, parse_semester_data, extract_semester_ids
 import os
 from app.captcha_solver.predict import predict
@@ -330,45 +330,6 @@ class GolestanSession:
 
         return results_data
 
-    def get_courses(status='both', username=None, password=None):
-        """
-        High-level function to fetch course data from Golestan.
-
-        Args:
-            status: 'available', 'unavailable', or 'both'
-            username: Login username (defaults to env USERNAME)
-            password: Login password (defaults to env PASSWORD)
-
-        Returns:
-            dict: Dictionary with 'available' and/or 'unavailable' keys containing course data
-        """
-        golestan = GolestanSession()
-
-        try:
-            if not golestan.authenticate(username, password):
-                raise RuntimeError("Authentication failed")
-
-            results = golestan.fetch_courses(status)
-
-            # Get the path to the app root
-            app_root = Path(__file__).resolve().parent.parent.parent
-            project_super_root = app_root.parent
-
-            data_dir = app_root / 'data' / 'courses_data'
-            os.makedirs(data_dir, exist_ok=True)
-
-            if 'available' in results:
-                available_path = data_dir / 'available_courses.json'
-                parse_courses_from_xml(results['available'], str(available_path))
-                print(f"💾 Available courses saved to {available_path.relative_to(project_super_root)}")
-            if 'unavailable' in results:
-                unavailable_path = data_dir / 'unavailable_courses.json'
-                parse_courses_from_xml(results['unavailable'], str(unavailable_path))
-                print(f"💾 Unavailable courses saved to {unavailable_path.relative_to(project_super_root)}")
-
-        finally:
-            golestan.session.close()
-
     def fetch_student_info(self):
         """
         Scrape the 'اطلاعات جامع دانشجو' (Comprehensive Student Information) page.
@@ -424,6 +385,7 @@ class GolestanSession:
 
         # Parse student info
         student = parse_student_info(post_resp.text)
+        student.student_id = self.username
 
         # Extract semester IDs for later requests
         semester_ids = extract_semester_ids(post_resp.text)
@@ -460,11 +422,59 @@ class GolestanSession:
 
         return semester_record, next_results
 
+def get_courses(status='both', username=None, password=None):
+    """
+    High-level function to fetch course data from Golestan.
 
-def get_student_record(username=None, password=None):
+    Args:
+        status: 'available', 'unavailable', or 'both'
+        username: Login username (defaults to env USERNAME)
+        password: Login password (defaults to env PASSWORD)
+
+    Returns:
+        dict: Dictionary with 'available' and/or 'unavailable' keys containing course data
+    """
+    golestan = GolestanSession()
+
+    try:
+        if not golestan.authenticate(username, password):
+            raise RuntimeError("Authentication failed")
+
+        results = golestan.fetch_courses(status)
+
+        # Get the path to the app root
+        app_root = Path(__file__).resolve().parent.parent.parent
+        project_super_root = app_root.parent
+
+        data_dir = app_root / 'data' / 'courses_data'
+        os.makedirs(data_dir, exist_ok=True)
+
+        if 'available' in results:
+            available_path = data_dir / 'available_courses.json'
+            parse_courses_from_xml(results['available'], str(available_path))
+            print(f"💾 Available courses saved to {available_path.relative_to(project_super_root)}")
+        if 'unavailable' in results:
+            unavailable_path = data_dir / 'unavailable_courses.json'
+            parse_courses_from_xml(results['unavailable'], str(unavailable_path))
+            print(f"💾 Unavailable courses saved to {unavailable_path.relative_to(project_super_root)}")
+
+    finally:
+        golestan.session.close()
+
+
+def get_student_record(username=None, password=None, db=None):
     """
     Fetches student info, semesters, and courses as full transcript.
     Returns a Student object with all semesters and courses populated.
+
+    Args:
+        username: Student username for authentication
+        password: Student password for authentication
+        db: Optional StudentDatabase instance. If provided and student_id matches,
+            it will be used. Otherwise, a new instance will be created.
+
+    Returns:
+        Student object with all data populated
     """
     golestan = GolestanSession()
     try:
@@ -476,6 +486,14 @@ def get_student_record(username=None, password=None):
 
         print(f"📋 Semesters: {', '.join(semester_ids)} for student {student.name}")
 
+        # Create or validate database instance
+        if db is None or db.student_id != student.student_id:
+            # Create new database instance for this student
+            if db is not None:
+                print(f"⚠️  Student ID mismatch: Database is for '{db.student_id}', "
+                      f"creating new instance for '{student.student_id}'")
+            db = StudentDatabase(student.student_id)
+
         # Fetch each semester and add to student
         for semester_id in semester_ids:
             semester_record, aspnet_fields = golestan.fetch_semester_courses(semester_id, aspnet_fields)
@@ -486,75 +504,20 @@ def get_student_record(username=None, password=None):
             else:
                 print(f"❌ Failed to fetch semester {semester_id}")
 
+        # Check if student already exists
+        if db.student_exists():
+            print(f"Student {student.student_id} already exists. Updating...")
+        else:
+            print(f"Creating new record for student {student.student_id}...")
+
+        # Save student (this will update if exists)
+        db.save_student(student)
+
         return student
 
     finally:
         golestan.session.close()
 
-
-def print_student_details(student: Student):
-    """Print complete student record with all semesters and courses"""
-
-    # Print header
-    print("=" * 80)
-    print("STUDENT RECORD")
-    print("=" * 80)
-
-    # Print student info
-    print(f"\n📋 Student Information:")
-    print(f"   ID: {student.student_id}")
-    print(f"   Name: {student.name}")
-    print(f"   Father: {student.father_name}")
-    print(f"   Faculty: {student.faculty}")
-    print(f"   Department: {student.department}")
-    print(f"   Major: {student.major}")
-    print(f"   Degree: {student.degree_level}")
-    print(f"   Study Type: {student.study_type}")
-    print(f"   Status: {student.enrollment_status}")
-    print(f"   Registration: {'Allowed' if student.registration_permission else 'Not Allowed'}")
-
-    # Print academic summary
-    print(f"\n📊 Academic Summary:")
-    print(f"   Overall GPA: {student.overall_gpa}")
-    print(f"   Total Units Passed: {student.total_units_passed}")
-    print(f"   Total Probations: {student.total_probation}")
-    print(f"   Consecutive Probations: {student.consecutive_probation}")
-    print(f"   Special Probations: {student.special_probation}")
-    print(f"   Total Semesters: {len(student.semesters)}")
-    print(f"   Last Updated: {student.updated_at}")
-
-    # Print each semester
-    print(f"\n📚 SEMESTER DETAILS:")
-    print("-" * 80)
-
-    for i, semester in enumerate(student.semesters, 1):
-        print(f"\n🗓️  Semester {i}: {semester.semester_description}")
-        print(f"   Semester ID: {semester.semester_id}")
-        print(f"   Semester GPA: {semester.semester_gpa}")
-        print(f"   Units Taken: {semester.units_taken}")
-        print(f"   Units Passed: {semester.units_passed}")
-        print(f"   Cumulative GPA: {semester.cumulative_gpa}")
-        print(f"   Cumulative Units: {semester.cumulative_units_passed}")
-        print(f"   Number of Courses: {len(semester.courses)}")
-
-        if semester.courses:
-            print(f"\n   📖 Courses:")
-            for j, course in enumerate(semester.courses, 1):
-                grade_display = f"{course.grade}" if course.grade else course.grade_state
-                print(f"      {j}. {course.course_code}-{course.course_group}: {course.course_name}")
-                print(f"         Units: {course.course_units} | Type: {course.course_type} | "
-                      f"Grade: {grade_display} | Status: {course.grade_state}")
-        else:
-            print(f"   No courses found for this semester")
-
-        print("-" * 80)
-
-    print("\n" + "=" * 80)
-    print("END OF STUDENT RECORD")
-    print("=" * 80)
-
-
 # Usage example
 if __name__ == "__main__":
     student = get_student_record()
-    print_student_details(student)

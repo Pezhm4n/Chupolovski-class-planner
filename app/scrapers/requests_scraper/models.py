@@ -8,16 +8,14 @@ from datetime import datetime
 class CourseEnrollment:
     """Individual course enrollment and grade"""
     course_code: str
-    course_group: str
     course_name: str
     course_units: Decimal
     course_type: str
     grade_state: str
     grade: Optional[Decimal] = None
-    pass_status: bool = False
 
     def __repr__(self) -> str:
-        return f"CourseEnrollment({self.course_code}-{self.course_group}: {self.course_name}, {self.grade}, {self.course_units} units)"
+        return f"CourseEnrollment({self.course_code}: {self.course_name}, {self.grade}, {self.course_units} units)"
 
 @dataclass
 class SemesterRecord:
@@ -27,9 +25,13 @@ class SemesterRecord:
     semester_gpa: Decimal = field(default=Decimal('0.00'))
     units_taken: Decimal = field(default=Decimal('0.00'))
     units_passed: Decimal = field(default=Decimal('0.00'))
+    units_failed: Decimal = field(default=Decimal('0.00'))
+    units_dropped: Decimal = field(default=Decimal('0.00'))
     cumulative_gpa: Decimal = field(default=Decimal('0.00'))
     cumulative_units_passed: Decimal = field(default=Decimal('0.00'))
-    # probation_status: bool = False
+    semester_status: Optional[str] = None
+    semester_type: Optional[str] = None
+    probation_status: Optional[str] = None
     courses: List[CourseEnrollment] = field(default_factory=list)
 
     def __repr__(self) -> str:
@@ -59,6 +61,7 @@ class Student:
     special_probation: int = 0
     semesters: List[SemesterRecord] = field(default_factory=list)
     updated_at: datetime = field(default_factory=datetime.now)
+    image_b64: Optional[str] = None
 
     def __repr__(self) -> str:
         return (f"Student(id={self.student_id}, "

@@ -186,6 +186,9 @@ def parse_student_info(html_response):
     enrollment_status = extract_var("F43301")
     registration_permission = extract_var("F42251") == "دارد"
 
+    # Extract image - F15871 contains the base64 image
+    image_b64 = extract_var("F15871").split(',')[1]  # This is the student photo
+
     # Numeric fields with defaults
     overall_gpa_str = extract_var("F41701")
     total_units_str = extract_var("F41801")
@@ -211,7 +214,8 @@ def parse_student_info(html_response):
         consecutive_probation=int(consecutive_probation_str) if consecutive_probation_str else 0,
         special_probation=int(special_probation_str) if special_probation_str else 0,
         semesters=[],  # Will be populated later
-        updated_at=datetime.now()
+        updated_at=datetime.now(),
+        image_b64=image_b64
     )
 
     return student
@@ -261,6 +265,9 @@ def parse_semester_data(html_response):
     # Get semester metadata
     semester_number = extract_var("F43501")
     semester_description = extract_var("F57551")
+    semester_status = extract_var("F44551")
+    semester_type = extract_var("F43551")
+    probation_status = extract_var("F44151")
 
     # Extract T01XML (semester summary info)
     t01_pattern = r"T01XML\s*=\s*'([^']*)';"
@@ -270,6 +277,8 @@ def parse_semester_data(html_response):
     units_passed = Decimal('0.00')
     cumulative_gpa = Decimal('0.00')
     cumulative_units_passed = Decimal('0.00')
+    units_failed_str = Decimal('0.00')
+    units_dropped_str = Decimal('0.00')
 
     if t01_match:
         t01_xml = t01_match.group(1)
@@ -284,6 +293,8 @@ def parse_semester_data(html_response):
                 semester_gpa = safe_decimal(gpa_str) if gpa_str else None
                 units_taken = safe_decimal(first_node.get('F4365'))
                 units_passed = safe_decimal(first_node.get('F4370'))
+                units_failed_str = extract_var("F4385")
+                units_dropped_str = extract_var("F4375")
 
             if len(nodes) >= 2:
                 # Second row: cumulative stats
@@ -305,8 +316,7 @@ def parse_semester_data(html_response):
             root = ET.fromstring(t02_xml)
 
             for node in root.findall('N'):
-                course_code = node.get('F5560', '')
-                course_group = node.get('F5565', '')
+                course_code = node.get('F5560', '') + '_' + node.get('F5565', '')
                 course_name = node.get('F0200', '')
                 course_units = node.get('F0205', '0')
                 course_type = node.get('F3952', '')
@@ -316,7 +326,6 @@ def parse_semester_data(html_response):
                 # Create course with grade (numeric or None)
                 course = CourseEnrollment(
                     course_code=course_code,
-                    course_group=course_group,
                     course_name=course_name,
                     course_units=safe_decimal(course_units),
                     course_type=course_type,
@@ -340,8 +349,13 @@ def parse_semester_data(html_response):
         semester_gpa=semester_gpa,
         units_taken=units_taken,
         units_passed=units_passed,
+        units_failed=safe_decimal(units_failed_str),
+        units_dropped=safe_decimal(units_dropped_str),
         cumulative_gpa=cumulative_gpa,
         cumulative_units_passed=cumulative_units_passed,
+        probation_status=probation_status,
+        semester_status=semester_status,
+        semester_type=semester_type,
         courses=courses
     )
 
