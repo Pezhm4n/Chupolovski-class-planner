@@ -16,3 +16,7 @@ numpy>=1.21.0
 # For development and testing
 pytest>=7.0.0
 pytest-qt>=4.0.0
+
+# Optional: Cryptography for credential encryption (not required by default)
+# Uncomment the following line if you want to enable credential encryption
+# cryptography>=3.4.8

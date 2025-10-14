@@ -1,5 +1,5 @@
-# Golestoon Class Planner
-## Smart University Course Scheduler - Version 0.7.0
+# Golestoon
+## Smart University Course Scheduler
 
 ![Version](https://img.shields.io/badge/version-0.7.0-blue.svg)
 ![Python](https://img.shields.io/badge/python-3.10+-green.svg)

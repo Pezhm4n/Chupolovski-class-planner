@@ -62,6 +62,31 @@ USER_ADDED_COURSES_FILE = APP_DIR / 'data' / 'user_added_courses.json'
 COURSES_DATA_FILE = APP_DIR / 'data' / 'courses_data.json'
 STYLES_FILE = APP_DIR / 'ui' / 'styles.qss'
 
+# Import credentials module
+from .credentials import load_local_credentials
+
+def get_golestan_credentials():
+    """
+    Get Golestan credentials from local file or environment variables.
+    
+    Returns:
+        tuple: (username, password) or (None, None) if not found
+    """
+    # First try to load from local credentials file
+    local_creds = load_local_credentials()
+    if local_creds:
+        return (local_creds['student_number'], local_creds['password'])
+    
+    # Fallback to environment variables
+    username = API_KEYS.get('golestan_username', '')
+    password = API_KEYS.get('golestan_password', '')
+    
+    if username and password:
+        return (username, password)
+    
+    # No credentials available
+    return (None, None)
+
 # روزها و اسلات‌ها
 DAYS = ['شنبه', 'یکشنبه', 'دوشنبه', 'سه‌شنبه', 'چهارشنبه', 'پنج‌شنبه', 'جمعه']
 

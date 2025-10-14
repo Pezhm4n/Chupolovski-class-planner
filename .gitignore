@@ -44,3 +44,8 @@ app/output.txt
 *.patch
 
 app/data/user_added_courses.json
+
+# Local credentials file (gitignored for security)
+app/data/local_credentials.json
+
+app/data/courses_data.json
