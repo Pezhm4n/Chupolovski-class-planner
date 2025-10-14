@@ -13,6 +13,7 @@ from PyQt5 import QtWidgets, QtCore
 # Import from core modules
 from ..core.config import DAYS, TIME_SLOTS, EXTENDED_TIME_SLOTS, COURSES
 from ..core.logger import setup_logging
+from ..core.data_manager import save_user_data
 
 logger = setup_logging()
 
@@ -26,17 +27,30 @@ class AddCourseDialog(QtWidgets.QDialog):
         self.setWindowTitle('افزودن درس جدید')
         self.setModal(True)
         self.resize(500, 400)
+        # Set layout direction to RTL
+        self.setLayoutDirection(QtCore.Qt.RightToLeft)
 
         layout = QtWidgets.QVBoxLayout(self)
         form = QtWidgets.QFormLayout()
+        # Set form layout to RTL alignment
+        form.setLabelAlignment(QtCore.Qt.AlignRight)
+        form.setFormAlignment(QtCore.Qt.AlignRight | QtCore.Qt.AlignTop)
 
         self.name_edit = QtWidgets.QLineEdit()
+        self.name_edit.setLayoutDirection(QtCore.Qt.RightToLeft)
         self.code_edit = QtWidgets.QLineEdit()
+        self.code_edit.setLayoutDirection(QtCore.Qt.RightToLeft)
         self.instructor_edit = QtWidgets.QLineEdit()
+        self.instructor_edit.setLayoutDirection(QtCore.Qt.RightToLeft)
         self.location_edit = QtWidgets.QLineEdit()
+        self.location_edit.setLayoutDirection(QtCore.Qt.RightToLeft)
+        self.capacity_edit = QtWidgets.QLineEdit()  # New capacity field
+        self.capacity_edit.setLayoutDirection(QtCore.Qt.RightToLeft)
         self.description_edit = QtWidgets.QTextEdit()
+        self.description_edit.setLayoutDirection(QtCore.Qt.RightToLeft)
         self.description_edit.setMaximumHeight(80)
         self.exam_time_edit = QtWidgets.QLineEdit()
+        self.exam_time_edit.setLayoutDirection(QtCore.Qt.RightToLeft)
         self.exam_time_edit.setPlaceholderText('مثال: 1403/10/15 - 09:00-11:00')
         self.credits_spin = QtWidgets.QSpinBox()
         self.credits_spin.setRange(0, 10)
@@ -46,6 +60,7 @@ class AddCourseDialog(QtWidgets.QDialog):
         form.addRow('کد درس (مثال 1142207_01):', self.code_edit)
         form.addRow('نام استاد:', self.instructor_edit)
         form.addRow('محل/کلاس:', self.location_edit)
+        form.addRow('ظرفیت:', self.capacity_edit)  # Add capacity field
         form.addRow('توضیحات درس:', self.description_edit)
         form.addRow('زمان امتحان:', self.exam_time_edit)
         form.addRow('تعداد واحد:', self.credits_spin)
@@ -108,12 +123,23 @@ class AddCourseDialog(QtWidgets.QDialog):
         code = self.code_edit.text().strip()
         instructor = self.instructor_edit.text().strip()
         location = self.location_edit.text().strip()
+        capacity = self.capacity_edit.text().strip()  # Get capacity
         description = self.description_edit.toPlainText().strip()
         exam_time = self.exam_time_edit.text().strip()
         credits = self.credits_spin.value()
-        if not name or not code:
-            QtWidgets.QMessageBox.warning(self, 'خطا', 'لطفا نام درس و کد درس را وارد کنید.')
+        
+        # Validation: Course name and instructor are mandatory
+        if not name:
+            QtWidgets.QMessageBox.warning(self, 'خطا', 'لطفاً نام درس و نام استاد را وارد کنید.')
             return None
+        if not instructor:
+            QtWidgets.QMessageBox.warning(self, 'خطا', 'لطفاً نام درس و نام استاد را وارد کنید.')
+            return None
+        if not code:
+            # Generate a unique code if not provided
+            import time
+            code = f"user_{int(time.time())}"
+            
         sessions = []
         for (_, day_cb, start_cb, end_cb, parity_cb) in self.session_rows:
             day = day_cb.currentText()
@@ -131,6 +157,8 @@ class AddCourseDialog(QtWidgets.QDialog):
                 QtWidgets.QMessageBox.warning(self, 'خطا', 'زمان پایان باید بعد از شروع باشد.')
                 return None
             sessions.append({'day': day, 'start': start, 'end': end, 'parity': parity})
+        
+        # Create course data with capacity field
         course = {
             'code': code,
             'name': name,
@@ -138,8 +166,10 @@ class AddCourseDialog(QtWidgets.QDialog):
             'instructor': instructor,
             'schedule': sessions,
             'location': location,
+            'capacity': capacity,  # Add capacity to course data
             'description': description or 'توضیحی ارائه نشده',
-            'exam_time': exam_time or 'اعلام نشده'
+            'exam_time': exam_time or 'اعلام نشده',
+            'major': 'دروس اضافه‌شده توسط کاربر'  # Add to correct category
         }
         return course
 
@@ -154,19 +184,32 @@ class EditCourseDialog(QtWidgets.QDialog):
         self.setWindowTitle('ویرایش اطلاعات درس')
         self.setModal(True)
         self.resize(500, 400)
+        # Set layout direction to RTL
+        self.setLayoutDirection(QtCore.Qt.RightToLeft)
 
         layout = QtWidgets.QVBoxLayout(self)
         form = QtWidgets.QFormLayout()
+        # Set form layout to RTL alignment
+        form.setLabelAlignment(QtCore.Qt.AlignRight)
+        form.setFormAlignment(QtCore.Qt.AlignRight | QtCore.Qt.AlignTop)
 
         # Pre-fill with existing data
         self.name_edit = QtWidgets.QLineEdit(course_data.get('name', ''))
+        self.name_edit.setLayoutDirection(QtCore.Qt.RightToLeft)
         self.code_edit = QtWidgets.QLineEdit(course_data.get('code', ''))
+        self.code_edit.setLayoutDirection(QtCore.Qt.RightToLeft)
         self.instructor_edit = QtWidgets.QLineEdit(course_data.get('instructor', ''))
+        self.instructor_edit.setLayoutDirection(QtCore.Qt.RightToLeft)
         self.location_edit = QtWidgets.QLineEdit(course_data.get('location', ''))
+        self.location_edit.setLayoutDirection(QtCore.Qt.RightToLeft)
+        self.capacity_edit = QtWidgets.QLineEdit(course_data.get('capacity', ''))  # Capacity field
+        self.capacity_edit.setLayoutDirection(QtCore.Qt.RightToLeft)
         self.description_edit = QtWidgets.QTextEdit()
+        self.description_edit.setLayoutDirection(QtCore.Qt.RightToLeft)
         self.description_edit.setPlainText(course_data.get('description', ''))
         self.description_edit.setMaximumHeight(80)
         self.exam_time_edit = QtWidgets.QLineEdit(course_data.get('exam_time', ''))
+        self.exam_time_edit.setLayoutDirection(QtCore.Qt.RightToLeft)
         self.exam_time_edit.setPlaceholderText('مثال: 1403/10/15 - 09:00-11:00')
         self.credits_spin = QtWidgets.QSpinBox()
         self.credits_spin.setRange(0, 10)
@@ -176,6 +219,7 @@ class EditCourseDialog(QtWidgets.QDialog):
         form.addRow('کد درس:', self.code_edit)
         form.addRow('نام استاد:', self.instructor_edit)
         form.addRow('محل/کلاس:', self.location_edit)
+        form.addRow('ظرفیت:', self.capacity_edit)  # Add capacity field
         form.addRow('توضیحات درس:', self.description_edit)
         form.addRow('زمان امتحان:', self.exam_time_edit)
         form.addRow('تعداد واحد:', self.credits_spin)
@@ -257,13 +301,22 @@ class EditCourseDialog(QtWidgets.QDialog):
         code = self.code_edit.text().strip()
         instructor = self.instructor_edit.text().strip()
         location = self.location_edit.text().strip()
+        capacity = self.capacity_edit.text().strip()  # Get capacity
         description = self.description_edit.toPlainText().strip()
         exam_time = self.exam_time_edit.text().strip()
         credits = self.credits_spin.value()
         
-        if not name or not code:
-            QtWidgets.QMessageBox.warning(self, 'خطا', 'لطفا نام درس و کد درس را وارد کنید.')
+        # Validation: Course name and instructor are mandatory
+        if not name:
+            QtWidgets.QMessageBox.warning(self, 'خطا', 'لطفاً نام درس و نام استاد را وارد کنید.')
             return None
+        if not instructor:
+            QtWidgets.QMessageBox.warning(self, 'خطا', 'لطفاً نام درس و نام استاد را وارد کنید.')
+            return None
+        if not code:
+            # Generate a unique code if not provided
+            import time
+            code = f"user_{int(time.time())}"
             
         sessions = []
         for (_, day_cb, start_cb, end_cb, parity_cb) in self.session_rows:
@@ -286,6 +339,7 @@ class EditCourseDialog(QtWidgets.QDialog):
                 
             sessions.append({'day': day, 'start': start, 'end': end, 'parity': parity})
         
+        # Create course data with capacity field
         course = {
             'code': code,
             'name': name,
@@ -293,8 +347,10 @@ class EditCourseDialog(QtWidgets.QDialog):
             'instructor': instructor,
             'schedule': sessions,
             'location': location,
+            'capacity': capacity,  # Add capacity to course data
             'description': description or 'توضیحی ارائه نشده',
-            'exam_time': exam_time or 'اعلام نشده'
+            'exam_time': exam_time or 'اعلام نشده',
+            'major': 'دروس اضافه‌شده توسط کاربر'  # Keep in correct category
         }
         
         return course
