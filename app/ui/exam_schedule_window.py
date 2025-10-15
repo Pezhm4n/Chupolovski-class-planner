@@ -317,7 +317,7 @@ class ExamScheduleWindow(QtWidgets.QMainWindow):
                     "text-align: center;"
                 )
 
-    def export_exam_schedule(self):
+    '''def export_exam_schedule(self):
         """Export the exam schedule to various formats"""
         if self.exam_table.rowCount() == 0:
             QtWidgets.QMessageBox.information(
@@ -350,7 +350,46 @@ class ExamScheduleWindow(QtWidgets.QMainWindow):
         elif clicked_button == csv_btn:
             self.export_as_csv()
         elif clicked_button == pdf_btn:
-            self.export_as_pdf_vertical()
+            self.export_as_pdf_vertical()'''
+    def export_exam_schedule(self):
+        """Export the exam schedule to various formats"""
+        if self.exam_table.rowCount() == 0:
+            QtWidgets.QMessageBox.information(
+                self, 'هیچ داده‌ای', 
+                'هیچ درسی برای صدور برنامه امتحانات انتخاب نشده است.\n'
+                'لطفا ابتدا در پنجره اصلی دروس مورد نظر را به جدول اضافه کنید.'
+            )
+            return
+            
+        # Ask user for export format
+        msg = QtWidgets.QMessageBox()
+        msg.setWindowTitle('صدور برنامه امتحانات')
+        msg.setText('فرمت مورد نظر برای صدور را انتخاب کنید:')
+
+        txt_btn = msg.addButton('فایل متنی (TXT)', QtWidgets.QMessageBox.ActionRole)
+        html_btn = msg.addButton('فایل HTML', QtWidgets.QMessageBox.ActionRole)
+        csv_btn = msg.addButton('فایل CSV', QtWidgets.QMessageBox.ActionRole)
+        
+        pdf_v_btn = msg.addButton('PDF عمودی (A4 Portrait)', QtWidgets.QMessageBox.ActionRole)
+        pdf_h_btn = msg.addButton('PDF افقی (A4 Landscape)', QtWidgets.QMessageBox.ActionRole)
+        
+        cancel_btn = msg.addButton('لغو', QtWidgets.QMessageBox.RejectRole)
+        
+        msg.exec_()
+        clicked_button = msg.clickedButton()
+        
+        if clicked_button == cancel_btn:
+            return
+        elif clicked_button == txt_btn:
+            self.export_as_text()
+        elif clicked_button == html_btn:
+            self.export_as_html()
+        elif clicked_button == csv_btn:
+            self.export_as_csv()
+        elif clicked_button == pdf_v_btn:
+            self.export_as_pdf_vertical()  # عمودی
+        elif clicked_button == pdf_h_btn:
+            self.export_as_pdf_horizontal()  # افقی
 
     def export_as_text(self):
         """Export exam schedule as plain text with comprehensive information"""
@@ -866,3 +905,49 @@ class ExamScheduleWindow(QtWidgets.QMainWindow):
 
         except Exception as e:
             QtWidgets.QMessageBox.critical(self, 'خطا', f'خطا در تولید PDF:\n{str(e)}')
+
+    def export_as_pdf_horizontal(self):
+        """Export the exam schedule as PDF in landscape (horizontal) layout"""
+        try:
+            filename, _ = QtWidgets.QFileDialog.getSaveFileName(
+                self, 'ذخیره برنامه امتحانات (افقی)', 'exam_schedule_horizontal.pdf', 'PDF Files (*.pdf)'
+            )
+            if not filename:
+                return
+            
+            from PyQt5.QtWebEngineWidgets import QWebEngineView
+            from PyQt5.QtGui import QPageLayout, QPageSize
+            from PyQt5.QtCore import QMarginsF, QSizeF
+            
+            # ساخت فایل HTML موقت
+            html_temp_path = filename.replace('.pdf', '_temp.html')
+            self.export_as_html_to_file(html_temp_path)
+            
+            # بارگذاری HTML در WebEngine
+            web = QWebEngineView()
+            web.load(QtCore.QUrl.fromLocalFile(os.path.abspath(html_temp_path)))
+            
+            def on_load_finished(ok):
+                if not ok:
+                    QtWidgets.QMessageBox.critical(self, 'خطا', 'خطا در بارگذاری HTML برای چاپ PDF.')
+                    return
+                
+                layout = QPageLayout(
+                    QPageSize(QPageSize.A4),
+                    QPageLayout.Landscape,  # جهت افقی
+                    QMarginsF(10, 10, 10, 10)
+                )
+                
+                web.page().printToPdf(filename, layout)
+                QtWidgets.QMessageBox.information(self, 'صدور موفق', f'فایل PDF افقی ذخیره شد:\n{filename}')
+                
+                # حذف فایل HTML موقت
+                try:
+                    os.remove(html_temp_path)
+                except:
+                    pass
+            
+            web.loadFinished.connect(on_load_finished)
+        
+        except Exception as e:
+            QtWidgets.QMessageBox.critical(self, 'خطا', f'خطا در صدور PDF افقی:\n{str(e)}')
