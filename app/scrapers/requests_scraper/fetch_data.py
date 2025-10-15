@@ -6,8 +6,9 @@ from bs4 import BeautifulSoup
 from dotenv import load_dotenv
 from requests.cookies import create_cookie
 from pathlib import Path
-from app.scrapers.requests_scraper.xml_parser import parse_courses_from_xml
 import os
+from app.data.database import CourseDatabase
+from app.scrapers.requests_scraper.xml_parser import parse_courses_from_xml
 from app.captcha_solver.predict import predict
 
 class GolestanSession:
@@ -71,8 +72,8 @@ class GolestanSession:
         """
         
         # Get the path to the scrapers directory where .env should be located
-        scrapers_dir = Path(__file__).resolve().parent.parent
-        env_path = scrapers_dir / '.env'
+        app_dir = Path(__file__).resolve().parent.parent.parent
+        env_path = app_dir / '.env'
         
         # Load the .env file from the correct location
         load_dotenv(dotenv_path=env_path, override=True)
@@ -80,7 +81,7 @@ class GolestanSession:
         # Fix: Don't convert username to int, keep it as string
         username = username or os.getenv("USERNAME")
         password = password or os.getenv("PASSWORD")
-
+        print(username, password)
         # Get session ID
         url = "https://golestan.ikiu.ac.ir/_templates/unvarm/unvarm.aspx?typ=1"
         response = self.session.get(url, headers=self.headers)
@@ -331,18 +332,22 @@ class GolestanSession:
         return results_data
 
 
-def get_courses(status='both', username=None, password=None):
+def get_courses(db=None, status='both', username=None, password=None):
     """
-    High-level function to fetch course data from Golestan.
+    Fetch course data from Golestan and store to database.
 
     Args:
+        db: Existing CourseDatabase instance (if None, creates new one)
         status: 'available', 'unavailable', or 'both'
         username: Login username (defaults to env USERNAME)
         password: Login password (defaults to env PASSWORD)
-
-    Returns:
-        dict: Dictionary with 'available' and/or 'unavailable' keys containing course data
     """
+    from app.data.database import CourseDatabase
+
+    # Create new instance only if not provided
+    if db is None:
+        db = CourseDatabase()
+
     golestan = GolestanSession()
 
     try:
@@ -351,27 +356,39 @@ def get_courses(status='both', username=None, password=None):
 
         results = golestan.fetch_courses(status)
 
-        # Get the path to the app root
-        app_root = Path(__file__).resolve().parent.parent.parent
-        project_super_root = app_root.parent
-
-        data_dir = app_root / 'data' / 'courses_data'
-        os.makedirs(data_dir, exist_ok=True)
+        # Parse courses
+        available_courses = None
+        unavailable_courses = None
 
         if 'available' in results:
-            available_path = data_dir / 'available_courses.json'
-            parse_courses_from_xml(results['available'], str(available_path))
-            print(f"💾 Available courses saved to {available_path.relative_to(project_super_root)}")
+            available_courses = parse_courses_from_xml(results['available'])
+            # Count actual courses (nested in faculty -> department structure)
+            available_count = sum(
+                len(courses)
+                for faculty in available_courses.values()
+                for courses in faculty.values()
+            )
+            print(f"✓ Parsed {available_count} available courses")
+
         if 'unavailable' in results:
-            unavailable_path = data_dir / 'unavailable_courses.json'
-            parse_courses_from_xml(results['unavailable'], str(unavailable_path))
-            print(f"💾 Unavailable courses saved to {unavailable_path.relative_to(project_super_root)}")
+            unavailable_courses = parse_courses_from_xml(results['unavailable'])
+            # Count actual courses
+            unavailable_count = sum(
+                len(courses)
+                for faculty in unavailable_courses.values()
+                for courses in faculty.values()
+            )
+            print(f"✓ Parsed {unavailable_count} unavailable courses")
+
+
+        # Store to database
+        db.store_courses(available_courses, unavailable_courses)
 
     finally:
         golestan.session.close()
 
-
 if __name__ == "__main__":
     # Example usage
-    courses = get_courses(status='both')
+    db = CourseDatabase()
+    courses = get_courses(db, status='both')
     print("✅ Course fetching complete!")
