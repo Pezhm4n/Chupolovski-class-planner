@@ -9,5 +9,7 @@ Contains all dialog classes for the application
 from .course_dialogs import AddCourseDialog, EditCourseDialog
 from .info_window import DetailedInfoWindow
 from .exam_schedule_window import ExamScheduleWindow
+from .credentials_dialog import GolestanCredentialsDialog, get_golestan_credentials
 
-__all__ = ['AddCourseDialog', 'EditCourseDialog', 'DetailedInfoWindow', 'ExamScheduleWindow']
+__all__ = ['AddCourseDialog', 'EditCourseDialog', 'DetailedInfoWindow', 'ExamScheduleWindow', 
+           'GolestanCredentialsDialog', 'get_golestan_credentials']

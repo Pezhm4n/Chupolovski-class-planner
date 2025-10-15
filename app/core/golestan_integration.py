@@ -13,7 +13,7 @@ import logging
 from typing import Dict, List, Any
 
 # Import from core modules
-from .config import COURSES
+from .config import COURSES, get_golestan_credentials
 from .logger import setup_logging
 
 logger = setup_logging()
@@ -39,6 +39,14 @@ def fetch_golestan_courses(status='both', username=None, password=None):
     """
     try:
         logger.info("Fetching courses from Golestan system...")
+        
+        # If no credentials provided, try to get them from our secure system
+        if username is None or password is None:
+            username, password = get_golestan_credentials()
+            
+            # If still no credentials, raise an exception
+            if username is None or password is None:
+                raise ValueError("No Golestan credentials available")
         
         # Fetch data from Golestan
         get_courses(status=status, username=username, password=password)
@@ -251,6 +259,15 @@ def update_courses_from_golestan(username=None, password=None):
     """
     try:
         logger.info("Updating courses from Golestan...")
+        
+        # If no credentials provided, try to get them from our secure system
+        if username is None or password is None:
+            username, password = get_golestan_credentials()
+            
+            # If still no credentials, log and return without error
+            if username is None or password is None:
+                logger.info("No Golestan credentials available, skipping auto-fetch")
+                return
         
         # Fetch courses from Golestan
         golestan_courses = fetch_golestan_courses(username=username, password=password)

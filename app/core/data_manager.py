@@ -14,7 +14,7 @@ import glob
 from pathlib import Path
 
 # Use the core config
-from .config import COURSES, USER_DATA_FILE, COURSES_DATA_FILE, APP_DIR
+from .config import COURSES, USER_DATA_FILE, USER_ADDED_COURSES_FILE, COURSES_DATA_FILE, APP_DIR
 from .logger import setup_logging
 
 # Set up logger
@@ -27,6 +27,56 @@ BACKUP_DIR = APP_DIR / 'data' / 'backups'
 os.makedirs(BACKUP_DIR, exist_ok=True)
 
 # ---------------------- Course Data Management ----------------------
+
+def load_user_added_courses():
+    """Load user-added courses from dedicated JSON file"""
+    global COURSES
+    try:
+        if USER_ADDED_COURSES_FILE.exists():
+            with open(USER_ADDED_COURSES_FILE, 'r', encoding='utf-8') as f:
+                user_added_data = json.load(f)
+                user_courses = user_added_data.get('courses', [])
+                
+                # Add user-added courses to COURSES dictionary
+                for course in user_courses:
+                    # Ensure the course has a proper key
+                    course_key = course.get('code', f"user_{len(COURSES)}")
+                    course['key'] = course_key
+                    course['major'] = 'دروس اضافه‌شده توسط کاربر'  # Set the correct major category
+                    COURSES[course_key] = course
+                    
+                logger.info(f"Successfully loaded {len(user_courses)} user-added courses")
+                print(f"Loaded {len(user_courses)} user-added courses")
+        else:
+            # Create the file with empty structure if it doesn't exist
+            with open(USER_ADDED_COURSES_FILE, 'w', encoding='utf-8') as f:
+                json.dump({"courses": []}, f, ensure_ascii=False, indent=2)
+            logger.info("Created empty user_added_courses.json file")
+    except Exception as e:
+        logger.error(f"Error loading user-added courses: {e}")
+        print(f"Error loading user-added courses: {e}")
+
+def save_user_added_courses():
+    """Save user-added courses to dedicated JSON file"""
+    try:
+        # Filter user-added courses (those in the "دروس اضافه‌شده توسط کاربر" category)
+        user_courses = [course for course in COURSES.values() 
+                       if course.get('major') == 'دروس اضافه‌شده توسط کاربر']
+        
+        # Prepare data for saving
+        user_added_data = {
+            "courses": user_courses
+        }
+        
+        # Save to file
+        with open(USER_ADDED_COURSES_FILE, 'w', encoding='utf-8') as f:
+            json.dump(user_added_data, f, ensure_ascii=False, indent=2)
+            
+        logger.info(f"Successfully saved {len(user_courses)} user-added courses")
+        print(f"Saved {len(user_courses)} user-added courses")
+    except Exception as e:
+        logger.error(f"Error saving user-added courses: {e}")
+        print(f"Error saving user-added courses: {e}")
 
 def load_courses_from_json():
     """Load all courses from Golestan JSON files with enhanced error handling"""
@@ -42,8 +92,11 @@ def load_courses_from_json():
         COURSES.clear()
         COURSES.update(golestan_courses)
         
-        logger.info(f"Successfully loaded {len(COURSES)} courses from Golestan data files")
-        print(f"Loaded {len(COURSES)} courses from Golestan data files")
+        # Load user-added courses
+        load_user_added_courses()
+        
+        logger.info(f"Successfully loaded {len(COURSES)} courses from Golestan data and user data")
+        print(f"Loaded {len(COURSES)} courses from Golestan data and user data")
         
     except Exception as e:
         logger.error(f"Error loading courses from Golestan data: {e}")
@@ -70,8 +123,11 @@ def load_courses_from_golestan_data():
         COURSES.clear()
         COURSES.update(golestan_courses)
         
-        logger.info(f"Successfully loaded {len(COURSES)} courses from Golestan data")
-        print(f"Loaded {len(COURSES)} courses from Golestan data")
+        # Load user-added courses
+        load_user_added_courses()
+        
+        logger.info(f"Successfully loaded {len(COURSES)} courses from Golestan data and user data")
+        print(f"Loaded {len(COURSES)} courses from Golestan data and user data")
         
     except Exception as e:
         logger.error(f"Error loading courses from Golestan data: {e}")
@@ -187,6 +243,9 @@ def save_user_data(user_data):
         with open(USER_DATA_FILE, 'w', encoding='utf-8') as f:
             json.dump(user_data, f, ensure_ascii=False, indent=2)
         logger.info(f"User data saved to: {USER_DATA_FILE}")
+        
+        # Also save user-added courses to their dedicated file
+        save_user_added_courses()
         
         # Clean up old backups (keep only last 5)
         cleanup_old_backups()

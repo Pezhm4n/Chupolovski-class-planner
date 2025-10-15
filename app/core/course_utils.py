@@ -38,8 +38,30 @@ def schedules_conflict(sch1, sch2):
         for b in sch2:
             if a['day'] != b['day']:
                 continue
-            if a.get('parity') and b.get('parity') and a['parity'] != b['parity']:
+            # Allow courses with different parity (Odd/Even) in the same timeslot
+            # Courses can coexist ONLY if one is "even" (ز) and the other is "odd" (ف)
+            # All other combinations result in conflict:
+            # - fixed vs fixed → conflict
+            # - even vs even → conflict
+            # - odd vs odd → conflict
+            # - fixed vs even → conflict
+            # - fixed vs odd → conflict
+            # - even vs odd → allowed
+            # - odd vs even → allowed
+            a_parity = a.get('parity', '')
+            b_parity = b.get('parity', '')
+            
+            # Check if they are compatible (one even, one odd)
+            is_compatible = (
+                (a_parity == 'ز' and b_parity == 'ف') or  # زوج and فرد
+                (a_parity == 'ف' and b_parity == 'ز')     # فرد and زوج
+            )
+            
+            # If they are compatible, they can coexist - no conflict
+            if is_compatible:
                 continue
+            
+            # If we reach here, check for time overlap - this will result in conflict
             if overlap(to_minutes(a['start']), to_minutes(a['end']), to_minutes(b['start']), to_minutes(b['end'])):
                 return True
     return False
