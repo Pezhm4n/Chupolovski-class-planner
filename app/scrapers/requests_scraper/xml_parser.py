@@ -1,6 +1,6 @@
 import xml.etree.ElementTree as ET
-import json
 import re
+
 
 def normalize_to_persian(text):
     """Convert Arabic characters to Persian equivalents."""
@@ -59,9 +59,7 @@ def normalize_day_name(day_name):
     
     return normalized
 
-def parse_courses_from_xml(xml_string, output_path):
-    with open('output.txt', 'w', encoding='utf-8') as f:
-        f.write(xml_string)
+def parse_courses_from_xml(xml_string):
 
     root = ET.fromstring(xml_string)
     courses = {}
@@ -70,8 +68,8 @@ def parse_courses_from_xml(xml_string, output_path):
         attrib = row.attrib
 
         # Fill with fallback/defaults if missing
-        fac_name = attrib.get("B4", "")
-        dept_name = attrib.get("B6", "")
+        fac_name = normalize_to_persian(attrib.get("B4", ""))
+        dept_name = normalize_to_persian(attrib.get("B6", ""))
 
         courses.setdefault(fac_name, {}).setdefault(dept_name, [])
 
@@ -149,7 +147,4 @@ def parse_courses_from_xml(xml_string, output_path):
 
         courses[fac_name][dept_name].append(course)
 
-    with open(output_path, "w", encoding="utf-8") as f:
-        json.dump(courses, f, ensure_ascii=False, indent=2)
-
-    return True
+    return courses
