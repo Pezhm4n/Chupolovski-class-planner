@@ -657,3 +657,137 @@ QPushButton#dialog_close:hover {
     background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
                               stop: 0 #7f8c8d, stop: 1 #95a5a6);
 }
+
+/* RTL-specific adjustments for expanded overlay */
+[dir="rtl"] QWidget#expanded-course-overlay {
+    direction: rtl;
+}
+
+/* Enhanced Dual Course Widget Styles */
+
+/* Base dual course cell styling */
+QWidget#dual-course-cell {
+    background: transparent;
+    border: 2px solid #bdc3c7;
+    border-radius: 8px;
+    min-height: 80px;
+    min-width: 120px;
+}
+
+/* Hover state for dual course cells */
+QWidget#dual-course-cell:hover {
+    border: 3px solid #3498db;
+    background: rgba(52, 152, 219, 0.05);
+}
+
+/* Highlighted state (red border for course session highlighting) */
+QWidget#dual-course-cell[highlighted="true"] {
+    border: 3px solid #e74c3c !important;
+    border-radius: 8px;
+    background: rgba(231, 76, 60, 0.1);
+}
+
+/* Expanded overlay styling */
+QWidget#expanded-course-overlay {
+    background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
+        stop:0 rgba(255, 255, 255, 250),
+        stop:1 rgba(245, 245, 245, 250));
+    border: 2px solid #3498db;
+    border-radius: 8px;
+    padding: 6px;
+}
+
+/* Course name in overlay */
+QLabel#course-name-label {
+    font-family: 'IRANSans UI', 'Nazanin', 'Tahoma';
+    font-size: 11pt;
+    font-weight: bold;
+    color: #2c3e50;
+    padding: 2px;
+}
+
+/* Professor name in overlay */
+QLabel#professor-label {
+    font-family: 'IRANSans UI', 'Nazanin', 'Tahoma';
+    font-size: 9pt;
+    color: #7f8c8d;
+    padding: 2px;
+}
+
+/* Course code in overlay */
+QLabel#code-label {
+    font-family: 'IRANSans UI', 'Nazanin', 'Tahoma';
+    font-size: 8pt;
+    color: #95a5a6;
+    padding: 2px;
+}
+
+/* Parity indicator in overlay */
+QLabel#parity-indicator {
+    font-family: 'IRANSans UI', 'Nazanin', 'Tahoma';
+    font-size: 9pt;
+    font-weight: bold;
+    color: #3498db;
+    padding: 2px;
+    background: rgba(52, 152, 219, 0.1);
+    border-radius: 4px;
+    margin: 2px;
+}
+
+/* Close button in overlay */
+QPushButton#close-btn {
+    background: #e74c3c;
+    color: white;
+    border: none;
+    border-radius: 10px;
+    font-weight: bold;
+    font-size: 12pt;
+    padding: 0px;
+}
+
+QPushButton#close-btn:hover {
+    background: #c0392b;
+}
+
+QPushButton#close-btn:pressed {
+    background: #a93226;
+}
+
+/* Responsive adjustments for smaller screens */
+@media (max-width: 1200px) {
+    QWidget#dual-course-cell {
+        min-height: 70px;
+        min-width: 100px;
+    }
+    
+    QLabel#course-name-label {
+        font-size: 10pt;
+    }
+    
+    QLabel#professor-label {
+        font-size: 8pt;
+    }
+    
+    QLabel#code-label {
+        font-size: 7pt;
+    }
+}
+
+@media (max-width: 800px) {
+    QWidget#dual-course-cell {
+        min-height: 60px;
+        min-width: 90px;
+    }
+    
+    QLabel#course-name-label {
+        font-size: 9pt;
+    }
+    
+    QLabel#professor-label {
+        font-size: 7pt;
+    }
+    
+    QLabel#code-label {
+        font-size: 6pt;
+    }
+}

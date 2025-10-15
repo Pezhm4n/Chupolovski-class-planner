@@ -72,8 +72,8 @@ class GolestanSession:
         """
         
         # Get the path to the scrapers directory where .env should be located
-        scrapers_dir = Path(__file__).resolve().parent.parent
-        env_path = scrapers_dir / '.env'
+        app_dir = Path(__file__).resolve().parent.parent.parent
+        env_path = app_dir / '.env'
         
         # Load the .env file from the correct location
         load_dotenv(dotenv_path=env_path, override=True)
@@ -213,8 +213,8 @@ class GolestanSession:
         ]
         self._add_cookies(cookie_tuples)
 
-        self.rnd = random()
-        get_url = f'https://golestan.ikiu.ac.ir/Forms/F0202_PROCESS_REP_FILTER/F0202_01_PROCESS_REP_FILTER_DAT.ASPX?r={self.rnd}&fid=1;102&b=10&l=1&tck={self.tck}&&lastm=20230828062456'
+        rnd = random()
+        get_url = f'https://golestan.ikiu.ac.ir/Forms/F0202_PROCESS_REP_FILTER/F0202_01_PROCESS_REP_FILTER_DAT.ASPX?r={rnd}&fid=1;102&b=10&l=1&tck={self.tck}&&lastm=20230828062456'
         get_resp = self.session.get(get_url, headers=self.headers)
         aspnet_fields = self._extract_aspnet_fields(get_resp.text)
         ticket = aspnet_fields['ticket']
@@ -241,7 +241,7 @@ class GolestanSession:
             "TxtMiddle": "<r/>", "tbExcel": "", "txtuqid": "", "ex": ""
         }
 
-        post_url = f'https://golestan.ikiu.ac.ir/Forms/F0202_PROCESS_REP_FILTER/F0202_01_PROCESS_REP_FILTER_DAT.ASPX?r={self.rnd}&fid=1%3b102&b=10&l=1&tck={self.tck}&&lastm=20230828062456'
+        post_url = f'https://golestan.ikiu.ac.ir/Forms/F0202_PROCESS_REP_FILTER/F0202_01_PROCESS_REP_FILTER_DAT.ASPX?r={rnd}&fid=1%3b102&b=10&l=1&tck={self.tck}&&lastm=20230828062456'
         post_resp = self.session.post(post_url, headers=self.headers, data=payload)
 
         aspnet_fields = self._extract_aspnet_fields(post_resp.text)
@@ -281,7 +281,7 @@ class GolestanSession:
                 "TxtMiddle": "<r/>", "tbExcel": "", "txtuqid": "", "ex": ""
             }
 
-            post_url = f'https://golestan.ikiu.ac.ir/Forms/F0202_PROCESS_REP_FILTER/F0202_01_PROCESS_REP_FILTER_DAT.ASPX?r={self.rnd}&fid=1%3b102&b=10&l=1&tck={self.tck}&&lastm=20230828062456'
+            post_url = f'https://golestan.ikiu.ac.ir/Forms/F0202_PROCESS_REP_FILTER/F0202_01_PROCESS_REP_FILTER_DAT.ASPX?r={rnd}&fid=1%3b102&b=10&l=1&tck={self.tck}&&lastm=20230828062456'
             post_resp = self.session.post(post_url, headers=self.headers, data=payload)
 
             xml_string = self._extract_xmldat(post_resp.text)
@@ -318,7 +318,7 @@ class GolestanSession:
                 "TxtMiddle": "<r/>", "tbExcel": "", "txtuqid": "", "ex": ""
             }
 
-            post_url = f'https://golestan.ikiu.ac.ir/Forms/F0202_PROCESS_REP_FILTER/F0202_01_PROCESS_REP_FILTER_DAT.ASPX?r={self.rnd}&fid=1%3b102&b=10&l=1&tck={self.tck}&&lastm=20230828062456'
+            post_url = f'https://golestan.ikiu.ac.ir/Forms/F0202_PROCESS_REP_FILTER/F0202_01_PROCESS_REP_FILTER_DAT.ASPX?r={rnd}&fid=1%3b102&b=10&l=1&tck={self.tck}&&lastm=20230828062456'
             post_resp = self.session.post(post_url, headers=self.headers, data=payload)
 
             xml_string = self._extract_xmldat(post_resp.text)
@@ -422,46 +422,6 @@ class GolestanSession:
 
         return semester_record, next_results
 
-def get_courses(status='both', username=None, password=None):
-    """
-    High-level function to fetch course data from Golestan.
-
-    Args:
-        status: 'available', 'unavailable', or 'both'
-        username: Login username (defaults to env USERNAME)
-        password: Login password (defaults to env PASSWORD)
-
-    Returns:
-        dict: Dictionary with 'available' and/or 'unavailable' keys containing course data
-    """
-    golestan = GolestanSession()
-
-    try:
-        if not golestan.authenticate(username, password):
-            raise RuntimeError("Authentication failed")
-
-        results = golestan.fetch_courses(status)
-
-        # Get the path to the app root
-        app_root = Path(__file__).resolve().parent.parent.parent
-        project_super_root = app_root.parent
-
-        data_dir = app_root / 'data' / 'courses_data'
-        os.makedirs(data_dir, exist_ok=True)
-
-        if 'available' in results:
-            available_path = data_dir / 'available_courses.json'
-            parse_courses_from_xml(results['available'], str(available_path))
-            print(f"💾 Available courses saved to {available_path.relative_to(project_super_root)}")
-        if 'unavailable' in results:
-            unavailable_path = data_dir / 'unavailable_courses.json'
-            parse_courses_from_xml(results['unavailable'], str(unavailable_path))
-            print(f"💾 Unavailable courses saved to {unavailable_path.relative_to(project_super_root)}")
-
-    finally:
-        golestan.session.close()
-
-
 def get_student_record(username=None, password=None, db=None):
     """
     Fetches student info, semesters, and courses as full transcript.
@@ -518,6 +478,57 @@ def get_student_record(username=None, password=None, db=None):
     finally:
         golestan.session.close()
 
-# Usage example
-if __name__ == "__main__":
-    student = get_student_record()
+def get_courses(status='both', username=None, password=None, db=None):
+    """
+    Fetch course data from Golestan and store to database.
+
+    Args:
+        db: Existing CourseDatabase instance (if None, creates new one)
+        status: 'available', 'unavailable', or 'both'
+        username: Login username (defaults to env USERNAME)
+        password: Login password (defaults to env PASSWORD)
+    """
+    from app.data.courses_db import CourseDatabase
+
+    # Create new instance only if not provided
+    if db is None:
+        db = CourseDatabase()
+
+    golestan = GolestanSession()
+
+    try:
+        if not golestan.authenticate(username, password):
+            raise RuntimeError("Authentication failed")
+
+        results = golestan.fetch_courses(status)
+
+        # Parse courses
+        available_courses = None
+        unavailable_courses = None
+
+        if 'available' in results:
+            available_courses = parse_courses_from_xml(results['available'])
+            # Count actual courses (nested in faculty -> department structure)
+            available_count = sum(
+                len(courses)
+                for faculty in available_courses.values()
+                for courses in faculty.values()
+            )
+            print(f"✓ Parsed {available_count} available courses")
+
+        if 'unavailable' in results:
+            unavailable_courses = parse_courses_from_xml(results['unavailable'])
+            # Count actual courses
+            unavailable_count = sum(
+                len(courses)
+                for faculty in unavailable_courses.values()
+                for courses in faculty.values()
+            )
+            print(f"✓ Parsed {unavailable_count} unavailable courses")
+
+
+        # Store to database
+        db.store_courses(available_courses, unavailable_courses)
+
+    finally:
+        golestan.session.close()
