@@ -59,12 +59,17 @@ except (ImportError, ValueError):
 
 logger = setup_logging()
 
+from PyQt5 import QtCore
+
+QtCore.QCoreApplication.setAttribute(QtCore.Qt.AA_ShareOpenGLContexts)
+QtCore.QCoreApplication.setAttribute(QtCore.Qt.AA_EnableHighDpiScaling)
 
 def main():
     """Main function to run the application"""
     # Import QApplication here to avoid issues with early imports
     from PyQt5.QtWidgets import QApplication
-    
+    from PyQt5 import QtCore
+
     app = QApplication(sys.argv)
     app.setApplicationName('Golestoon Class Planner')
     app.setApplicationVersion(__version__)

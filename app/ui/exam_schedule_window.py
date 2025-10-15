@@ -350,7 +350,7 @@ class ExamScheduleWindow(QtWidgets.QMainWindow):
         elif clicked_button == csv_btn:
             self.export_as_csv()
         elif clicked_button == pdf_btn:
-            self.export_as_pdf()
+            self.export_as_pdf_vertical()
 
     def export_as_text(self):
         """Export exam schedule as plain text with comprehensive information"""
@@ -694,3 +694,175 @@ class ExamScheduleWindow(QtWidgets.QMainWindow):
             'صدور به فرمت PDF در این نسخه آزمایشی پشتیبانی نمی‌شود.\n'
             'لطفا از فرمت‌های دیگر مانند TXT یا HTML استفاده کنید.'
         )
+        
+    def export_as_html_to_file(self, path):
+        """Generate HTML file for exam schedule without QFileDialog (used for PDF export)"""
+        try:
+            from datetime import datetime
+            current_date = datetime.now().strftime('%Y/%m/%d - %H:%M')
+
+            total_courses = self.exam_table.rowCount()
+            total_units = 0
+            total_sessions = 0
+            days_used = set()
+            instructors = set()
+
+            if hasattr(self.parent_window, 'placed'):
+                placed_courses = set()
+                for info in self.parent_window.placed.values():
+                    if info.get('type') == 'dual':
+                        placed_courses.update(info.get('courses', []))
+                    else:
+                        placed_courses.add(info.get('course'))
+
+                for course_key in placed_courses:
+                    course = COURSES.get(course_key, {})
+                    total_units += course.get('credits', 0)
+                    instructors.add(course.get('instructor', 'نامشخص'))
+                    for session in course.get('schedule', []):
+                        days_used.add(session.get('day', ''))
+
+                total_sessions = len(self.parent_window.placed)
+
+            table_rows = ""
+            for row in range(self.exam_table.rowCount()):
+                name = self.exam_table.item(row, 0).text() if self.exam_table.item(row, 0) else ''
+                code = self.exam_table.item(row, 1).text() if self.exam_table.item(row, 1) else ''
+                instructor = self.exam_table.item(row, 2).text() if self.exam_table.item(row, 2) else ''
+                class_schedule = self.exam_table.item(row, 3).text() if self.exam_table.item(row, 3) else ''
+                exam_time = self.exam_table.item(row, 4).text() if self.exam_table.item(row, 4) else ''
+                credits = self.exam_table.item(row, 5).text() if self.exam_table.item(row, 5) else ''
+                location = self.exam_table.item(row, 6).text() if self.exam_table.item(row, 6) else ''
+
+                table_rows += f"""
+                <tr>
+                    <td>{name}</td>
+                    <td class="course-code">{code}</td>
+                    <td>{instructor}</td>
+                    <td style="white-space: pre-line;">{class_schedule}</td>
+                    <td style="white-space: pre-line;">{exam_time}</td>
+                    <td>{credits}</td>
+                    <td>{location}</td>
+                </tr>
+                """
+
+            html_content = f"""<!DOCTYPE html>
+    <html dir="rtl" lang="fa">
+    <head>
+    <meta charset="UTF-8">
+    <title>برنامه امتحانات دانشگاهی</title>
+    <style>
+    body {{
+        font-family: 'IRANSans', 'Tahoma', sans-serif;
+        background-color: #fff;
+        margin: 0;
+        padding: 20px;
+        direction: rtl;
+        text-align: right;
+    }}
+    h1 {{ color: #9C27B0; text-align:center; }}
+    .summary {{
+        background-color:#E1BEE7;
+        padding:15px;
+        border-radius:8px;
+        margin-bottom:20px;
+        text-align:center;
+    }}
+    table {{
+        width:100%;
+        border-collapse: collapse;
+        table-layout: fixed;
+    }}
+    th, td {{
+        border:1px solid #dcdcdc;
+        padding:8px;
+        text-align:center;
+        word-wrap: break-word;
+    }}
+    tr:nth-child(even) {{ background-color:#fff; }}
+    tr:nth-child(odd) {{ background-color:#f9f9f9; }}
+    .course-code {{
+        font-size: 0.8em; /* کوچک کردن کد درس */
+        white-space: nowrap; /* جلوگیری از شکستن کد در چند خط */
+    }}
+    </style>
+    </head>
+    <body>
+    <h1>📅 برنامه امتحانات دانشگاهی</h1>
+    <div class="summary">
+    📊 خلاصه اطلاعات برنامه:<br>
+    تعداد دروس: {total_courses} | مجموع واحدها: {total_units} | تعداد جلسات: {total_sessions} | روزهای حضور: {len(days_used)} روز
+    </div>
+    <table>
+    <thead>
+    <tr>
+    <th>نام درس</th>
+    <th>کد درس</th>
+    <th>استاد</th>
+    <th>زمان کلاس</th>
+    <th>زمان امتحان</th>
+    <th>واحد</th>
+    <th>محل برگزاری</th>
+    </tr>
+    </thead>
+    <tbody>
+    {table_rows}
+    </tbody>
+    </table>
+    </body>
+    </html>"""
+
+            with open(path, 'w', encoding='utf-8') as f:
+                f.write(html_content)
+
+        except Exception as e:
+            from PyQt5 import QtWidgets
+            QtWidgets.QMessageBox.critical(self, 'خطا', f'خطا در ساخت فایل HTML برای PDF:\n{str(e)}')
+
+
+    def export_as_pdf_vertical(self):
+        """Export exam schedule as PDF compatible with all PyQt5 versions"""
+        from PyQt5 import QtCore, QtWidgets, QtWebEngineWidgets
+        import tempfile
+        import os
+
+        # مسیر ذخیره PDF
+        filename, _ = QtWidgets.QFileDialog.getSaveFileName(
+            self, 'ذخیره برنامه امتحانات', 'exam_schedule.pdf', 'PDF Files (*.pdf)'
+        )
+        if not filename:
+            return
+
+        try:
+            # ساخت فایل HTML موقت
+            temp_html = tempfile.NamedTemporaryFile(delete=False, suffix=".html")
+            self.export_as_html_to_file(temp_html.name)
+            temp_html.close()
+
+            view = QtWebEngineWidgets.QWebEngineView()
+            view.setUrl(QtCore.QUrl.fromLocalFile(temp_html.name))
+
+            def pdf_callback(pdf_bytes):
+                try:
+                    with open(filename, 'wb') as f:
+                        f.write(pdf_bytes)
+                    QtWidgets.QMessageBox.information(self, 'صدور موفق', f'PDF ذخیره شد:\n{filename}')
+                except Exception as e:
+                    QtWidgets.QMessageBox.critical(self, 'خطا', f'خطا در ذخیره PDF:\n{e}')
+                finally:
+                    if os.path.exists(temp_html.name):
+                        os.unlink(temp_html.name)
+
+            # وقتی صفحه بارگذاری شد، PDF تولید شود
+            def on_load_finished(ok):
+                if ok:
+                    view.page().printToPdf(pdf_callback)
+                else:
+                    QtWidgets.QMessageBox.critical(self, 'خطا', 'بارگذاری HTML شکست خورد')
+                    if os.path.exists(temp_html.name):
+                        os.unlink(temp_html.name)
+
+            view.loadFinished.connect(on_load_finished)
+
+        except Exception as e:
+            QtWidgets.QMessageBox.critical(self, 'خطا', f'خطا در تولید PDF:\n{str(e)}')
