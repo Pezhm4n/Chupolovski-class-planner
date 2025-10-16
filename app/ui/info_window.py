@@ -11,7 +11,7 @@ import os
 from PyQt5 import QtWidgets, QtCore, uic
 
 # Import from core modules
-from ..core.logger import setup_logging
+from app.core.logger import setup_logging
 
 logger = setup_logging()
 

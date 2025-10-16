@@ -17,14 +17,14 @@ import sip
 from PyQt5 import QtWidgets, QtGui, QtCore, uic
 
 # Import from our core modules
-from ..core.config import (
+from app.core.config import (
     COURSES, DAYS, TIME_SLOTS, EXTENDED_TIME_SLOTS, COLOR_MAP
 )
-from ..core.data_manager import (
-    load_user_data, save_user_data, save_courses_to_json, generate_unique_key
+from app.core.data_manager import (
+    load_user_data, save_user_data, generate_unique_key
 )
-from ..core.logger import setup_logging
-from ..core.course_utils import (
+from app.core.logger import setup_logging
+from app.core.course_utils import (
     to_minutes, overlap, schedules_conflict, 
     calculate_days_needed_for_combo, calculate_empty_time_for_combo,
     generate_best_combinations_for_groups,
@@ -33,11 +33,18 @@ from ..core.course_utils import (
 from .widgets import (
     CourseListWidget, AnimatedCourseWidget
 )
-from .dialogs import AddCourseDialog, EditCourseDialog, DetailedInfoWindow, ExamScheduleWindow
+from .dialogs import AddCourseDialog, EditCourseDialog, DetailedInfoWindow
+from .exam_schedule_window import ExamScheduleWindow
+
+# Import student profile dialog
+from .student_profile_dialog import StudentProfileDialog
 
 # Import credential handling modules
-from ..core.credentials import load_local_credentials
+from app.core.credentials import load_local_credentials
 from .credentials_dialog import get_golestan_credentials
+
+# Set up logger
+logger = setup_logging()
 
 # Set up logger
 logger = setup_logging()
@@ -47,8 +54,11 @@ logger = setup_logging()
 class SchedulerWindow(QtWidgets.QMainWindow):
     """Main window for the Schedule Planner application"""
     
-    def __init__(self):
+    def __init__(self, db=None):
         super().__init__()
+        
+        # Store the database instance
+        self.db = db
         
         # Get the directory of this file
         ui_dir = os.path.dirname(os.path.abspath(__file__))
@@ -64,6 +74,10 @@ class SchedulerWindow(QtWidgets.QMainWindow):
             QtWidgets.QMessageBox.critical(self, "خطا", f"خطا در بارگذاری UI: {str(e)}")
             sys.exit(1)
         
+        # Debug: Check if comboBox exists
+        print(f"[DEBUG] comboBox exists: {hasattr(self, 'comboBox')}")
+        if hasattr(self, 'comboBox'):
+            print(f"[DEBUG] comboBox type: {type(self.comboBox)}")
         # Initialize schedule table FIRST
         self.initialize_schedule_table()
         
@@ -119,9 +133,8 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         self.overlays = {}
         
         # Populate UI with data
-        # Load courses explicitly to ensure they're available
-        from ..core.data_manager import load_courses_from_json
-        load_courses_from_json()
+        # Load courses from database instead of JSON
+        self.load_courses_from_database()
         
         # Populate major dropdown AFTER courses are loaded
         self.populate_major_dropdown()
@@ -164,7 +177,7 @@ class SchedulerWindow(QtWidgets.QMainWindow):
     def initialize_schedule_table(self):
         """Initialize the schedule table with days and time slots"""
         try:
-            from ..core.config import DAYS, EXTENDED_TIME_SLOTS
+            from app.core.config import DAYS, EXTENDED_TIME_SLOTS
 
             
             # Clear the table completely first
@@ -229,6 +242,7 @@ class SchedulerWindow(QtWidgets.QMainWindow):
             # Add hover effect to cells
             self.schedule_table.cellEntered.connect(self.on_cell_entered)
             self.schedule_table.cellExited.connect(self.on_cell_exited)
+        
 
             # Set cell alignment
             self.schedule_table.horizontalHeader().setDefaultAlignment(
@@ -248,16 +262,76 @@ class SchedulerWindow(QtWidgets.QMainWindow):
             logger.error(f"Failed to initialize schedule table: {e}")
             QtWidgets.QMessageBox.critical(self, "خطا", f"امکان ایجاد جدول زمان‌بندی وجود ندارد: {str(e)}")
             sys.exit(1)
+    
+    def load_courses_from_database(self):
+        """Load courses from database instead of JSON files"""
+        try:
+            if self.db is None:
+                # Fallback to JSON loading if no database provided
+                from app.core.data_manager import load_courses_from_json
+                load_courses_from_json()
+                logger.warning("No database instance provided, falling back to JSON loading")
+                return
+            
+            # Load courses from database using the proper integration method
+            from app.core.golestan_integration import load_courses_from_database
+            db_courses = load_courses_from_database(self.db)
+            
+            # Update the global COURSES dictionary
+            global COURSES
+            COURSES.clear()
+            COURSES.update(db_courses)
+            
+            # Load user-added courses (these are still in JSON)
+            from app.core.data_manager import load_user_added_courses
+            load_user_added_courses()
+            
+            logger.info(f"Successfully loaded {len(COURSES)} courses from database")
+            
+        except Exception as e:
+            logger.error(f"Failed to load courses from database: {e}")
+            # Fallback to JSON loading
+            from app.core.data_manager import load_courses_from_json
+            load_courses_from_json()
+
+
+
+    def generate_course_key(self, course):
+        """Generate a unique key for a course based on its code and other identifiers"""
+        from app.core.data_manager import generate_unique_key
+        code = course.get('code', '')
+        # Create a safe key by replacing problematic characters
+        safe_code = code.replace(' ', '_').replace('-', '_').replace('.', '_')
+        
+        # If the code is empty, generate a unique key
+        if not safe_code:
+            # Use name and instructor as fallback
+            name = course.get('name', 'unknown')
+            instructor = course.get('instructor', 'unknown')
+            safe_code = f"{name}_{instructor}".replace(' ', '_').replace('-', '_').replace('.', '_')
+        
+        # Ensure uniqueness using the data manager function
+        return generate_unique_key(safe_code, COURSES)
 
     def populate_major_dropdown(self):
         """Populate the major dropdown with unique categories from courses"""
         try:
-            from ..core.data_manager import load_courses_from_json
+            # If no database instance, fallback to JSON loading
+            if self.db is None:
+                from app.core.data_manager import load_courses_from_json
+                load_courses_from_json()
+            else:
+                # Load courses from database if not already loaded
+                if not COURSES:
+                    self.load_courses_from_database()
 
-            # Load courses first to ensure courses are available
-            load_courses_from_json()
-
-            # Get major categories from courses
+            # Use database method to get faculties with departments
+            if self.db is not None:
+                # If courses haven't been loaded properly, try to load them again
+                if not COURSES:
+                    self.load_courses_from_database()
+                
+            # Always use the COURSES dictionary to populate majors
             self.major_categories = sorted(
                 set(course['major'] for course in COURSES.values() if 'major' in course)
             )
@@ -289,17 +363,22 @@ class SchedulerWindow(QtWidgets.QMainWindow):
     def populate_course_list(self):
         """Populate the course list with courses"""
         try:
-            from ..core.data_manager import load_courses_from_json
+            # If no database instance, fallback to JSON loading
+            if self.db is None:
+                from app.core.data_manager import load_courses_from_json
+                load_courses_from_json()
+            else:
+                # Load courses from database if not already loaded
+                if not COURSES:
+                    self.load_courses_from_database()
 
-            # Load courses first to ensure courses are available
-            load_courses_from_json()
+            # Ensure we have courses loaded
+            if not COURSES:
+                self.load_courses_from_database()
 
             # Create and set the course list widget
             self.course_list_widget = CourseListWidget(self)
             self.course_list_widget.setCourses(COURSES)
-
-            # Connect signal for adding courses
-            self.course_list_widget.courseSelected.connect(self.on_course_selected)
 
             # Connect signal for adding courses
             self.course_list_widget.courseSelected.connect(self.on_course_selected)
@@ -310,30 +389,6 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         except Exception as e:
             logger.error(f"Failed to populate course list: {e}")
             QtWidgets.QMessageBox.critical(self, "خطا", f"امکان پر کردن فهرست دروس وجود ندارد: {str(e)}")
-            sys.exit(1)
-
-    def load_saved_combos_ui(self):
-        """Load saved combos from user data and display them"""
-        try:
-            from ..core.data_manager import load_courses_from_json
-
-            # Load courses first to ensure courses are available
-            load_courses_from_json()
-
-            # Load saved combos from user data
-            saved_combos = self.user_data.get('saved_combos', [])
-
-            # Add saved combos to the combo box
-            for combo in saved_combos:
-                combo_str = ', '.join(combo)
-                self.saved_combo_box.addItem(combo_str)
-
-            # Connect signal for loading saved combos
-            self.saved_combo_box.currentIndexChanged.connect(self.on_saved_combo_changed)
-
-        except Exception as e:
-            logger.error(f"Failed to load saved combos: {e}")
-            QtWidgets.QMessageBox.critical(self, "خطا", f"امکان بارگذاری ترکیبات ذخیره شده وجود ندارد: {str(e)}")
             sys.exit(1)
 
     def on_major_changed(self, index):
@@ -349,23 +404,32 @@ class SchedulerWindow(QtWidgets.QMainWindow):
                 self.current_major_filter = selected_major
 
             # Update course list based on the selected major
-            self.course_list_widget.filterCourses(self.current_major_filter)
+            if hasattr(self, 'course_list_widget') and self.course_list_widget:
+                self.course_list_widget.filterCourses(self.current_major_filter)
+            else:
+                # Fallback to repopulating the course list
+                self.populate_course_list()
 
         except Exception as e:
             logger.error(f"Failed to handle major change: {e}")
             QtWidgets.QMessageBox.critical(self, "خطا", f"امکان مدیریت تغییر رشته وجود ندارد: {str(e)}")
             sys.exit(1)
 
+
     def on_course_selected(self, course_key):
         """Handle course selection"""
         try:
-            from ..core.data_manager import load_courses_from_json
-
-            # Load courses first to ensure courses are available
-            load_courses_from_json()
+            # If no database instance, fallback to JSON loading
+            if self.db is None:
+                from app.core.data_manager import load_courses_from_json
+                load_courses_from_json()
+            else:
+                # Load courses from database if not already loaded
+                if not COURSES:
+                    self.load_courses_from_database()
 
             # Get the course details
-            course = next((c for c in COURSES if c['key'] == course_key), None)
+            course = COURSES.get(course_key)
 
             if course:
                 # Add course to the list of selected courses
@@ -380,6 +444,34 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         except Exception as e:
             logger.error(f"Failed to handle course selection: {e}")
             QtWidgets.QMessageBox.critical(self, "خطا", f"امکان مدیریت انتخاب درس وجود ندارد: {str(e)}")
+            sys.exit(1)
+
+    def load_saved_combos_ui(self):
+        """Load saved combos from user data and display them"""
+        try:
+            # If no database instance, fallback to JSON loading
+            if self.db is None:
+                from app.core.data_manager import load_courses_from_json
+                load_courses_from_json()
+            else:
+                # Load courses from database if not already loaded
+                if not COURSES:
+                    self.load_courses_from_database()
+
+            # Load saved combos from user data
+            saved_combos = self.user_data.get('saved_combos', [])
+
+            # Add saved combos to the combo box
+            for combo in saved_combos:
+                combo_str = ', '.join(combo)
+                self.saved_combo_box.addItem(combo_str)
+
+            # Connect signal for loading saved combos
+            self.saved_combo_box.currentIndexChanged.connect(self.on_saved_combo_changed)
+
+        except Exception as e:
+            logger.error(f"Failed to load saved combos: {e}")
+            QtWidgets.QMessageBox.critical(self, "خطا", f"امکان بارگذاری ترکیبات ذخیره شده وجود ندارد: {str(e)}")
             sys.exit(1)
 
     def on_saved_combo_changed(self, index):
@@ -403,7 +495,7 @@ class SchedulerWindow(QtWidgets.QMainWindow):
     def load_combo(self, combo):
         """Load and display a combo"""
         try:
-            from ..core.data_manager import load_courses_from_json
+            from app.core.data_manager import load_courses_from_json
 
             # Load courses first to ensure courses are available
             load_courses_from_json()
@@ -866,14 +958,14 @@ class SchedulerWindow(QtWidgets.QMainWindow):
                         self.user_data['custom_courses'].append(course)
                     
                     # Also add to global COURSES dictionary with proper key
-                    from ..core.config import COURSES
+                    from app.core.config import COURSES
                     course_key = course['code']
                     course['key'] = course_key
                     course['major'] = 'دروس اضافه‌شده توسط کاربر'  # Ensure correct category
                     COURSES[course_key] = course
                     
                     # Save user data and user-added courses
-                    from ..core.data_manager import save_user_data, save_user_added_courses
+                    from app.core.data_manager import save_user_data, save_user_added_courses
                     save_user_data(self.user_data)
                     save_user_added_courses()  # Save to dedicated file
                     
@@ -1037,7 +1129,6 @@ class SchedulerWindow(QtWidgets.QMainWindow):
     def create_menu_bar(self):
         """Create the application menu bar with data and usage history options"""
         try:
-            print("DEBUG: create_menu_bar called")
             # Use the menu bar from the UI file if available
             if hasattr(self, 'menubar'):
                 menubar = self.menubar
@@ -1048,11 +1139,9 @@ class SchedulerWindow(QtWidgets.QMainWindow):
             # Use the data menu from the UI file if available
             if hasattr(self, 'menu_data'):
                 data_menu = self.menu_data
-                print("DEBUG: Using UI file menu_data")
                 
                 # Connect the reset Golestan credentials action if it exists in the UI
                 if hasattr(self, 'action_reset_golestan_credentials'):
-                    print("DEBUG: Connecting action_reset_golestan_credentials")
                     # Disconnect any existing connections first to prevent duplicates
                     try:
                         self.action_reset_golestan_credentials.triggered.disconnect(self.reset_golestan_credentials)
@@ -1063,7 +1152,6 @@ class SchedulerWindow(QtWidgets.QMainWindow):
                 
                 # Connect the fetch Golestan action if it exists in the UI
                 if hasattr(self, 'action_fetch_golestan'):
-                    print("DEBUG: Connecting action_fetch_golestan")
                     # Disconnect any existing connections first to prevent duplicates
                     try:
                         self.action_fetch_golestan.triggered.disconnect(self.fetch_from_golestan)
@@ -1074,7 +1162,6 @@ class SchedulerWindow(QtWidgets.QMainWindow):
                     
                 # Connect the manual fetch action if it exists in the UI
                 if hasattr(self, 'action_manual_fetch'):
-                    print("DEBUG: Connecting action_manual_fetch")
                     # Disconnect any existing connections first to prevent duplicates
                     try:
                         self.action_manual_fetch.triggered.disconnect(self.manual_fetch_from_golestan)
@@ -1082,33 +1169,24 @@ class SchedulerWindow(QtWidgets.QMainWindow):
                         # No existing connection, that's fine
                         pass
                     self.action_manual_fetch.triggered.connect(self.manual_fetch_from_golestan)
-            else:
-                print("DEBUG: Creating menu from code")
-                # Create settings menu if data menu not available in UI
-                settings_menu = menubar.addMenu('تنظیمات')
-                
-                # Create data submenu
-                data_menu = settings_menu.addMenu('داده‌ها')
-                
-                # Add manage Golestan credentials action
-                manage_golestan_action = QtWidgets.QAction('مدیریت اطلاعات ورود گلستان', self)
-                manage_golestan_action.triggered.connect(self.manage_golestan_credentials)
-                data_menu.addAction(manage_golestan_action)
-                
-                # Add forget saved credentials action
-                forget_credentials_action = QtWidgets.QAction('فراموش کردن اطلاعات ذخیره شده', self)
-                forget_credentials_action.triggered.connect(self.forget_saved_credentials)
-                data_menu.addAction(forget_credentials_action)
-                
-                # Add reset Golestan credentials action with icon
-                reset_credentials_action = QtWidgets.QAction('فراموش کردن اطلاعات ورود به گلستان', self)
-                # Add a simple trash icon if available
+            
+            # Add Student Profile menu item
+            if hasattr(self, 'action_student_profile'):
+                print("DEBUG: Connecting action_student_profile")
+                # Disconnect any existing connections first to prevent duplicates
                 try:
-                    reset_credentials_action.setIcon(QtGui.QIcon.fromTheme('edit-clear'))
-                except:
-                    pass  # Ignore if icon is not available
-                reset_credentials_action.triggered.connect(self.reset_golestan_credentials)
-                data_menu.addAction(reset_credentials_action)
+                    self.action_student_profile.triggered.disconnect(self.show_student_profile)
+                except TypeError:
+                    # No existing connection, that's fine
+                    pass
+                self.action_student_profile.triggered.connect(self.show_student_profile)
+                print("DEBUG: action_student_profile connected successfully")
+            else:
+                print("DEBUG: Creating new student profile action")
+                # Add Student Profile menu item
+                student_profile_action = QtWidgets.QAction('پروفایل دانشجو', self)
+                student_profile_action.triggered.connect(self.show_student_profile)
+                menubar.addAction(student_profile_action)
             
             # Create "Usage History" menu
             history_menu = menubar.addMenu('سوابق استفاده')
@@ -1122,6 +1200,22 @@ class SchedulerWindow(QtWidgets.QMainWindow):
             
         except Exception as e:
             logger.error(f"Error creating menu bar: {e}")
+            import traceback
+            traceback.print_exc()
+
+    def show_student_profile(self):
+        """Show the student profile dialog."""
+        try:
+            # Create and show the student profile dialog
+            dialog = StudentProfileDialog(self)
+            dialog.exec_()
+        except Exception as e:
+            logger.error(f"Error showing student profile: {e}")
+            QtWidgets.QMessageBox.critical(
+                self, 
+                "خطا", 
+                f"خطا در نمایش پروفایل دانشجو: {str(e)}"
+            )
 
     def save_user_data(self):
         """Save user data"""
@@ -1220,7 +1314,7 @@ class SchedulerWindow(QtWidgets.QMainWindow):
     def initialize_schedule_table(self):
         """Initialize the schedule table with days and time slots"""
         try:
-            from ..core.config import DAYS, EXTENDED_TIME_SLOTS
+            from app.core.config import DAYS, EXTENDED_TIME_SLOTS
 
             
             # Clear the table completely first
@@ -2789,7 +2883,7 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         QtCore.QCoreApplication.processEvents()  # فورس UI update
         
         # Show confirmation
-        from ..core.config import COURSES
+        from app.core.config import COURSES
         course_name = COURSES.get(course_key, {}).get('name', 'نامشخص')
         QtWidgets.QMessageBox.information(
             self, 'حذف شد', 
@@ -3068,7 +3162,7 @@ class SchedulerWindow(QtWidgets.QMainWindow):
     def populate_course_list(self, filter_text=""):
         """Populate the course list with all available courses - fixed widget lifecycle management"""
         try:
-            from ..core.config import COURSES
+            from app.core.config import COURSES
 
             
             if not hasattr(self, 'course_list'):
@@ -3353,7 +3447,7 @@ class SchedulerWindow(QtWidgets.QMainWindow):
     def _cleanup_old_backups(self):
         """Clean up old backup files, keeping only the last 5"""
         try:
-            from ..core.data_manager import cleanup_old_backups
+            from app.core.data_manager import cleanup_old_backups
             cleanup_old_backups()
         except Exception as e:
             logger.error(f"Backup cleanup failed: {e}")
@@ -3681,7 +3775,7 @@ class SchedulerWindow(QtWidgets.QMainWindow):
             
             # Save to file using the data manager
             try:
-                from ..core.data_manager import save_user_data
+                from app.core.data_manager import save_user_data
                 save_user_data(self.user_data)
                 
                 # Update UI
@@ -3765,7 +3859,7 @@ class SchedulerWindow(QtWidgets.QMainWindow):
     def populate_course_list(self, filter_text=""):
         """Populate the course list with all available courses - fixed widget lifecycle management"""
         try:
-            from ..core.config import COURSES
+            from app.core.config import COURSES
             
             if not hasattr(self, 'course_list'):
                 logger.error("course_list widget not found")
@@ -4755,7 +4849,7 @@ class SchedulerWindow(QtWidgets.QMainWindow):
     def reset_golestan_credentials(self):
         """Reset Golestan credentials - delete saved credentials file and show confirmation"""
         try:
-            from ..core.credentials import LOCAL_CREDENTIALS_FILE, delete_local_credentials
+            from app.core.credentials import LOCAL_CREDENTIALS_FILE, delete_local_credentials
             
             # Delete the local credentials file
             if delete_local_credentials():
@@ -4789,8 +4883,8 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         self._fetch_call_count += 1
         print(f"DEBUG: fetch_from_golestan call count: {self._fetch_call_count}")
         try:
-            from ..core.golestan_integration import update_courses_from_golestan
-            from ..core.credentials import load_local_credentials
+            from app.core.golestan_integration import update_courses_from_golestan
+            from app.core.credentials import load_local_credentials
             from .credentials_dialog import GolestanCredentialsDialog
             
             # Check if credentials dialog is already open
@@ -4836,7 +4930,7 @@ class SchedulerWindow(QtWidgets.QMainWindow):
                     # Save credentials if user requested
                     if remember:
                         print("DEBUG: Saving credentials")
-                        from ..core.credentials import save_local_credentials
+                        from app.core.credentials import save_local_credentials
                         save_local_credentials(student_number, password, remember)
                     
                     # Use provided credentials for this fetch
@@ -4892,7 +4986,7 @@ class SchedulerWindow(QtWidgets.QMainWindow):
     def manual_fetch_from_golestan(self):
         """Fetch courses from Golestan system with manual credentials"""
         try:
-            from ..core.golestan_integration import update_courses_from_golestan
+            from app.core.golestan_integration import update_courses_from_golestan
             
             # Get credentials from user
             username, ok1 = QtWidgets.QInputDialog.getText(
@@ -4936,7 +5030,7 @@ class SchedulerWindow(QtWidgets.QMainWindow):
     def manage_golestan_credentials(self):
         """Manage Golestan credentials - view (masked) or remove saved credentials"""
         try:
-            from ..core.credentials import LOCAL_CREDENTIALS_FILE, load_local_credentials, delete_local_credentials
+            from app.core.credentials import LOCAL_CREDENTIALS_FILE, load_local_credentials, delete_local_credentials
             
             # Check if credentials file exists
             if not LOCAL_CREDENTIALS_FILE.exists():
@@ -5004,7 +5098,7 @@ class SchedulerWindow(QtWidgets.QMainWindow):
             self.credentials_dialog_open = True
             
             try:
-                from ..core.credentials import delete_local_credentials
+                from app.core.credentials import delete_local_credentials
                 from .credentials_dialog import GolestanCredentialsDialog
                 
                 # Delete existing credentials
@@ -5040,7 +5134,7 @@ class SchedulerWindow(QtWidgets.QMainWindow):
                     
                     # Save new credentials
                     print("DEBUG: Saving new credentials in forget_saved_credentials")
-                    from ..core.credentials import save_local_credentials
+                    from app.core.credentials import save_local_credentials
                     if save_local_credentials(student_number, password, remember):
                         logger.info("New Golestan credentials saved successfully")
                         print("DEBUG: New Golestan credentials saved successfully")
@@ -5086,7 +5180,7 @@ class SchedulerWindow(QtWidgets.QMainWindow):
     def fetch_from_golestan_with_new_credentials(self, username, password):
         """Fetch courses from Golestan using newly entered credentials"""
         try:
-            from ..core.golestan_integration import update_courses_from_golestan
+            from app.core.golestan_integration import update_courses_from_golestan
             
             # Show progress dialog
             progress = QtWidgets.QProgressDialog('در حال دریافت اطلاعات از گلستان...', 'لغو', 0, 0, self)
@@ -5153,7 +5247,7 @@ class SchedulerWindow(QtWidgets.QMainWindow):
                 return 'دروس اضافه‌شده توسط کاربر'
             
             # Try to get major from golestan integration
-            from ..core.golestan_integration import get_course_major
+            from app.core.golestan_integration import get_course_major
             major = get_course_major(course_key)
             logger.debug(f"Course {course_key} major: {major}")
             return major if major else "رشته نامشخص"
@@ -5171,18 +5265,32 @@ class SchedulerWindow(QtWidgets.QMainWindow):
             # Clear existing items except the first one ("انتخاب رشته")
             while self.comboBox.count() > 1:
                 self.comboBox.removeItem(1)
-            
+        
+            # If no database instance, fallback to JSON loading
+            if self.db is None:
+                from app.core.data_manager import load_courses_from_json
+                load_courses_from_json()
+            else:
+                # Load courses from database if not already loaded
+                if not COURSES:
+                    self.load_courses_from_database()
+        
             # Collect all unique majors from courses
             majors = set()
             logger.info(f"Populating major dropdown, total courses: {len(COURSES)}")
             for key, course in COURSES.items():
-                major = self.extract_course_major(key, course)
-                if major and major != "رشته نامشخص":
-                    majors.add(major)
-            
+                # For database-loaded courses, we can directly use the 'major' field
+                if 'major' in course and course['major'] != "رشته نامشخص":
+                    majors.add(course['major'])
+                else:
+                    # Fallback to extract_course_major for other courses
+                    major = self.extract_course_major(key, course)
+                    if major and major != "رشته نامشخص":
+                        majors.add(major)
+        
             # Convert to sorted list
             sorted_majors = sorted(majors)
-            
+        
             # Add "دروس اضافه‌شده توسط کاربر" category at the beginning
             user_added_category = "دروس اضافه‌شده توسط کاربر"
             if user_added_category not in sorted_majors:
@@ -5191,13 +5299,16 @@ class SchedulerWindow(QtWidgets.QMainWindow):
                 # Move it to the beginning if it already exists
                 sorted_majors.remove(user_added_category)
                 sorted_majors.insert(0, user_added_category)
-            
+        
+            # Add "همه" option at the beginning
+            sorted_majors.insert(0, "همه")
+        
             # Add majors to dropdown
             for major in sorted_majors:
                 self.comboBox.addItem(major)
-                
-            logger.info(f"Populated major dropdown with {len(sorted_majors)} majors")
             
+            logger.info(f"Populated major dropdown with {len(sorted_majors)} majors")
+        
         except Exception as e:
             logger.error(f"Error populating major dropdown: {e}")
 
@@ -5227,7 +5338,7 @@ class SchedulerWindow(QtWidgets.QMainWindow):
     def load_latest_backup(self):
         """Load the latest backup on application startup"""
         try:
-            from ..core.data_manager import get_latest_auto_backup, load_auto_backup
+            from app.core.data_manager import get_latest_auto_backup, load_auto_backup
             
             # Get the latest auto backup file
             latest_backup = get_latest_auto_backup()
@@ -5303,6 +5414,17 @@ class SchedulerWindow(QtWidgets.QMainWindow):
                         # No existing connection, that's fine
                         pass
                     self.action_manual_fetch.triggered.connect(self.manual_fetch_from_golestan)
+            
+            # Connect the student profile action if it exists in the UI
+            if hasattr(self, 'action_student_profile'):
+                # Disconnect any existing connections first to prevent duplicates
+                try:
+                    self.action_student_profile.triggered.disconnect(self.show_student_profile)
+                except TypeError:
+                    # No existing connection, that's fine
+                    pass
+                self.action_student_profile.triggered.connect(self.show_student_profile)
+            
             # Create "Usage History" menu
             history_menu = menubar.addMenu('سوابق استفاده')
             
@@ -5315,7 +5437,9 @@ class SchedulerWindow(QtWidgets.QMainWindow):
             
         except Exception as e:
             logger.error(f"Error creating menu bar: {e}")
-
+            import traceback
+            traceback.print_exc()
+    
     def populate_backup_history_menu(self):
         """Populate the backup history menu with available backups"""
         try:
@@ -5324,7 +5448,7 @@ class SchedulerWindow(QtWidgets.QMainWindow):
             menu.clear()
             
             # Get backup history from data manager
-            from ..core.data_manager import get_backup_history
+            from app.core.data_manager import get_backup_history
             backup_files = get_backup_history(5)
             
             if not backup_files:
@@ -5383,7 +5507,7 @@ class SchedulerWindow(QtWidgets.QMainWindow):
     def load_backup_file(self, backup_file):
         """Load a specific backup file and populate the schedule table"""
         try:
-            from ..core.data_manager import load_auto_backup
+            from app.core.data_manager import load_auto_backup
             import json
             
             logger.info(f"Loading backup file: {backup_file}")
@@ -5472,7 +5596,7 @@ class SchedulerWindow(QtWidgets.QMainWindow):
             self.user_data['current_schedule'] = keys
             
             # Create auto backup
-            from ..core.data_manager import create_auto_backup
+            from app.core.data_manager import create_auto_backup
             backup_file = create_auto_backup(self.user_data)
             
             if backup_file:
@@ -5501,7 +5625,7 @@ class SchedulerWindow(QtWidgets.QMainWindow):
     def manage_golestan_credentials(self):
         """Manage Golestan credentials - view (masked) or remove saved credentials"""
         try:
-            from ..core.credentials import LOCAL_CREDENTIALS_FILE, load_local_credentials, delete_local_credentials
+            from app.core.credentials import LOCAL_CREDENTIALS_FILE, load_local_credentials, delete_local_credentials
             
             # Check if credentials file exists
             if not LOCAL_CREDENTIALS_FILE.exists():

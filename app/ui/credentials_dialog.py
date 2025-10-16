@@ -12,7 +12,7 @@ import re
 from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel, 
                              QLineEdit, QCheckBox, QPushButton, QMessageBox)
 from PyQt5.QtCore import Qt
-from ..core.credentials import save_local_credentials
+from app.core.credentials import save_local_credentials
 
 class GolestanCredentialsDialog(QDialog):
     """Dialog for entering Golestan credentials securely."""

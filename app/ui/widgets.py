@@ -4,8 +4,8 @@ import os
 from PyQt5 import QtWidgets, QtGui, QtCore
 
 # Import from core modules
-from ..core.config import COURSES, DAYS, EXTENDED_TIME_SLOTS
-from ..core.logger import setup_logging
+from app.core.config import COURSES, DAYS, EXTENDED_TIME_SLOTS
+from app.core.logger import setup_logging
 
 logger = setup_logging()
 
