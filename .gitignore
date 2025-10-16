@@ -49,6 +49,9 @@ app/data/user_added_courses.json
 app/data/local_credentials.json
 
 app/data/courses_data.json
+ 
+# gitignored .db file.
+app/data/golestan_courses.db
 
 app/.env
 

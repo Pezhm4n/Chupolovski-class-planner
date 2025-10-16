@@ -1,4 +1,5 @@
-from typing import Dict, List, Optional
+import json
+from typing import Dict, List, Optional, Union
 import os
 from dotenv import load_dotenv
 
@@ -643,8 +644,201 @@ class CourseDatabase:
 
         print(f"✓ Total courses in database: {total_courses}")
 
-    def search_courses(self, search_term: str, search_in: str = 'both', availability: str = 'both') -> List[Dict]:
-        """Search with support for multiple words in any order."""
+    def _get_schedule_aggregation(self) -> str:
+        """Get database-specific schedule aggregation SQL."""
+        if self.use_postgres:
+            return """
+                COALESCE(
+                    json_agg(
+                        json_build_object(
+                            'day', ts.day,
+                            'start', ts.start_time,
+                            'end', ts.end_time,
+                            'parity', COALESCE(se.parity, ''),
+                            'location', COALESCE(l.name, '')
+                        ) ORDER BY ts.day, ts.start_time
+                    ) FILTER (WHERE ts.id IS NOT NULL),
+                    '[]'
+                ) as schedule
+            """
+        else:
+            return """
+                GROUP_CONCAT(
+                    ts.day || '|' || 
+                    ts.start_time || '|' || 
+                    ts.end_time || '|' || 
+                    COALESCE(se.parity, '') || '|' || 
+                    COALESCE(l.name, ''),
+                    ';;'
+                ) as schedule_data
+            """
+
+    def _get_schedule_joins(self) -> str:
+        """Get SQL JOINs for schedule tables."""
+        return """
+            LEFT JOIN course_schedules cs ON c.code = cs.course_code
+            LEFT JOIN schedule_entries se ON cs.schedule_entry_id = se.id
+            LEFT JOIN time_slots ts ON se.time_slot_id = ts.id
+            LEFT JOIN locations l ON se.location_id = l.id
+        """
+
+    def _get_group_by_clause(self) -> str:
+        """Get GROUP BY clause for schedule aggregation."""
+        if self.use_postgres:
+            return """
+                GROUP BY c.code, c.name, c.credits, d.name, f.name, i.name, g.name,
+                         c.capacity, c.enrollment_conditions, c.exam_time, 
+                         c.is_available, c.updated_at
+            """
+        else:
+            return "GROUP BY c.code"
+
+    def _get_availability_filter(self, availability: str) -> str:
+        """
+        Build availability filter SQL clause.
+
+        Args:
+            availability: 'available', 'unavailable', or 'both'
+
+        Returns:
+            SQL filter clause (e.g., "AND c.is_available = TRUE")
+        """
+        if availability == 'both':
+            return ""
+
+        bool_value = 'TRUE' if availability == 'available' else 'FALSE'
+        if not self.use_postgres:
+            bool_value = '1' if availability == 'available' else '0'
+
+        return f"AND c.is_available = {bool_value}"
+
+    def _build_course_query(self, where_clause: str = "", availability: str = 'both',
+                            order_by: str = "c.name") -> str:
+        """
+        Build complete course query with schedules.
+
+        Args:
+            where_clause: WHERE conditions (e.g., "WHERE d.name = ?")
+            availability: 'available', 'unavailable', or 'both'
+            order_by: ORDER BY clause (e.g., "c.name" or "f.name, d.name, c.name")
+
+        Returns:
+            Complete SQL query string
+        """
+        availability_filter = self._get_availability_filter(availability)
+
+        # Add WHERE keyword if not present and we have availability filter
+        if availability_filter and not where_clause.strip().upper().startswith('WHERE'):
+            if where_clause:
+                # Already has WHERE, just add AND
+                pass
+            else:
+                # No WHERE clause, convert AND to WHERE
+                availability_filter = availability_filter.replace('AND', 'WHERE', 1)
+
+        return f"""
+            SELECT 
+                c.code,
+                c.name,
+                c.credits,
+                d.name as department,
+                f.name as faculty,
+                i.name as instructor,
+                g.name as gender,
+                c.capacity,
+                c.enrollment_conditions,
+                c.exam_time,
+                c.is_available,
+                c.updated_at,
+                {self._get_schedule_aggregation()}
+            FROM courses c
+            JOIN departments d ON c.department_id = d.id
+            JOIN faculties f ON d.faculty_id = f.id
+            LEFT JOIN instructors i ON c.instructor_id = i.id
+            LEFT JOIN genders g ON c.gender_id = g.id
+            {self._get_schedule_joins()}
+            {where_clause}
+            {availability_filter}
+            {self._get_group_by_clause()}
+            ORDER BY {order_by}
+        """
+
+    def _parse_schedule_results(self, cursor) -> List[Dict]:
+        """Parse cursor results and convert schedule data to list of dicts."""
+        if self.use_postgres:
+            columns = [desc[0] for desc in cursor.description]
+            results = []
+            for row in cursor.fetchall():
+                course = dict(zip(columns, row))
+                if isinstance(course.get('schedule'), str):
+                    course['schedule'] = json.loads(course['schedule'])
+                results.append(course)
+        else:
+            cursor.row_factory = sqlite3.Row
+            results = []
+            for row in cursor.fetchall():
+                course = dict(row)
+                schedule_data = course.pop('schedule_data', None)
+                course['schedule'] = []
+                if schedule_data:
+                    for entry in schedule_data.split(';;'):
+                        parts = entry.split('|')
+                        if len(parts) == 5:
+                            course['schedule'].append({
+                                'day': parts[0],
+                                'start': parts[1],
+                                'end': parts[2],
+                                'parity': parts[3],
+                                'location': parts[4]
+                            })
+                results.append(course)
+
+        return results
+
+    def _build_hierarchy(self, courses: List[Dict]) -> Dict:
+        """
+        Convert flat course list to hierarchical structure.
+
+        Args:
+            courses: List of course dictionaries with 'faculty' and 'department' fields
+
+        Returns:
+            Dict in format {faculty: {department: [courses]}}
+        """
+        hierarchy = {}
+        for course in courses:
+            faculty = course['faculty']
+            department = course['department']
+
+            # Initialize faculty if not exists
+            if faculty not in hierarchy:
+                hierarchy[faculty] = {}
+
+            # Initialize department if not exists
+            if department not in hierarchy[faculty]:
+                hierarchy[faculty][department] = []
+
+            # Remove faculty/department from course data to avoid redundancy
+            course_data = {k: v for k, v in course.items() if k not in ['faculty', 'department']}
+            hierarchy[faculty][department].append(course_data)
+
+        return hierarchy
+
+    def search_courses(self, search_term: str, search_in: str = 'both', availability: str = 'both',
+                       return_hierarchy: bool = False) -> Union[List[Dict], Dict]:
+        """
+        Search with support for multiple words in any order.
+
+        Args:
+            search_term: Search query string
+            search_in: 'course', 'instructor', or 'both'
+            availability: 'available', 'unavailable', or 'both'
+            return_hierarchy: If True, returns hierarchical dict; if False, returns flat list
+
+        Returns:
+            If return_hierarchy=False: List of course dictionaries
+            If return_hierarchy=True: Dict in format {faculty: {department: [courses]}}
+        """
         conn = self.get_connection()
         cursor = conn.cursor()
 
@@ -657,7 +851,7 @@ class CourseDatabase:
             ]
 
             if not search_parts:
-                return []
+                return {} if return_hierarchy else []
 
             search_conditions = []
             params = []
@@ -669,150 +863,78 @@ class CourseDatabase:
 
                 if search_in in ['course', 'both']:
                     if self.use_postgres:
-                        part_conditions.append(
-                            "REPLACE(REPLACE(c.name, ' ', ''), CHR(8204), '') LIKE %s"
-                        )
+                        part_conditions.append("c.name LIKE %s")
                     else:
-                        part_conditions.append(
-                            "REPLACE(REPLACE(c.name, ' ', ''), CHAR(8204), '') LIKE ?"
-                        )
+                        part_conditions.append("c.name LIKE ?")
                     params.append(pattern)
 
                 if search_in in ['instructor', 'both']:
                     if self.use_postgres:
-                        part_conditions.append(
-                            "REPLACE(REPLACE(i.name, ' ', ''), CHR(8204), '') LIKE %s"
-                        )
+                        part_conditions.append("i.name LIKE %s")
                     else:
-                        part_conditions.append(
-                            "REPLACE(REPLACE(i.name, ' ', ''), CHAR(8204), '') LIKE ?"
-                        )
+                        part_conditions.append("i.name LIKE ?")
                     params.append(pattern)
 
                 if part_conditions:
                     search_conditions.append(f"({' OR '.join(part_conditions)})")
 
-            # Combine with AND so all parts must match
-            where_clause = " AND ".join(search_conditions)
+            # Build WHERE clause
+            where_clause = f"WHERE {' AND '.join(search_conditions)}"
 
-            # Build availability filter
-            availability_filter = ""
-            if availability == 'available':
-                availability_filter = "AND c.is_available = TRUE"
-            elif availability == 'unavailable':
-                availability_filter = "AND c.is_available = FALSE"
-
-            query = f"""
-                SELECT 
-                    c.code,
-                    c.name,
-                    c.credits,
-                    d.name as department,
-                    f.name as faculty,
-                    i.name as instructor,
-                    g.name as gender,
-                    c.capacity,
-                    c.enrollment_conditions,
-                    c.exam_time,
-                    c.is_available,
-                    c.updated_at
-                FROM courses c
-                JOIN departments d ON c.department_id = d.id
-                JOIN faculties f ON d.faculty_id = f.id
-                LEFT JOIN instructors i ON c.instructor_id = i.id
-                LEFT JOIN genders g ON c.gender_id = g.id
-                WHERE {where_clause}
-                {availability_filter}
-                ORDER BY c.name
-            """
+            # Build complete query using helper
+            query = self._build_course_query(where_clause, availability, "f.name, d.name, c.name")
 
             cursor.execute(query, params)
+            results = self._parse_schedule_results(cursor)
 
-            if self.use_postgres:
-                columns = [desc[0] for desc in cursor.description]
-                results = [dict(zip(columns, row)) for row in cursor.fetchall()]
-            else:
-                cursor.row_factory = sqlite3.Row
-                results = [dict(row) for row in cursor.fetchall()]
-            for course in results:
-                print(course)
-            return results
+            # Return flat list or hierarchy
+            return self._build_hierarchy(results) if return_hierarchy else results
 
         finally:
             cursor.close()
             conn.close()
 
-    def get_courses_by_department(self, department_name: str, availability: str = 'both') -> List[Dict]:
+    def get_courses_by_department(self, department_name: str, availability: str = 'both',
+                                  return_hierarchy: bool = True) -> Union[List[Dict], Dict]:
         """
-        Get all courses for a specific department (works for both PostgreSQL and SQLite).
+        Get all courses for a specific department.
+
         Args:
             department_name: Name of the department
-            availability: 'available', 'unavailable', or 'both' (default: 'both')
+            availability: 'available', 'unavailable', or 'both'
+            return_hierarchy: If True, returns hierarchical dict; if False, returns flat list
+
         Returns:
-            List of course dictionaries with full details
+            If return_hierarchy=False: List of course dictionaries
+            If return_hierarchy=True: Dict in format {faculty: {department: [courses]}}
         """
         conn = self.get_connection()
         cursor = conn.cursor()
-        try:
-            params = [department_name]
-            # Choose appropriate boolean based on backend
-            if self.use_postgres:
-                available_true = 'TRUE'
-                available_false = 'FALSE'
-            else:
-                available_true = '1'
-                available_false = '0'
-            availability_filter = ""
-            if availability == 'available':
-                availability_filter = f"AND c.is_available = {available_true}"
-            elif availability == 'unavailable':
-                availability_filter = f"AND c.is_available = {available_false}"
 
+        try:
             placeholder = self._get_placeholder()
-            query = f"""
-                SELECT
-                    c.code,
-                    c.name,
-                    c.credits,
-                    d.name as department,
-                    f.name as faculty,
-                    i.name as instructor,
-                    g.name as gender,
-                    c.capacity,
-                    c.enrollment_conditions,
-                    c.exam_time,
-                    c.is_available,
-                    c.updated_at
-                FROM courses c
-                JOIN departments d ON c.department_id = d.id
-                JOIN faculties f ON d.faculty_id = f.id
-                LEFT JOIN instructors i ON c.instructor_id = i.id
-                LEFT JOIN genders g ON c.gender_id = g.id
-                WHERE d.name = {placeholder}
-                {availability_filter}
-                ORDER BY c.name
-            """
-            cursor.execute(query, params)
-            if self.use_postgres:
-                columns = [desc[0] for desc in cursor.description]
-                results = [dict(zip(columns, row)) for row in cursor.fetchall()]
-            else:
-                cursor.row_factory = sqlite3.Row
-                results = [dict(row) for row in cursor.fetchall()]
-            for course in results:
-                print(course)
-            return results
+            where_clause = f"WHERE d.name = {placeholder}"
+
+            # Build complete query using helper
+            query = self._build_course_query(where_clause, availability, "f.name, d.name, c.name")
+
+            cursor.execute(query, (department_name,))
+            results = self._parse_schedule_results(cursor)
+
+            # Return flat list or hierarchy
+            return self._build_hierarchy(results) if return_hierarchy else results
+
         finally:
             cursor.close()
             conn.close()
 
-    def get_all_courses(self, availability: str = 'both', return_hierarchy: bool = False):
+    def get_all_courses(self, availability: str = 'both', return_hierarchy: bool = True):
         """
         Get all courses from the database.
 
         Args:
             availability: 'available', 'unavailable', or 'both' (default: 'both')
-            return_hierarchy: If True, returns hierarchical dict; if False, returns flat list (default: False)
+            return_hierarchy: If True, returns hierarchical dict; if False, returns flat list (default: True)
 
         Returns:
             If return_hierarchy=False: List of course dictionaries
@@ -827,72 +949,14 @@ class CourseDatabase:
         cursor = conn.cursor()
 
         try:
-            # Determine correct boolean values
-            bool_true = 'TRUE' if self.use_postgres else '1'
-            bool_false = 'FALSE' if self.use_postgres else '0'
-
-            # Build availability filter
-            availability_filter = ""
-            if availability == 'available':
-                availability_filter = f"WHERE c.is_available = {bool_true}"
-            elif availability == 'unavailable':
-                availability_filter = f"WHERE c.is_available = {bool_false}"
-
-            query = f"""
-                SELECT 
-                    c.code,
-                    c.name,
-                    c.credits,
-                    d.name as department,
-                    f.name as faculty,
-                    i.name as instructor,
-                    g.name as gender,
-                    c.capacity,
-                    c.enrollment_conditions,
-                    c.exam_time,
-                    c.is_available,
-                    c.updated_at
-                FROM courses c
-                JOIN departments d ON c.department_id = d.id
-                JOIN faculties f ON d.faculty_id = f.id
-                LEFT JOIN instructors i ON c.instructor_id = i.id
-                LEFT JOIN genders g ON c.gender_id = g.id
-                {availability_filter}
-                ORDER BY f.name, d.name, c.name
-            """
+            # Build complete query using helper (no WHERE clause for "all")
+            query = self._build_course_query("", availability, "f.name, d.name, c.name")
 
             cursor.execute(query)
+            results = self._parse_schedule_results(cursor)
 
-            if self.use_postgres:
-                columns = [desc[0] for desc in cursor.description]
-                results = [dict(zip(columns, row)) for row in cursor.fetchall()]
-            else:
-                cursor.row_factory = sqlite3.Row
-                results = [dict(row) for row in cursor.fetchall()]
-
-            # Return flat list if not hierarchy
-            if not return_hierarchy:
-                return results
-
-            # Build hierarchy structure
-            hierarchy = {}
-            for course in results:
-                faculty = course['faculty']
-                department = course['department']
-
-                # Initialize faculty if not exists
-                if faculty not in hierarchy:
-                    hierarchy[faculty] = {}
-
-                # Initialize department if not exists
-                if department not in hierarchy[faculty]:
-                    hierarchy[faculty][department] = []
-
-                # Add course to department (without faculty/department fields to avoid redundancy)
-                course_data = {k: v for k, v in course.items() if k not in ['faculty', 'department']}
-                hierarchy[faculty][department].append(course_data)
-
-            return hierarchy
+            # Return flat list or hierarchy
+            return self._build_hierarchy(results) if return_hierarchy else results
 
         finally:
             cursor.close()
@@ -905,14 +969,13 @@ class CourseDatabase:
 
         Returns:
             Dictionary where keys are faculty names and values are lists of department names
-
         """
         conn = self.get_connection()
         cursor = conn.cursor()
 
         try:
             query = """
-                    SELECT f.name as faculty, \
+                    SELECT f.name as faculty,
                            d.name as department
                     FROM departments d
                              JOIN faculties f ON d.faculty_id = f.id
