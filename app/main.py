@@ -63,19 +63,17 @@ from app.core.data_manager import set_course_database
 
 logger = setup_logging()
 
+from PyQt5 import QtCore
+
+QtCore.QCoreApplication.setAttribute(QtCore.Qt.AA_ShareOpenGLContexts)
+QtCore.QCoreApplication.setAttribute(QtCore.Qt.AA_EnableHighDpiScaling)
 
 def main():
     """Main function to run the application"""
     # Import QApplication here to avoid issues with early imports
     from PyQt5.QtWidgets import QApplication
-    
-    # Initialize database at startup
-    db = CourseDatabase()
-    db.initialize_if_needed()
-    
-    # Set the database instance in the data manager
-    set_course_database(db)
-    
+    from PyQt5 import QtCore
+
     app = QApplication(sys.argv)
     app.setApplicationName('Golestoon Class Planner')
     app.setApplicationVersion(__version__)
