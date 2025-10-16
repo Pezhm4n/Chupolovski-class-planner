@@ -49,3 +49,7 @@ app/data/user_added_courses.json
 app/data/local_credentials.json
 
 app/data/courses_data.json
+
+app/.env
+
+*.db

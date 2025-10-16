@@ -1,5 +1,6 @@
 import sqlite3
 import os
+import decimal
 from pathlib import Path
 from typing import Optional
 from decimal import Decimal
@@ -185,6 +186,16 @@ class StudentDatabase:
             conn.close()
             return None
 
+        # Helper function to safely convert to Decimal
+        def safe_decimal(value, default=None):
+            if value is None or value == '':
+                return default
+            try:
+                return Decimal(str(value))
+            except (ValueError, decimal.InvalidOperation):
+                print(f"Warning: Could not convert '{value}' to Decimal, using default")
+                return default
+
         # Parse student data
         student_data = {
             'student_id': row[0],
@@ -197,12 +208,12 @@ class StudentDatabase:
             'study_type': row[7],
             'enrollment_status': row[8],
             'registration_permission': bool(row[9]),
-            'overall_gpa': Decimal(row[10]) if row[10] else None,
-            'total_units_passed': Decimal(row[11]),
-            'total_probation': row[12],
-            'consecutive_probation': row[13],
-            'special_probation': row[14],
-            'updated_at': datetime.fromisoformat(row[15]),
+            'overall_gpa': safe_decimal(row[10]),
+            'total_units_passed': safe_decimal(row[11], Decimal('0.00')),
+            'total_probation': row[12] if row[12] is not None else 0,
+            'consecutive_probation': row[13] if row[13] is not None else 0,
+            'special_probation': row[14] if row[14] is not None else 0,
+            'updated_at': datetime.fromisoformat(row[15]) if row[15] else datetime.now(),
             'image_b64': row[16],
             'semesters': []
         }
@@ -246,23 +257,23 @@ class StudentDatabase:
                 course = CourseEnrollment(
                     course_code=course_row[0],
                     course_name=course_row[1],
-                    course_units=Decimal(course_row[2]),
+                    course_units=safe_decimal(course_row[2], Decimal('0.00')),
                     course_type=course_row[3],
                     grade_state=course_row[4],
-                    grade=Decimal(course_row[5]) if course_row[5] else None
+                    grade=safe_decimal(course_row[5])
                 )
                 courses.append(course)
 
             semester = SemesterRecord(
                 semester_id=semester_id,
                 semester_description=sem_row[1],
-                semester_gpa=Decimal(sem_row[2]),
-                units_taken=Decimal(sem_row[3]),
-                units_passed=Decimal(sem_row[4]),
-                units_failed=Decimal(sem_row[5]),
-                units_dropped=Decimal(sem_row[6]),
-                cumulative_gpa=Decimal(sem_row[7]),
-                cumulative_units_passed=Decimal(sem_row[8]),
+                semester_gpa=safe_decimal(sem_row[2], Decimal('0.00')),
+                units_taken=safe_decimal(sem_row[3], Decimal('0.00')),
+                units_passed=safe_decimal(sem_row[4], Decimal('0.00')),
+                units_failed=safe_decimal(sem_row[5], Decimal('0.00')),
+                units_dropped=safe_decimal(sem_row[6], Decimal('0.00')),
+                cumulative_gpa=safe_decimal(sem_row[7], Decimal('0.00')),
+                cumulative_units_passed=safe_decimal(sem_row[8], Decimal('0.00')),
                 semester_status=sem_row[9],
                 semester_type=sem_row[10],
                 probation_status=sem_row[11],

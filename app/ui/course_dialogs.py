@@ -11,9 +11,9 @@ import os
 from PyQt5 import QtWidgets, QtCore
 
 # Import from core modules
-from ..core.config import DAYS, TIME_SLOTS, EXTENDED_TIME_SLOTS, COURSES
-from ..core.logger import setup_logging
-from ..core.data_manager import save_user_data
+from app.core.config import DAYS, TIME_SLOTS, EXTENDED_TIME_SLOTS, COURSES
+from app.core.logger import setup_logging
+from app.core.data_manager import save_user_data
 
 logger = setup_logging()
 

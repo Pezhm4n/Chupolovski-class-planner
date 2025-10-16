@@ -602,6 +602,7 @@
    </widget>
    <addaction name="menu_data"/>
    <addaction name="menu_tools"/>
+   <addaction name="action_student_profile"/>
   </widget>
   <widget class="QStatusBar" name="statusbar"/>
   <action name="action_fetch_golestan">
@@ -627,6 +628,11 @@
   <action name="action_reset_golestan_credentials">
    <property name="text">
     <string>فراموش کردن اطلاعات ورود به گلستان</string>
+   </property>
+  </action>
+  <action name="action_student_profile">
+   <property name="text">
+    <string>پروفایل دانشجو</string>
    </property>
   </action>
  </widget>

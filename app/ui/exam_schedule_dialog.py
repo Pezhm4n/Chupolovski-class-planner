@@ -11,8 +11,8 @@ import os
 from PyQt5 import QtWidgets, QtCore
 
 # Import from core modules
-from ..core.config import COURSES
-from ..core.logger import setup_logging
+from app.core.config import COURSES
+from app.core.logger import setup_logging
 
 logger = setup_logging()
 

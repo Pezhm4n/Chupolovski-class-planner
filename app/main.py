@@ -57,6 +57,10 @@ except (ImportError, ValueError):
             from core.logger import setup_logging
             USING_RELATIVE_IMPORTS = False
 
+# Import the CourseDatabase
+from app.data.courses_db import CourseDatabase
+from app.core.data_manager import set_course_database
+
 logger = setup_logging()
 
 
@@ -64,6 +68,13 @@ def main():
     """Main function to run the application"""
     # Import QApplication here to avoid issues with early imports
     from PyQt5.QtWidgets import QApplication
+    
+    # Initialize database at startup
+    db = CourseDatabase()
+    db.initialize_if_needed()
+    
+    # Set the database instance in the data manager
+    set_course_database(db)
     
     app = QApplication(sys.argv)
     app.setApplicationName('Golestoon Class Planner')
@@ -88,8 +99,8 @@ def main():
         logger.error(f"Failed to apply styles: {e}")
         # Continue without styles rather than crash
     
-    # Create and show the main window
-    win = SchedulerWindow()
+    # Create and show the main window, passing the database instance
+    win = SchedulerWindow(db=db)
     win.setWindowTitle('Golestoon Class Planner')
     win.show()
     

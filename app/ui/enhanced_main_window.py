@@ -9,7 +9,7 @@ from PyQt5 import QtWidgets, QtGui, QtCore
 import sip
 
 # Add logger import
-from ..core.logger import setup_logging
+from app.core.logger import setup_logging
 logger = setup_logging()
 
 
@@ -451,7 +451,7 @@ def create_dual_course_widget(odd_course_data, even_course_data, parent):
         def convert_to_single_course(self, course_data):
             """Convert this dual widget to a single course widget"""
             from .widgets import AnimatedCourseWidget
-            from ..core.config import COLOR_MAP
+            from app.core.config import COLOR_MAP
             
             # Get the parent cell position
             parent_cell = self.parent()
@@ -640,7 +640,7 @@ def enhanced_add_course_to_table(self, course_key, ask_on_conflict=True):
     This method should replace the existing add_course_to_table in main_window.py
     """
     # Import required variables locally to avoid import issues
-    from ..core.config import COURSES, DAYS, EXTENDED_TIME_SLOTS, COLOR_MAP
+    from app.core.config import COURSES, DAYS, EXTENDED_TIME_SLOTS, COLOR_MAP
     
     course = COURSES.get(course_key)
     if not course:
@@ -798,7 +798,6 @@ def enhanced_add_course_to_table(self, course_key, ask_on_conflict=True):
                 }
             else:
                 # Normal single course placement (existing code)
-                # ... [existing single course cell creation code] ...
                 pass  # Keep existing implementation
         
         # Update UI

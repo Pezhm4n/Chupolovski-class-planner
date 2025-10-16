@@ -119,10 +119,9 @@ python main.py
 - **Web Scraping**: requests and BeautifulSoup for Golestan data retrieval
 - **AI**: TensorFlow for captcha recognition
 
-## Version & License
+## License
 
-**Project Name**: Golestoon Class Planner  
-**Current Version**: 0.7.0  
+**Project Name**: Golestoon   
 **Compatibility**: Python 3.10+ & PyQt5  
 **Language**: Persian  
 **License**: MIT License  
