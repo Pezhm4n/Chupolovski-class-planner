@@ -74,10 +74,11 @@ class SchedulerWindow(QtWidgets.QMainWindow):
             QtWidgets.QMessageBox.critical(self, "خطا", f"خطا در بارگذاری UI: {str(e)}")
             sys.exit(1)
         
-        # Debug: Check if comboBox exists
-        print(f"[DEBUG] comboBox exists: {hasattr(self, 'comboBox')}")
-        if hasattr(self, 'comboBox'):
-            print(f"[DEBUG] comboBox type: {type(self.comboBox)}")
+        # Debug: Check if comboBox exists - only in debug mode
+        if os.environ.get('DEBUG'):
+            logger.debug(f"[DEBUG] comboBox exists: {hasattr(self, 'comboBox')}")
+            if hasattr(self, 'comboBox'):
+                logger.debug(f"[DEBUG] comboBox type: {type(self.comboBox)}")
         # Initialize schedule table FIRST
         self.initialize_schedule_table()
         
@@ -141,9 +142,6 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         
         self.populate_course_list()
         self.load_saved_combos_ui()
-        
-        # Debug stats widget
-        self.debug_stats_widget()
         
         # Update status
         self.update_status()
@@ -327,14 +325,24 @@ class SchedulerWindow(QtWidgets.QMainWindow):
 
             # Use database method to get faculties with departments
             if self.db is not None:
-                # If courses haven't been loaded properly, try to load them again
-                if not COURSES:
-                    self.load_courses_from_database()
+                # Get faculties with departments from database
+                faculties_with_departments = self.db.get_faculties_with_departments()
                 
-            # Always use the COURSES dictionary to populate majors
-            self.major_categories = sorted(
-                set(course['major'] for course in COURSES.values() if 'major' in course)
-            )
+                # Build major categories from database data
+                self.major_categories = []
+                for faculty, departments in faculties_with_departments.items():
+                    for department in departments:
+                        major_identifier = f"{faculty} - {department}"
+                        if major_identifier not in self.major_categories:
+                            self.major_categories.append(major_identifier)
+                
+                # Sort the categories
+                self.major_categories.sort()
+            else:
+                # Fallback to using COURSES dictionary
+                self.major_categories = sorted(
+                    set(course.get('major', 'دروس عمومی') for course in COURSES.values())
+                )
             
             # Add "دروس اضافه‌شده توسط کاربر" category at the beginning
             user_added_category = "دروس اضافه‌شده توسط کاربر"
@@ -345,20 +353,20 @@ class SchedulerWindow(QtWidgets.QMainWindow):
                 self.major_categories.remove(user_added_category)
                 self.major_categories.insert(0, user_added_category)
 
-            # Add majors to the combobox
+            # Clear and populate the combobox
             self.comboBox.clear()
+            self.comboBox.addItem("انتخاب رشته")  # Default option
             self.comboBox.addItems(self.major_categories)
 
-            # Set default selection to all majors
+            # Set default selection
             self.comboBox.setCurrentIndex(0)
 
             # Connect signal for filtering courses
-            self.comboBox.currentIndexChanged.connect(self.on_major_changed)
+            self.comboBox.currentIndexChanged.connect(self.on_major_selection_changed)
 
         except Exception as e:
             logger.error(f"Failed to populate major dropdown: {e}")
             QtWidgets.QMessageBox.critical(self, "خطا", f"امکان پر کردن فیلتر رشته وجود ندارد: {str(e)}")
-            sys.exit(1)
 
     def populate_course_list(self):
         """Populate the course list with courses"""
@@ -1572,7 +1580,11 @@ class SchedulerWindow(QtWidgets.QMainWindow):
 
     def debug_stats_widget(self):
         """Debug method to find the correct stats widget name"""
-        print("=== Debug Stats Widget ===")
+        # Only run in debug mode
+        if not os.environ.get('DEBUG'):
+            return None
+            
+        logger.debug("=== Debug Stats Widget ===")
         
         # پیدا کردن تمام label های موجود
         labels = self.findChildren(QtWidgets.QLabel)
@@ -1580,7 +1592,7 @@ class SchedulerWindow(QtWidgets.QMainWindow):
             if hasattr(label, 'objectName'):
                 name = label.objectName()
                 text = label.text()[:50] + "..." if len(label.text()) > 50 else label.text()
-                print(f"Label: {name} -> {text}")
+                logger.debug(f"Label: {name} -> {text}")
         
         # تست مستقیم
         widgets_to_test = [
@@ -1594,16 +1606,18 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         for widget_name in widgets_to_test:
             widget = getattr(self, widget_name, None)
             if widget:
-                print(f"✅ Found widget: {widget_name}")
+                logger.debug(f"✅ Found widget: {widget_name}")
                 return widget
             else:
-                print(f"❌ Widget not found: {widget_name}")
+                logger.debug(f"❌ Widget not found: {widget_name}")
         
         return None
 
     def update_stats_panel(self):
         """Update the stats panel with current schedule information - FORCED VERSION"""
-        print("🔄 update_stats_panel called")  # Debug log
+        # Only show debug log if in debug mode
+        if os.environ.get('DEBUG'):
+            logger.debug("🔄 update_stats_panel called")
         
         try:
             # پیدا کردن widget صحیح
@@ -1619,21 +1633,25 @@ class SchedulerWindow(QtWidgets.QMainWindow):
             for widget in widget_candidates:
                 if widget:
                     stats_widget = widget
-                    print(f"✅ Found stats widget: {type(widget)}")
+                    if os.environ.get('DEBUG'):
+                        logger.debug(f"✅ Found stats widget: {type(widget)}")
                     break
             
             if not stats_widget:
-                print("❌ No stats widget found!")
+                if os.environ.get('DEBUG'):
+                    logger.debug("❌ No stats widget found!")
                 # جستجو در کل UI
                 all_labels = self.findChildren(QtWidgets.QLabel)
                 for label in all_labels:
                     if 'آمار' in label.text() or 'stats' in label.objectName().lower():
                         stats_widget = label
-                        print(f"🔍 Found by search: {label.objectName()}")
+                        if os.environ.get('DEBUG'):
+                            logger.debug(f"🔍 Found by search: {label.objectName()}")
                         break
             
             if not stats_widget:
-                print("❌ Still no stats widget found!")
+                if os.environ.get('DEBUG'):
+                    logger.debug("❌ Still no stats widget found!")
                 return
                 
             # محاسبه آمار
@@ -1661,7 +1679,8 @@ class SchedulerWindow(QtWidgets.QMainWindow):
                 # Update user data with current schedule
                 self.user_data['current_schedule'] = keys
                 
-                print(f"📊 Found {len(keys)} courses")
+                if os.environ.get('DEBUG'):
+                    logger.debug(f"📊 Found {len(keys)} courses")
                 
                 # محاسبه واحدها
                 total_units = 0
@@ -1672,7 +1691,8 @@ class SchedulerWindow(QtWidgets.QMainWindow):
                     course = COURSES.get(course_key, {})
                     units = course.get('credits', 0)
                     total_units += units
-                    print(f"  - {course.get('name', course_key)}: {units} واحد")
+                    if os.environ.get('DEBUG'):
+                        logger.debug(f"  - {course.get('name', course_key)}: {units} واحد")
                     
                     # گرفتن روزها
                     for session in course.get('schedule', []):
@@ -1687,11 +1707,13 @@ class SchedulerWindow(QtWidgets.QMainWindow):
 📅 روزها: {len(days_used)}
 ✅ وضعیت: فعال"""
 
-                print(f"📝 Setting stats text: {stats_text[:100]}...")
+                if os.environ.get('DEBUG'):
+                    logger.debug(f"📝 Setting stats text: {stats_text[:100]}...")
                 stats_widget.setText(stats_text)
                 
             else:
-                print("📭 No courses placed")
+                if os.environ.get('DEBUG'):
+                    logger.debug("📭 No courses placed")
                 stats_widget.setText("""📊 آمار برنامه
 
 هنوز هیچ درسی انتخاب نشده است
@@ -1703,9 +1725,10 @@ class SchedulerWindow(QtWidgets.QMainWindow):
             stats_widget.repaint()
             
         except Exception as e:
-            print(f"❌ Error in update_stats_panel: {e}")
-            import traceback
-            traceback.print_exc()
+            logger.error(f"❌ Error in update_stats_panel: {e}")
+            if os.environ.get('DEBUG'):
+                import traceback
+                traceback.print_exc()
 
     def updatestatspanel(self):
         """Alias for update_stats_panel"""
@@ -3317,12 +3340,48 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         try:
             if index == 0:  # Default "انتخاب رشته" option
                 self.current_major_filter = None
+                # Don't show all courses when selecting default option
+                self.course_list.clear()  # Clear the list instead of showing all courses
             else:
                 selected_major = self.comboBox.currentText()
                 self.current_major_filter = selected_major
-            
-            # Repopulate course list with new filter
-            self.populate_course_list()
+                
+                # If we have a database instance, filter courses by department
+                if self.db is not None and selected_major != "دروس اضافه‌شده توسط کاربر":
+                    # Extract department name from major identifier (faculty - department)
+                    if " - " in selected_major:
+                        department_name = selected_major.split(" - ", 1)[1]  # Get department part
+                        logger.debug(f"Filtering courses by department: {department_name}")
+                        
+                        # Get courses for this department from database
+                        department_courses = self.db.get_courses_by_department(
+                            department_name, 
+                            availability='both',
+                            return_hierarchy=False
+                        )
+                        
+                        # Update COURSES dictionary with only courses from this department
+                        global COURSES
+                        # Keep user-added courses
+                        user_courses = {k: v for k, v in COURSES.items() if v.get('major') == 'دروس اضافه‌شده توسط کاربر'}
+                        
+                        # Clear and repopulate with department courses
+                        COURSES.clear()
+                        
+                        # Convert database courses to the format expected by the UI
+                        from app.core.golestan_integration import convert_db_course_format, generate_course_key_from_db
+                        for course in department_courses:
+                            course_key = generate_course_key_from_db(course)
+                            converted_course = convert_db_course_format(course)
+                            # Add major information
+                            converted_course['major'] = selected_major
+                            COURSES[course_key] = converted_course
+                        
+                        # Add back user-added courses
+                        COURSES.update(user_courses)
+                
+                # Repopulate course list with new filter
+                self.populate_course_list()
             
         except Exception as e:
             logger.error(f"Error handling major selection change: {e}")
@@ -3857,89 +3916,46 @@ class SchedulerWindow(QtWidgets.QMainWindow):
             item.setSizeHint(widget.sizeHint())
             
     def populate_course_list(self, filter_text=""):
-        """Populate the course list with all available courses - fixed widget lifecycle management"""
+        """Populate the course list with courses"""
         try:
-            from app.core.config import COURSES
-            
-            if not hasattr(self, 'course_list'):
-                logger.error("course_list widget not found")
-                return
-                
+            # If no database instance, fallback to JSON loading
+            if self.db is None:
+                from app.core.data_manager import load_courses_from_json
+                load_courses_from_json()
+            else:
+                # Load courses from database if not already loaded
+                if not COURSES:
+                    self.load_courses_from_database()
+
+            # Clear the course list
             self.course_list.clear()
             
-            # Clear widget cache to prevent deleted widget issues
-            if hasattr(self, '_course_widgets_cache'):
-                self._course_widgets_cache.clear()
-            else:
-                self._course_widgets_cache = {}
-            
-            # If no major is selected, show placeholder message
-            if self.current_major_filter is None:
-                placeholder_item = QtWidgets.QListWidgetItem()
-                placeholder_widget = QtWidgets.QWidget()
-                placeholder_layout = QtWidgets.QVBoxLayout(placeholder_widget)
-                placeholder_layout.setContentsMargins(10, 10, 10, 10)
-                
-                placeholder_label = QtWidgets.QLabel("برای مشاهده دروس، ابتدا رشته را انتخاب کنید.")
-                placeholder_label.setAlignment(QtCore.Qt.AlignCenter)
-                placeholder_label.setStyleSheet("color: #666; font-size: 14px; font-weight: bold;")
-                
-                placeholder_layout.addWidget(placeholder_label)
-                placeholder_widget.setLayout(placeholder_layout)
-                
-                placeholder_item.setSizeHint(placeholder_widget.sizeHint())
-                self.course_list.addItem(placeholder_item)
-                self.course_list.setItemWidget(placeholder_item, placeholder_widget)
-                return
-            
-            # Filter courses by major if a major is selected
-            courses_to_show = {}
-            if self.current_major_filter:
+            # Filter courses based on current major filter
+            courses_to_show = COURSES
+            if self.current_major_filter and self.current_major_filter != "دروس اضافه‌شده توسط کاربر":
                 # Filter courses by major
-                logger.debug(f"Filtering courses by major: {self.current_major_filter}")
-                for key, course in COURSES.items():
-                    # Extract major from course key or metadata
-                    course_major = self.extract_course_major(key, course)
-                    if course_major == self.current_major_filter:
-                        courses_to_show[key] = course
-                        logger.debug(f"Adding course {key} to filtered list (major: {course_major})")
-            else:
-                # Show all courses if no filter
-                courses_to_show = COURSES
-            
-            # Filter courses if search text provided (global search across all courses)
-            if filter_text.strip():
-                filter_text = filter_text.strip().lower()
-                # Search across ALL courses, not just filtered ones
                 courses_to_show = {
                     key: course for key, course in COURSES.items()
+                    if course.get('major') == self.current_major_filter
+                }
+            elif self.current_major_filter == "دروس اضافه‌شده توسط کاربر":
+                # Show only user-added courses
+                courses_to_show = {
+                    key: course for key, course in COURSES.items()
+                    if course.get('major') == "دروس اضافه‌شده توسط کاربر"
+                }
+            
+            # Apply search filter if provided
+            if filter_text.strip():
+                filter_text = filter_text.strip().lower()
+                # Search across courses that passed major filter
+                courses_to_show = {
+                    key: course for key, course in courses_to_show.items()
                     if (filter_text in course.get('name', '').lower() or
                         filter_text in course.get('code', '').lower() or
                         filter_text in course.get('instructor', '').lower())
                 }
-            # If no courses to show after filtering, show a message
-            if not courses_to_show:
-                no_courses_item = QtWidgets.QListWidgetItem()
-                no_courses_widget = QtWidgets.QWidget()
-                no_courses_layout = QtWidgets.QVBoxLayout(no_courses_widget)
-                no_courses_layout.setContentsMargins(10, 10, 10, 10)
-                
-                # Check if this is the user-added courses category
-                if self.current_major_filter == "دروس اضافه‌شده توسط کاربر":
-                    no_courses_label = QtWidgets.QLabel("هیچ درسی اضافه نشده است.")
-                else:
-                    no_courses_label = QtWidgets.QLabel("هیچ درسی برای این رشته یافت نشد.")
-                no_courses_label.setAlignment(QtCore.Qt.AlignCenter)
-                no_courses_label.setStyleSheet("color: #666; font-size: 14px; font-weight: bold;")
-                
-                no_courses_layout.addWidget(no_courses_label)
-                no_courses_widget.setLayout(no_courses_layout)
-                
-                no_courses_item.setSizeHint(no_courses_widget.sizeHint())
-                self.course_list.addItem(no_courses_item)
-                self.course_list.setItemWidget(no_courses_item, no_courses_widget)
-                return
-                
+
             # Process courses and create widgets
             used = 0
             
@@ -3967,8 +3983,11 @@ class SchedulerWindow(QtWidgets.QMainWindow):
                     color = COLOR_MAP[used % len(COLOR_MAP)]
                     item.setBackground(QtGui.QBrush(color))
                     
-                    # Create tooltip with detailed info
-                    tooltip = f"نام: {course['name']}\nکد: {course['code']}\nاستاد: {course.get('instructor', 'نامشخص')}\nمحل: {course.get('location', 'نامشخص')}\nواحد: {course.get('credits', 'نامشخص')}"
+                    # Create tooltip with course details
+                    tooltip = f"کد: {course['code']}\n"
+                    tooltip += f"نام: {course['name']}\n"
+                    tooltip += f"استاد: {course['instructor']}\n"
+                    tooltip += f"واحد: {course['credits']}\n"
                     if course.get('schedule'):
                         tooltip += "\nجلسات:"
                         for sess in course['schedule']:
@@ -3978,7 +3997,7 @@ class SchedulerWindow(QtWidgets.QMainWindow):
                             elif sess.get('parity') == 'ف':
                                 parity_text = ' (فرد)'
                             tooltip += f"\n  {sess['day']}: {sess['start']}-{sess['end']}{parity_text}"
-                
+                    
                     item.setToolTip(tooltip)
                     
                     # Add item to list first
@@ -3993,59 +4012,18 @@ class SchedulerWindow(QtWidgets.QMainWindow):
                     # Set the custom widget for this item with proper sizing
                     item.setSizeHint(course_widget.sizeHint())
                     self.course_list.setItemWidget(item, course_widget)
-                    
-                    # Force update the size hint after widget is added
-                    QtCore.QTimer.singleShot(0, lambda itm=item, widget=course_widget: self.update_item_size_hint(itm, widget))
-                    
-                    # Cache tooltip only (not the widget)
-                    tooltip_key = f"{key}_tooltip"
-                    self._course_widgets_cache[tooltip_key] = tooltip
-                    
                     used += 1
                     
                 except Exception as e:
-                    logger.error(f"Error creating widget for course {key}: {e}", exc_info=True)
-                    print(f"Warning: Could not create widget for course {key}: {e}")
+                    logger.error(f"Error creating course widget for {key}: {e}")
                     continue
-                
-            # Update spacing between items
-            self.course_list.setSpacing(3)
             
-            # Update status with count
-            total_courses = len(COURSES)
-            shown_courses = len(courses_to_show)
-            if filter_text.strip():
-                # Update status bar to show filtered results
-                search_status = f"نمایش {shown_courses} از {total_courses} درس (فیلتر: '{filter_text}')"
-                self.status_bar.showMessage(search_status)
-            else:
-                # Regular status update
-                self.update_status()
-                self.update_stats_panel()
-                
-            logger.info(f"Populated course list with {shown_courses} courses (filtered: {bool(filter_text.strip())})")
+            logger.info(f"Populated course list with {used} courses")
             
         except Exception as e:
             logger.error(f"Failed to populate course list: {e}")
+            QtWidgets.QMessageBox.critical(self, "خطا", f"امکان پر کردن فهرست دروس وجود ندارد: {str(e)}")
 
-
-
-
-
-    def on_major_selection_changed(self, index):
-        """Handle major selection change"""
-        try:
-            if index == 0:  # Default "انتخاب رشته" option
-                self.current_major_filter = None
-            else:
-                selected_major = self.comboBox.currentText()
-                self.current_major_filter = selected_major
-            
-            # Repopulate course list with new filter
-            self.populate_course_list()
-            
-        except Exception as e:
-            logger.error(f"Error handling major selection change: {e}")
 
     def load_saved_combo(self, item):
         """Load a saved schedule combination"""
@@ -4685,10 +4663,18 @@ class SchedulerWindow(QtWidgets.QMainWindow):
             QtWidgets.QMessageBox.critical(self, 'خطا', f'خطا در افزودن به لیست انتخاب توسط سیستم: {str(e)}')
 
     def on_search_text_changed(self, text):
-        """Handle search text change"""
+        """Handle search text change with debouncing"""
         try:
-            # Filter course list based on search text
-            self.filter_course_list(text)
+            # Use QTimer to debounce the search (delay for 300ms)
+            if hasattr(self, '_search_timer'):
+                self._search_timer.stop()
+            else:
+                self._search_timer = QtCore.QTimer(self)
+                self._search_timer.setSingleShot(True)
+                self._search_timer.timeout.connect(lambda: self.filter_course_list(text))
+            
+            # Start the timer with 300ms delay
+            self._search_timer.start(300)
         except Exception as e:
             logger.error(f"Error in search: {e}")
 
@@ -5300,10 +5286,7 @@ class SchedulerWindow(QtWidgets.QMainWindow):
                 sorted_majors.remove(user_added_category)
                 sorted_majors.insert(0, user_added_category)
         
-            # Add "همه" option at the beginning
-            sorted_majors.insert(0, "همه")
-        
-            # Add majors to dropdown
+            # Add majors to dropdown (removed "همه" option)
             for major in sorted_majors:
                 self.comboBox.addItem(major)
             

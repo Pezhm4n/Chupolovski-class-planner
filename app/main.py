@@ -16,11 +16,11 @@ if current_dir not in sys.path:
 # Handle both direct execution and module execution
 # First, try relative imports (for python -m app.main)
 try:
-    from .__version__ import __version__
-    from .ui.main_window import SchedulerWindow
-    from .core.data_manager import load_courses_from_json
-    from .core.config import load_qss_styles
-    from .core.logger import setup_logging
+    from app.__version__ import __version__
+    from app.ui.main_window import SchedulerWindow
+    from app.core.data_manager import load_courses_from_json
+    from app.core.config import load_qss_styles
+    from app.core.logger import setup_logging
     USING_RELATIVE_IMPORTS = True
 except (ImportError, ValueError):
     # Fall back to absolute imports (for direct script execution)
@@ -58,22 +58,26 @@ except (ImportError, ValueError):
             USING_RELATIVE_IMPORTS = False
 
 # Import the CourseDatabase
-from app.data.courses_db import CourseDatabase
-from app.core.data_manager import set_course_database
 
-logger = setup_logging()
-
-from PyQt5 import QtCore
-
-QtCore.QCoreApplication.setAttribute(QtCore.Qt.AA_ShareOpenGLContexts)
-QtCore.QCoreApplication.setAttribute(QtCore.Qt.AA_EnableHighDpiScaling)
 
 def main():
     """Main function to run the application"""
     # Import QApplication here to avoid issues with early imports
     from PyQt5.QtWidgets import QApplication
     from PyQt5 import QtCore
+    from app.data.courses_db import CourseDatabase
 
+    logger = setup_logging()
+    
+    from PyQt5 import QtCore
+    
+    QtCore.QCoreApplication.setAttribute(QtCore.Qt.AA_ShareOpenGLContexts)
+    QtCore.QCoreApplication.setAttribute(QtCore.Qt.AA_EnableHighDpiScaling)
+
+    # Create and initialize the database
+    db = CourseDatabase()
+    db.initialize_if_needed()
+    
     app = QApplication(sys.argv)
     app.setApplicationName('Golestoon Class Planner')
     app.setApplicationVersion(__version__)

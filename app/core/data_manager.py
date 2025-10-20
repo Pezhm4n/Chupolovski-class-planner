@@ -46,7 +46,9 @@ def load_user_added_courses():
                     COURSES[course_key] = course
                     
                 logger.info(f"Successfully loaded {len(user_courses)} user-added courses")
-                print(f"Loaded {len(user_courses)} user-added courses")
+                # Only print in debug mode
+                if os.environ.get('DEBUG'):
+                    print(f"Loaded {len(user_courses)} user-added courses")
         else:
             # Create the file with empty structure if it doesn't exist
             with open(USER_ADDED_COURSES_FILE, 'w', encoding='utf-8') as f:
@@ -54,7 +56,9 @@ def load_user_added_courses():
             logger.info("Created empty user_added_courses.json file")
     except Exception as e:
         logger.error(f"Error loading user-added courses: {e}")
-        print(f"Error loading user-added courses: {e}")
+        # Only print in debug mode
+        if os.environ.get('DEBUG'):
+            print(f"Error loading user-added courses: {e}")
 
 def save_user_added_courses():
     """Save user-added courses to dedicated JSON file"""
@@ -73,10 +77,14 @@ def save_user_added_courses():
             json.dump(user_added_data, f, ensure_ascii=False, indent=2)
             
         logger.info(f"Successfully saved {len(user_courses)} user-added courses")
-        print(f"Saved {len(user_courses)} user-added courses")
+        # Only print in debug mode
+        if os.environ.get('DEBUG'):
+            print(f"Saved {len(user_courses)} user-added courses")
     except Exception as e:
         logger.error(f"Error saving user-added courses: {e}")
-        print(f"Error saving user-added courses: {e}")
+        # Only print in debug mode
+        if os.environ.get('DEBUG'):
+            print(f"Error saving user-added courses: {e}")
 
 def load_courses_from_json():
     """Load all courses from Golestan JSON files with enhanced error handling"""
@@ -96,42 +104,15 @@ def load_courses_from_json():
         load_user_added_courses()
         
         logger.info(f"Successfully loaded {len(COURSES)} courses from Golestan data and user data")
-        print(f"Loaded {len(COURSES)} courses from Golestan data and user data")
+        # Only print in debug mode
+        if os.environ.get('DEBUG'):
+            print(f"Loaded {len(COURSES)} courses from Golestan data and user data")
         
     except Exception as e:
         logger.error(f"Error loading courses from Golestan data: {e}")
-        print(f"Error loading courses from Golestan data: {e}")
-        COURSES = {}
-
-def save_courses_to_json():
-    """Save all courses to JSON file - deprecated, no longer used"""
-    logger.info("save_courses_to_json is deprecated - courses are saved in Golestan data files")
-    pass
-
-# Add new function to load courses from Golestan data
-def load_courses_from_golestan_data():
-    """Load courses from Golestan scraper data files"""
-    global COURSES
-    try:
-        from .golestan_integration import load_golestan_data
-        logger.info("Loading courses from Golestan data files...")
-        
-        # Load courses from Golestan data
-        golestan_courses = load_golestan_data()
-        
-        # Update COURSES dictionary
-        COURSES.clear()
-        COURSES.update(golestan_courses)
-        
-        # Load user-added courses
-        load_user_added_courses()
-        
-        logger.info(f"Successfully loaded {len(COURSES)} courses from Golestan data and user data")
-        print(f"Loaded {len(COURSES)} courses from Golestan data and user data")
-        
-    except Exception as e:
-        logger.error(f"Error loading courses from Golestan data: {e}")
-        print(f"Error loading courses from Golestan data: {e}")
+        # Only print in debug mode
+        if os.environ.get('DEBUG'):
+            print(f"Error loading courses from Golestan data: {e}")
 
 # Add new function to check if Golestan data files exist
 def golestan_data_files_exist():
@@ -411,6 +392,19 @@ def get_backup_history(limit=5):
     except Exception as e:
         logger.error(f"Error getting backup history: {e}")
         return []
+
+# Global variable to store the database instance
+_course_database = None
+
+def set_course_database(db):
+    """Set the global course database instance"""
+    global _course_database
+    _course_database = db
+
+def get_course_database():
+    """Get the global course database instance"""
+    global _course_database
+    return _course_database
 
 # Import datetime here to avoid circular imports
 import datetime
