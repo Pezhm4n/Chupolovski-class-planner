@@ -490,7 +490,7 @@ def get_courses(status='both', username=None, password=None, db=None):
     """
     from app.data.courses_db import CourseDatabase
 
-    # Create new instance only if not provided
+    # Use provided database instance or create new one
     if db is None:
         db = CourseDatabase()
 
@@ -526,9 +526,48 @@ def get_courses(status='both', username=None, password=None, db=None):
             )
             print(f"✓ Parsed {unavailable_count} unavailable courses")
 
-
         # Store to database
         db.store_courses(available_courses, unavailable_courses)
 
+        # Also save to JSON files for backward compatibility
+        save_courses_to_json_files(available_courses, unavailable_courses)
+
     finally:
         golestan.session.close()
+
+def save_courses_to_json_files(available_courses, unavailable_courses):
+    """
+    Save courses to JSON files for backward compatibility.
+    
+    Args:
+        available_courses: Dictionary of available courses
+        unavailable_courses: Dictionary of unavailable courses
+    """
+    import json
+    import os
+    from pathlib import Path
+    
+    try:
+        # Get the app directory
+        app_dir = Path(__file__).resolve().parent.parent.parent
+        courses_data_dir = app_dir / 'data' / 'courses_data'
+        
+        # Ensure directory exists
+        courses_data_dir.mkdir(parents=True, exist_ok=True)
+        
+        # Save available courses
+        if available_courses:
+            available_file = courses_data_dir / 'available_courses.json'
+            with open(available_file, 'w', encoding='utf-8') as f:
+                json.dump(available_courses, f, ensure_ascii=False, indent=2)
+            print(f"✓ Saved available courses to {available_file}")
+        
+        # Save unavailable courses
+        if unavailable_courses:
+            unavailable_file = courses_data_dir / 'unavailable_courses.json'
+            with open(unavailable_file, 'w', encoding='utf-8') as f:
+                json.dump(unavailable_courses, f, ensure_ascii=False, indent=2)
+            print(f"✓ Saved unavailable courses to {unavailable_file}")
+            
+    except Exception as e:
+        print(f"⚠ Warning: Failed to save courses to JSON files: {e}")

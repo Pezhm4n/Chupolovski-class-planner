@@ -173,10 +173,14 @@ def load_courses_from_json():
             COURSES.clear()
             COURSES.update(golestan_courses)
             logger.info(f"Successfully loaded {len(COURSES)} courses from JSON file")
-            print(f"Loaded {len(COURSES)} courses from JSON file")
+            # Only print in debug mode
+            if os.environ.get('DEBUG'):
+                print(f"Loaded {len(COURSES)} courses from JSON file")
     except Exception as e:
         logger.error(f"Error loading courses from JSON file: {e}")
-        print(f"Error loading courses from JSON file: {e}")
+        # Only print in debug mode
+        if os.environ.get('DEBUG'):
+            print(f"Error loading courses from JSON file: {e}")
 
 def load_user_added_courses():
     """Load user-added courses from dedicated JSON file"""
@@ -196,7 +200,9 @@ def load_user_added_courses():
                     COURSES[course_key] = course
                     
                 logger.info(f"Successfully loaded {len(user_courses)} user-added courses")
-                print(f"Loaded {len(user_courses)} user-added courses")
+                # Only print in debug mode
+                if os.environ.get('DEBUG'):
+                    print(f"Loaded {len(user_courses)} user-added courses")
         else:
             # Create the file with empty structure if it doesn't exist
             with open(USER_ADDED_COURSES_FILE, 'w', encoding='utf-8') as f:
@@ -204,7 +210,9 @@ def load_user_added_courses():
             logger.info("Created empty user_added_courses.json file")
     except Exception as e:
         logger.error(f"Error loading user-added courses: {e}")
-        print(f"Error loading user-added courses: {e}")
+        # Only print in debug mode
+        if os.environ.get('DEBUG'):
+            print(f"Error loading user-added courses: {e}")
 
 # Load courses at module level
 # Try to load from Golestan data first if files exist, fallback to JSON

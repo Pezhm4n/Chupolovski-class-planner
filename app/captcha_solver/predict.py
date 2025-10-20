@@ -57,8 +57,10 @@ class CaptchaPredictor:
             self._create_prediction_model()
             
         except Exception as e:
-            print(f"Error loading model: {e}")
-            print("Please ensure the model file exists and is valid.")
+            # Only print in debug mode
+            if os.environ.get('DEBUG'):
+                print(f"Error loading model: {e}")
+                print("Please ensure the model file exists and is valid.")
             sys.exit(1)
     
     def _create_prediction_model(self):
@@ -85,7 +87,9 @@ class CaptchaPredictor:
                 # print("Prediction model created using second-to-last layer")
                 
         except Exception as e:
-            print(f"Error creating prediction model: {e}")
+            # Only print in debug mode
+            if os.environ.get('DEBUG'):
+                print(f"Error creating prediction model: {e}")
             sys.exit(1)
     
     def predict(self, image_content):
@@ -101,7 +105,9 @@ class CaptchaPredictor:
             return decoded_texts[0] if decoded_texts else ""
             
         except Exception as e:
-            print(f"Error during prediction: {e}")
+            # Only print in debug mode
+            if os.environ.get('DEBUG'):
+                print(f"Error during prediction: {e}")
             return ""
 
 def predict(image_content):

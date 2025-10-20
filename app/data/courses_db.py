@@ -45,24 +45,34 @@ class CourseDatabase:
                 self.config = db_config
                 self._create_database_if_not_exists()
                 self.use_postgres = True
-                print("✓ Using PostgreSQL database")
+                # Only print in debug mode
+                if os.environ.get('DEBUG'):
+                    print("✓ Using PostgreSQL database")
 
             except Exception as e:
-                print(f"⚠ PostgreSQL connection failed: {e}")
-                print("✓ Falling back to SQLite database")
+                # Only print in debug mode
+                if os.environ.get('DEBUG'):
+                    print(f"⚠ PostgreSQL connection failed: {e}")
+                    print("✓ Falling back to SQLite database")
                 self._setup_sqlite()
         else:
             # Use SQLite (either forced or PostgreSQL not available)
             if not POSTGRES_AVAILABLE:
-                print("⚠ psycopg2 not installed (run: pip install psycopg2-binary)")
-            print("✓ Using SQLite database")
+                # Only print in debug mode
+                if os.environ.get('DEBUG'):
+                    print("⚠ psycopg2 not installed (run: pip install psycopg2-binary)")
+            # Only print in debug mode
+            if os.environ.get('DEBUG'):
+                print("✓ Using SQLite database")
             self._setup_sqlite()
 
     def _setup_sqlite(self):
         """Setup SQLite database."""
         self.use_sqlite = True
         self.sqlite_path = os.path.join(os.path.dirname(__file__), 'golestan_courses.db')
-        print(f"  Database file: {self.sqlite_path}")
+        # Only print in debug mode
+        if os.environ.get('DEBUG'):
+            print(f"  Database file: {self.sqlite_path}")
 
     def _create_database_if_not_exists(self):
         """Create the PostgreSQL database if it doesn't exist."""
@@ -92,16 +102,22 @@ class CourseDatabase:
                             sql.Identifier(self.config['database'])
                         )
                     )
-                    print(f"  Database '{self.config['database']}' created successfully")
+                    # Only print in debug mode
+                    if os.environ.get('DEBUG'):
+                        print(f"  Database '{self.config['database']}' created successfully")
                 else:
-                    print(f"  Database '{self.config['database']}' already exists")
+                    # Only print in debug mode
+                    if os.environ.get('DEBUG'):
+                        print(f"  Database '{self.config['database']}' already exists")
 
             finally:
                 cursor.close()
                 conn.close()
 
         except Exception as e:
-            print(f"✗ Error with database setup: {e}")
+            # Only print in debug mode
+            if os.environ.get('DEBUG'):
+                print(f"✗ Error with database setup: {e}")
             raise  # Re-raise to be caught in __init__
 
     def get_connection(self):
@@ -165,11 +181,15 @@ class CourseDatabase:
                 cursor.execute("PRAGMA foreign_keys = ON")
 
             conn.commit()
-            print("✓ All tables dropped successfully")
+            # Only print in debug mode
+            if os.environ.get('DEBUG'):
+                print("✓ All tables dropped successfully")
 
         except Exception as e:
             conn.rollback()
-            print(f"✗ Error dropping tables: {e}")
+            # Only print in debug mode
+            if os.environ.get('DEBUG'):
+                print(f"✗ Error dropping tables: {e}")
             raise
         finally:
             cursor.close()
@@ -312,6 +332,9 @@ class CourseDatabase:
                 "CREATE INDEX IF NOT EXISTS idx_schedule_entries_timeslot ON schedule_entries (time_slot_id)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_schedule_entries_location ON schedule_entries (location_id)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_instructors_name ON instructors (name)")
+
+            # Create search indexes for optimized search performance
+            self.create_search_indexes()
 
             conn.commit()
             print("✓ Database tables created successfully")
@@ -692,6 +715,51 @@ class CourseDatabase:
             """
         else:
             return "GROUP BY c.code"
+
+    def _get_schedule_subquery(self) -> str:
+        """Get subquery for schedule aggregation in FTS searches."""
+        if self.use_postgres:
+            return """
+                SELECT 
+                    c.code as course_code,
+                    COALESCE(
+                        json_agg(
+                            json_build_object(
+                                'day', ts.day,
+                                'start', ts.start_time,
+                                'end', ts.end_time,
+                                'parity', COALESCE(se.parity, ''),
+                                'location', COALESCE(l.name, '')
+                            ) ORDER BY ts.day, ts.start_time
+                        ) FILTER (WHERE ts.id IS NOT NULL),
+                        '[]'
+                    ) as schedule
+                FROM courses c
+                LEFT JOIN course_schedules cs ON c.code = cs.course_code
+                LEFT JOIN schedule_entries se ON cs.schedule_entry_id = se.id
+                LEFT JOIN time_slots ts ON se.time_slot_id = ts.id
+                LEFT JOIN locations l ON se.location_id = l.id
+                GROUP BY c.code
+            """
+        else:
+            return """
+                SELECT 
+                    c.code as course_code,
+                    GROUP_CONCAT(
+                        ts.day || '|' || 
+                        ts.start_time || '|' || 
+                        ts.end_time || '|' || 
+                        COALESCE(se.parity, '') || '|' || 
+                        COALESCE(l.name, ''),
+                        ';;'
+                    ) as schedule_data
+                FROM courses c
+                LEFT JOIN course_schedules cs ON c.code = cs.course_code
+                LEFT JOIN schedule_entries se ON cs.schedule_entry_id = se.id
+                LEFT JOIN time_slots ts ON se.time_slot_id = ts.id
+                LEFT JOIN locations l ON se.location_id = l.id
+                GROUP BY c.code
+            """
 
     def _get_availability_filter(self, availability: str) -> str:
         """

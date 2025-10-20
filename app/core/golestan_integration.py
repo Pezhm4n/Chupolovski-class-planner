@@ -61,6 +61,57 @@ def fetch_golestan_courses(status='both', username=None, password=None):
         logger.error(f"Error fetching courses from Golestan: {e}")
         raise
 
+def load_courses_from_database(db):
+    """
+    Load courses from the database and convert to the format expected by the UI
+    
+    Args:
+        db: CourseDatabase instance
+        
+    Returns:
+        dict: Courses in internal format compatible with COURSES structure
+    """
+    try:
+        logger.info("Loading courses from database...")
+        
+        # Get all courses from database in hierarchical format
+        db_courses = db.get_all_courses(return_hierarchy=True)
+        
+        # Convert to the format expected by the application
+        all_courses = {}
+        global COURSE_MAJORS
+        COURSE_MAJORS = {}
+        
+        course_count = 0
+        
+        # Process the hierarchical structure from database
+        for faculty_name, departments in db_courses.items():
+            for department_name, courses in departments.items():
+                # Create major identifier from faculty and department
+                major_identifier = f"{faculty_name} - {department_name}"
+                
+                for course in courses:
+                    # Generate a unique key for the course
+                    course_key = generate_course_key_from_db(course)
+                    
+                    # Convert database format to internal format
+                    converted_course = convert_db_course_format(course)
+                    
+                    # Add to all courses
+                    all_courses[course_key] = converted_course
+                    
+                    # Store major information for this course
+                    COURSE_MAJORS[course_key] = major_identifier
+                    
+                    course_count += 1
+        
+        logger.info(f"Successfully loaded {course_count} courses from database")
+        return all_courses
+        
+    except Exception as e:
+        logger.error(f"Error loading courses from database: {e}")
+        raise
+
 def load_golestan_data() -> Dict[str, Any]:
     """
     Load and process course data from Golestan scraper output files
@@ -114,7 +165,9 @@ def load_golestan_data() -> Dict[str, Any]:
                         session['day'] = normalize_day_name(session['day'])
         
         logger.info(f"Loaded {len(all_courses)} total courses ({available_count} available + {unavailable_count} unavailable)")
-        print(f"Loaded {len(all_courses)} total courses ({available_count} available + {unavailable_count} unavailable)")
+        # Only print in debug mode
+        if os.environ.get('DEBUG'):
+            print(f"Loaded {len(all_courses)} total courses ({available_count} available + {unavailable_count} unavailable)")
         return all_courses
         
     except Exception as e:
@@ -156,6 +209,36 @@ def process_golestan_faculty_data(faculty_data: Dict, all_courses: Dict, course_
         logger.error(f"Error processing faculty data: {e}")
         raise
 
+def generate_course_key_from_db(course: Dict) -> str:
+    """
+    Generate a unique key for a course based on its code from database
+    
+    Args:
+        course: Course data from database
+        
+    Returns:
+        str: Unique course key
+    """
+    code = course.get('code', '')
+    # Create a safe key by replacing problematic characters
+    safe_code = code.replace(' ', '_').replace('-', '_').replace('.', '_')
+    
+    # If the code is empty, generate a unique key
+    if not safe_code:
+        # Use name and instructor as fallback
+        name = course.get('name', 'unknown')
+        instructor = course.get('instructor', 'unknown')
+        safe_code = f"{name}_{instructor}".replace(' ', '_').replace('-', '_').replace('.', '_')
+    
+    # Ensure uniqueness
+    base_key = safe_code
+    counter = 1
+    while base_key in COURSES:
+        base_key = f"{safe_code}_{counter}"
+        counter += 1
+    
+    return base_key
+
 def generate_course_key(course: Dict) -> str:
     """
     Generate a unique key for a course based on its code and other identifiers
@@ -185,6 +268,67 @@ def generate_course_key(course: Dict) -> str:
         counter += 1
     
     return base_key
+
+def convert_db_course_format(course: Dict) -> Dict:
+    """
+    Convert course data from database format to internal format
+    
+    Args:
+        course: Course data from database
+        
+    Returns:
+        dict: Course in internal format
+    """
+    try:
+        # Extract location from first schedule session if exists
+        schedule = course.get('schedule', [])
+        course_location = ''  # Default to empty
+        
+        if schedule:
+            # Get location from first session that has one
+            for session in schedule:
+                if session.get('location'):
+                    course_location = session['location']
+                    break
+        
+        converted = {
+            'code': course.get('code', ''),
+            'name': course.get('name', ''),
+            'credits': int(course.get('credits', 0)),
+            'instructor': course.get('instructor', 'اساتيد گروه آموزشي'),
+            'schedule': schedule,
+            'location': course_location,
+            'description': '',  # Database doesn't store this
+            'exam_time': course.get('exam_time', ''),
+            # New fields from database
+            'capacity': course.get('capacity', ''),
+            'gender_restriction': course.get('gender', ''),
+            'enrollment_conditions': course.get('enrollment_conditions', ''),
+            'is_available': course.get('is_available', True)
+        }
+        
+        # Clean up instructor name
+        converted['instructor'] = converted['instructor'].replace('<BR>', '').strip()
+        
+        return converted
+        
+    except Exception as e:
+        logger.error(f"Error converting database course format: {e}")
+        # Return a basic conversion if there's an error
+        return {
+            'code': course.get('code', ''),
+            'name': course.get('name', ''),
+            'credits': 0,
+            'instructor': 'اساتيد گروه آموزشي',
+            'schedule': [],
+            'location': '',
+            'description': '',
+            'exam_time': '',
+            'capacity': '',
+            'gender_restriction': '',
+            'enrollment_conditions': '',
+            'is_available': True
+        }
 
 def convert_golestan_course_format(course: Dict, is_available: bool) -> Dict:
     """
