@@ -39,6 +39,9 @@ from .exam_schedule_window import ExamScheduleWindow
 # Import student profile dialog
 from .student_profile_dialog import StudentProfileDialog
 
+# Import tutorial dialog
+from .tutorial_dialog import TutorialDialog, show_tutorial
+
 # Import credential handling modules
 from app.core.credentials import load_local_credentials
 from .credentials_dialog import get_golestan_credentials
@@ -5408,6 +5411,16 @@ class SchedulerWindow(QtWidgets.QMainWindow):
                     pass
                 self.action_student_profile.triggered.connect(self.show_student_profile)
             
+            # Connect the tutorial action if it exists in the UI
+            if hasattr(self, 'action_tutorial'):
+                # Disconnect any existing connections first to prevent duplicates
+                try:
+                    self.action_tutorial.triggered.disconnect(self.show_tutorial)
+                except TypeError:
+                    # No existing connection, that's fine
+                    pass
+                self.action_tutorial.triggered.connect(self.show_tutorial)
+            
             # Create "Usage History" menu
             history_menu = menubar.addMenu('سوابق استفاده')
             
@@ -5550,6 +5563,32 @@ class SchedulerWindow(QtWidgets.QMainWindow):
             
         except Exception as e:
             logger.error(f"Error clearing schedule table: {e}")
+
+    def show_tutorial(self):
+        """Show the tutorial dialog"""
+        try:
+            # Create and show the tutorial dialog
+            dialog = TutorialDialog(self)
+            
+            # Connect the finished signal
+            def on_tutorial_finished(normally):
+                # Handle tutorial completion
+                if normally:
+                    logger.info("Tutorial finished normally")
+                else:
+                    logger.info("Tutorial was skipped")
+                    
+            dialog.tutorial_finished.connect(on_tutorial_finished)
+            
+            # Show the dialog
+            dialog.exec_()
+        except Exception as e:
+            logger.error(f"Error showing tutorial: {e}")
+            QtWidgets.QMessageBox.critical(
+                self, 
+                "خطا", 
+                f"خطا در نمایش آموزش برنامه: {str(e)}"
+            )
 
     def closeEvent(self, event):
         """Handle application close event - create auto backup before exit"""
@@ -5721,4 +5760,12 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         """
         # Implementation would go here
         pass
+
+    def keyPressEvent(self, event):
+        """Handle key press events for the main window"""
+        # Handle F1 key to show tutorial (F1 key code is 16777264)
+        if event.key() == 16777264:
+            self.show_tutorial()
+        else:
+            super().keyPressEvent(event)
 
