@@ -600,8 +600,15 @@
     <addaction name="action_show_exam_schedule"/>
     <addaction name="action_export_exam_schedule"/>
    </widget>
+   <widget class="QMenu" name="menu_help">
+    <property name="title">
+     <string>راهنما</string>
+    </property>
+    <addaction name="action_tutorial"/>
+   </widget>
    <addaction name="menu_data"/>
    <addaction name="menu_tools"/>
+   <addaction name="menu_help"/>
    <addaction name="action_student_profile"/>
   </widget>
   <widget class="QStatusBar" name="statusbar"/>
@@ -633,6 +640,11 @@
   <action name="action_student_profile">
    <property name="text">
     <string>پروفایل دانشجو</string>
+   </property>
+  </action>
+  <action name="action_tutorial">
+   <property name="text">
+    <string>آموزش برنامه</string>
    </property>
   </action>
  </widget>

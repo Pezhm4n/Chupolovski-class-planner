@@ -1,0 +1,1161 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<ui version="4.0">
+ <class>TutorialDialog</class>
+ <widget class="QDialog" name="TutorialDialog">
+  <property name="geometry">
+   <rect>
+    <x>0</x>
+    <y>0</y>
+    <width>900</width>
+    <height>650</height>
+   </rect>
+  </property>
+  <property name="windowTitle">
+   <string>راهنمای گلستون</string>
+  </property>
+  <property name="layoutDirection">
+   <enum>Qt::RightToLeft</enum>
+  </property>
+  <layout class="QHBoxLayout" name="horizontalLayout">
+   <property name="spacing">
+    <number>10</number>
+   </property>
+   <property name="leftMargin">
+    <number>20</number>
+   </property>
+   <property name="topMargin">
+    <number>20</number>
+   </property>
+   <property name="rightMargin">
+    <number>20</number>
+   </property>
+   <property name="bottomMargin">
+    <number>20</number>
+   </property>
+   <item>
+    <widget class="QFrame" name="sidebarFrame">
+     <property name="minimumSize">
+      <size>
+       <width>200</width>
+       <height>0</height>
+      </size>
+     </property>
+     <property name="maximumSize">
+      <size>
+       <width>250</width>
+       <height>16777215</height>
+      </size>
+     </property>
+     <property name="frameShape">
+      <enum>QFrame::StyledPanel</enum>
+     </property>
+     <property name="frameShadow">
+      <enum>QFrame::Raised</enum>
+     </property>
+     <layout class="QVBoxLayout" name="sidebarLayout">
+      <property name="spacing">
+       <number>5</number>
+      </property>
+      <property name="leftMargin">
+       <number>10</number>
+      </property>
+      <property name="topMargin">
+       <number>10</number>
+      </property>
+      <property name="rightMargin">
+       <number>10</number>
+      </property>
+      <property name="bottomMargin">
+       <number>10</number>
+      </property>
+      <item>
+       <widget class="QLabel" name="sidebarTitle">
+        <property name="font">
+         <font>
+          <pointsize>12</pointsize>
+          <weight>75</weight>
+          <bold>true</bold>
+         </font>
+        </property>
+        <property name="text">
+         <string>فهرست محتوا</string>
+        </property>
+        <property name="alignment">
+         <set>Qt::AlignCenter</set>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="Line" name="sidebarLine">
+        <property name="orientation">
+         <enum>Qt::Horizontal</enum>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QPushButton" name="welcomeButton">
+        <property name="text">
+         <string>🏠 خوش‌آمدگویی</string>
+        </property>
+        <property name="checkable">
+         <bool>true</bool>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QPushButton" name="interfaceButton">
+        <property name="text">
+         <string>🖥️ معرفی محیط کاربری</string>
+        </property>
+        <property name="checkable">
+         <bool>true</bool>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QPushButton" name="addCourseButton">
+        <property name="text">
+         <string>➕ اضافه کردن درس</string>
+        </property>
+        <property name="checkable">
+         <bool>true</bool>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QPushButton" name="manageCoursesButton">
+        <property name="text">
+         <string>🔧 مدیریت دروس</string>
+        </property>
+        <property name="checkable">
+         <bool>true</bool>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QPushButton" name="scheduleButton">
+        <property name="text">
+         <string>📅 کار با جدول برنامه</string>
+        </property>
+        <property name="checkable">
+         <bool>true</bool>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QPushButton" name="golestanButton">
+        <property name="text">
+         <string>🌐 دریافت از گلستان</string>
+        </property>
+        <property name="checkable">
+         <bool>true</bool>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QPushButton" name="databaseButton">
+        <property name="text">
+         <string>💾 ذخیره اطلاعات</string>
+        </property>
+        <property name="checkable">
+         <bool>true</bool>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QPushButton" name="studentProfileButton">
+        <property name="text">
+         <string>👤 پروفایل دانشجو</string>
+        </property>
+        <property name="checkable">
+         <bool>true</bool>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QPushButton" name="examScheduleButton">
+        <property name="text">
+         <string>📝 برنامه امتحانات</string>
+        </property>
+        <property name="checkable">
+         <bool>true</bool>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QPushButton" name="backupButton">
+        <property name="text">
+         <string>🔒 امنیت اطلاعات</string>
+        </property>
+        <property name="checkable">
+         <bool>true</bool>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <widget class="QPushButton" name="finishButtonSidebar">
+        <property name="text">
+         <string>🏁 پایان</string>
+        </property>
+        <property name="checkable">
+         <bool>true</bool>
+        </property>
+       </widget>
+      </item>
+      <item>
+       <spacer name="sidebarSpacer">
+        <property name="orientation">
+         <enum>Qt::Vertical</enum>
+        </property>
+        <property name="sizeHint" stdset="0">
+         <size>
+          <width>20</width>
+          <height>40</height>
+         </size>
+        </property>
+       </spacer>
+      </item>
+     </layout>
+    </widget>
+   </item>
+   <item>
+    <layout class="QVBoxLayout" name="mainLayout">
+     <property name="spacing">
+      <number>10</number>
+     </property>
+     <item>
+      <widget class="QLabel" name="titleLabel">
+       <property name="font">
+        <font>
+         <pointsize>16</pointsize>
+         <weight>75</weight>
+         <bold>true</bold>
+        </font>
+       </property>
+       <property name="text">
+        <string> به برنامه گلستون - دستیار دانشجو خوش آمدید! 🎓</string>
+       </property>
+       <property name="alignment">
+        <set>Qt::AlignCenter</set>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QProgressBar" name="progressBar">
+       <property name="value">
+        <number>0</number>
+       </property>
+       <property name="textVisible">
+        <bool>false</bool>
+       </property>
+      </widget>
+     </item>
+     <item>
+      <widget class="QStackedWidget" name="stackedWidget">
+       <property name="currentIndex">
+        <number>0</number>
+       </property>
+       <widget class="QWidget" name="welcomePage">
+        <layout class="QVBoxLayout" name="verticalLayout_2">
+         <property name="spacing">
+          <number>15</number>
+         </property>
+         <property name="leftMargin">
+          <number>20</number>
+         </property>
+         <property name="topMargin">
+          <number>20</number>
+         </property>
+         <property name="rightMargin">
+          <number>20</number>
+         </property>
+         <property name="bottomMargin">
+          <number>20</number>
+         </property>
+         <item>
+          <widget class="QLabel" name="welcomeIcon">
+           <property name="minimumSize">
+            <size>
+             <width>150</width>
+             <height>150</height>
+            </size>
+           </property>
+           <property name="text">
+            <string/>
+           </property>
+           <property name="pixmap">
+            <pixmap>:/icons/app_icon.png</pixmap>
+           </property>
+           <property name="scaledContents">
+            <bool>true</bool>
+           </property>
+           <property name="alignment">
+            <set>Qt::AlignCenter</set>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QLabel" name="welcomeText">
+           <property name="font">
+            <font>
+             <pointsize>12</pointsize>
+            </font>
+           </property>
+           <property name="text">
+            <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p dir="rtl" align="justify"&gt;به برنامه گلستون خوش آمدید! این برنامه به شما کمک می‌کند تا برنامه هفتگی دروس و وضعیت نمرات خود را به راحتی مدیریت کنید.&lt;/p&gt;&lt;p dir="rtl" align="justify"&gt;در این راهنما با تمام قابلیت‌های برنامه آشنا می‌شوید. هدف ما این است که شما بتوانید به راحتی از برنامه استفاده کنید و تجربه‌ای لذت‌بخش داشته باشید.&lt;/p&gt;&lt;p dir="rtl" align="justify"&gt;برنامه امکانات متنوعی دارد که به شما در مدیریت بهتر دروس کمک می‌کند.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
+           </property>
+           <property name="alignment">
+            <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
+           </property>
+           <property name="wordWrap">
+            <bool>true</bool>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <spacer name="verticalSpacer">
+           <property name="orientation">
+            <enum>Qt::Vertical</enum>
+           </property>
+           <property name="sizeHint" stdset="0">
+            <size>
+             <width>20</width>
+             <height>40</height>
+            </size>
+           </property>
+          </spacer>
+         </item>
+        </layout>
+       </widget>
+       <widget class="QWidget" name="interfacePage">
+        <layout class="QVBoxLayout" name="verticalLayout_3">
+         <property name="spacing">
+          <number>15</number>
+         </property>
+         <property name="leftMargin">
+          <number>20</number>
+         </property>
+         <property name="topMargin">
+          <number>20</number>
+         </property>
+         <property name="rightMargin">
+          <number>20</number>
+         </property>
+         <property name="bottomMargin">
+          <number>20</number>
+         </property>
+         <item>
+          <widget class="QLabel" name="interfaceTitle">
+           <property name="font">
+            <font>
+             <pointsize>14</pointsize>
+             <weight>75</weight>
+             <bold>true</bold>
+            </font>
+           </property>
+           <property name="text">
+            <string>معرفی محیط کاربری</string>
+           </property>
+           <property name="alignment">
+            <set>Qt::AlignCenter</set>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QLabel" name="interfaceImage">
+           <property name="minimumSize">
+            <size>
+             <width>0</width>
+             <height>200</height>
+            </size>
+           </property>
+           <property name="text">
+            <string/>
+           </property>
+           <property name="pixmap">
+            <pixmap>:/images/interface.png</pixmap>
+           </property>
+           <property name="scaledContents">
+            <bool>true</bool>
+           </property>
+           <property name="alignment">
+            <set>Qt::AlignCenter</set>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QLabel" name="interfaceText">
+           <property name="font">
+            <font>
+             <pointsize>11</pointsize>
+            </font>
+           </property>
+           <property name="text">
+            <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p dir="rtl" align="justify"&gt;محیط برنامه به سه بخش اصلی تقسیم شده است که هر کدام وظیفه خاصی را بر عهده دارند:&lt;/p&gt;&lt;ul style="text-align: right; direction: rtl; list-style-position: inside;"&gt;&lt;li&gt;&lt;span style=" font-weight:600;"&gt;بخش راست:&lt;/span&gt; لیست دروس و عملیات اصلی شامل افزودن، ویرایش و حذف دروس&lt;/li&gt;&lt;li&gt;&lt;span style=" font-weight:600;"&gt;بخش وسط:&lt;/span&gt; جدول برنامه هفتگی که در آن دروس را قرار می‌دهید&lt;/li&gt;&lt;li&gt;&lt;span style=" font-weight:600;"&gt;بخش چپ:&lt;/span&gt; اطلاعات، آمار و ابزارهای پیشرفته مانند جستجو و فیلتر&lt;/li&gt;&lt;/ul&gt;&lt;p dir="rtl" align="justify"&gt;هر بخش به طور کامل قابل شخصی‌سازی است و می‌توانید اندازه آن‌ها را با کشیدن جداکننده‌ها تغییر دهید. این انعطاف‌پذیری به شما امکان می‌دهد محیط کاری مطلوب خود را ایجاد کنید.&lt;/p&gt;&lt;p dir="rtl" align="justify"&gt;نوار منو در بالای صفحه تمام امکانات برنامه را در اختیار شما قرار می‌دهد. از جمله این امکانات می‌توان به ذخیره و بازیابی برنامه، چاپ جدول و ابزارهای پیشرفته اشاره کرد.&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
+           </property>
+           <property name="alignment">
+            <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
+           </property>
+           <property name="wordWrap">
+            <bool>true</bool>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </widget>
+       <widget class="QWidget" name="addCoursePage">
+        <layout class="QVBoxLayout" name="verticalLayout_4">
+         <property name="spacing">
+          <number>15</number>
+         </property>
+         <property name="leftMargin">
+          <number>20</number>
+         </property>
+         <property name="topMargin">
+          <number>20</number>
+         </property>
+         <property name="rightMargin">
+          <number>20</number>
+         </property>
+         <property name="bottomMargin">
+          <number>20</number>
+         </property>
+         <item>
+          <widget class="QLabel" name="addCourseTitle">
+           <property name="font">
+            <font>
+             <pointsize>14</pointsize>
+             <weight>75</weight>
+             <bold>true</bold>
+            </font>
+           </property>
+           <property name="text">
+            <string>اضافه کردن درس</string>
+           </property>
+           <property name="alignment">
+            <set>Qt::AlignCenter</set>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QLabel" name="addCourseImage">
+           <property name="minimumSize">
+            <size>
+             <width>0</width>
+             <height>200</height>
+            </size>
+           </property>
+           <property name="text">
+            <string/>
+           </property>
+           <property name="pixmap">
+            <pixmap>:/images/add_course.png</pixmap>
+           </property>
+           <property name="scaledContents">
+            <bool>true</bool>
+           </property>
+           <property name="alignment">
+            <set>Qt::AlignCenter</set>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QLabel" name="addCourseText">
+           <property name="font">
+            <font>
+             <pointsize>11</pointsize>
+            </font>
+           </property>
+           <property name="text">
+            <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p dir="rtl" align="justify"&gt;برای اضافه کردن درس می‌توانید از دو روش مختلف استفاده کنید:&lt;/p&gt;&lt;h3 dir="rtl" align="justify"&gt;روش اول: اضافه کردن دستی&lt;/h3&gt;&lt;ol style="text-align: right; direction: rtl; list-style-position: inside;"&gt;&lt;li&gt;روی دکمه &amp;quot;➕ افزودن درس&amp;quot; کلیک کنید&lt;/li&gt;&lt;li&gt;اطلاعات درس را وارد کنید (نام، کد، استاد، زمان)&lt;/li&gt;&lt;li&gt;روی &amp;quot;ذخیره&amp;quot; کلیک کنید&lt;/li&gt;&lt;/ol&gt;&lt;h3 dir="rtl" align="justify"&gt;روش دوم: دریافت خودکار از گلستان&lt;/h3&gt;&lt;p dir="rtl" align="justify"&gt;از منوی &amp;quot;داده‌ها&amp;quot; گزینه &amp;quot;دریافت خودکار از گلستان&amp;quot; را انتخاب کنید تا دروس به صورت خودکار از سامانه گلستان دریافت شوند.&lt;/p&gt;&lt;h3 dir="rtl" align="justify"&gt;نکات مهم:&lt;/h3&gt;&lt;ul style="text-align: right; direction: rtl; list-style-position: inside;"&gt;&lt;li&gt;زمان‌های درس باید با فرمت استاندارد وارد شوند (مثلاً 08:00-10:00)&lt;/li&gt;&lt;li&gt;می‌توانید چندین زمان برای یک درس وارد کنید (مثلاً کلاس + حل تمرین)&lt;/li&gt;&lt;li&gt;رنگ هر درس به صورت خودکار تعیین می‌شود&lt;/li&gt;&lt;li&gt;می‌توانید اطلاعات تکمیلی مانند محل کلاس، ظرفیت و توضیحات را وارد کنید&lt;/li&gt;&lt;/ul&gt;&lt;/body&gt;&lt;/html&gt;</string>
+           </property>
+           <property name="alignment">
+            <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
+           </property>
+           <property name="wordWrap">
+            <bool>true</bool>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </widget>
+       <widget class="QWidget" name="manageCoursesPage">
+        <layout class="QVBoxLayout" name="verticalLayout_5">
+         <property name="spacing">
+          <number>15</number>
+         </property>
+         <property name="leftMargin">
+          <number>20</number>
+         </property>
+         <property name="topMargin">
+          <number>20</number>
+         </property>
+         <property name="rightMargin">
+          <number>20</number>
+         </property>
+         <property name="bottomMargin">
+          <number>20</number>
+         </property>
+         <item>
+          <widget class="QLabel" name="manageCoursesTitle">
+           <property name="font">
+            <font>
+             <pointsize>14</pointsize>
+             <weight>75</weight>
+             <bold>true</bold>
+            </font>
+           </property>
+           <property name="text">
+            <string>مدیریت دروس</string>
+           </property>
+           <property name="alignment">
+            <set>Qt::AlignCenter</set>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QLabel" name="manageCoursesImage">
+           <property name="minimumSize">
+            <size>
+             <width>0</width>
+             <height>200</height>
+            </size>
+           </property>
+           <property name="text">
+            <string/>
+           </property>
+           <property name="pixmap">
+            <pixmap>:/images/manage_courses.png</pixmap>
+           </property>
+           <property name="scaledContents">
+            <bool>true</bool>
+           </property>
+           <property name="alignment">
+            <set>Qt::AlignCenter</set>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QLabel" name="manageCoursesText">
+           <property name="font">
+            <font>
+             <pointsize>11</pointsize>
+            </font>
+           </property>
+           <property name="text">
+            <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p dir="rtl" align="justify"&gt;مدیریت دروس یکی از مهم‌ترین بخش‌های برنامه است که به شما امکان می‌دهد دروس خود را به راحتی سازماندهی کنید:&lt;/p&gt;&lt;h3 dir="rtl" align="justify"&gt;جستجو و فیلتر&lt;/h3&gt;&lt;ul style="text-align: right; direction: rtl; list-style-position: inside;"&gt;&lt;li&gt;&lt;span style=" font-weight:600;"&gt;جستجو:&lt;/span&gt; از کادر جستجو در بالای لیست دروس استفاده کنید&lt;/li&gt;&lt;li&gt;&lt;span style=" font-weight:600;"&gt;فیلتر:&lt;/span&gt; از منوی کشویی برای فیلتر کردن بر اساس رشته استفاده کنید&lt;/li&gt;&lt;/ul&gt;&lt;h3 dir="rtl" align="justify"&gt;ویرایش و حذف&lt;/h3&gt;&lt;ul style="text-align: right; direction: rtl; list-style-position: inside;"&gt;&lt;li&gt;&lt;span style=" font-weight:600;"&gt;ویرایش:&lt;/span&gt; روی درس مورد نظر دبل کلیک کنید یا از منوی زمینه استفاده کنید&lt;/li&gt;&lt;li&gt;&lt;span style=" font-weight:600;"&gt;حذف:&lt;/span&gt; درس را انتخاب کرده و از منوی زمینه گزینه حذف را انتخاب کنید&lt;/li&gt;&lt;/ul&gt;&lt;/body&gt;&lt;/html&gt;</string>
+           </property>
+           <property name="alignment">
+            <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
+           </property>
+           <property name="wordWrap">
+            <bool>true</bool>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </widget>
+       <widget class="QWidget" name="schedulePage">
+        <layout class="QVBoxLayout" name="verticalLayout_6">
+         <property name="spacing">
+          <number>15</number>
+         </property>
+         <property name="leftMargin">
+          <number>20</number>
+         </property>
+         <property name="topMargin">
+          <number>20</number>
+         </property>
+         <property name="rightMargin">
+          <number>20</number>
+         </property>
+         <property name="bottomMargin">
+          <number>20</number>
+         </property>
+         <item>
+          <widget class="QLabel" name="scheduleTitle">
+           <property name="font">
+            <font>
+             <pointsize>14</pointsize>
+             <weight>75</weight>
+             <bold>true</bold>
+            </font>
+           </property>
+           <property name="text">
+            <string>کار با جدول برنامه</string>
+           </property>
+           <property name="alignment">
+            <set>Qt::AlignCenter</set>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QLabel" name="scheduleImage">
+           <property name="minimumSize">
+            <size>
+             <width>0</width>
+             <height>200</height>
+            </size>
+           </property>
+           <property name="text">
+            <string/>
+           </property>
+           <property name="pixmap">
+            <pixmap>:/images/schedule.png</pixmap>
+           </property>
+           <property name="scaledContents">
+            <bool>true</bool>
+           </property>
+           <property name="alignment">
+            <set>Qt::AlignCenter</set>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QLabel" name="scheduleText">
+           <property name="font">
+            <font>
+             <pointsize>11</pointsize>
+            </font>
+           </property>
+           <property name="text">
+            <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p dir="rtl" align="justify"&gt;جدول برنامه قلب تپنده برنامه است که در آن دروس خود را قرار می‌دهید:&lt;/p&gt;&lt;h3 dir="rtl" align="justify"&gt;اضافه کردن درس به جدول&lt;/h3&gt;&lt;ul style="text-align: right; direction: rtl; list-style-position: inside;"&gt;&lt;li&gt;&lt;span style=" font-weight:600;"&gt;روش:&lt;/span&gt; روی درس در لیست سمت چپ دبل کلیک کنید&lt;/li&gt;&lt;/ul&gt;&lt;h3 dir="rtl" align="justify"&gt;مشاهده جزئیات&lt;/h3&gt;&lt;ul style="text-align: right; direction: rtl; list-style-position: inside;"&gt;&lt;li&gt;&lt;span style=" font-weight:600;"&gt;مشاهده جزئیات:&lt;/span&gt; نشانگر ماوس را روی درس در جدول نگه دارید&lt;/li&gt;&lt;li&gt;&lt;span style=" font-weight:600;"&gt;تداخل زمانی:&lt;/span&gt; درس‌هایی که با هم تداخل دارند با رنگ قرمز نشان داده می‌شوند&lt;/li&gt;&lt;/ul&gt;&lt;h3 dir="rtl" align="justify"&gt;مدیریت دروس در جدول&lt;/h3&gt;&lt;ul style="text-align: right; direction: rtl; list-style-position: inside;"&gt;&lt;li&gt;&lt;span style=" font-weight:600;"&gt;حذف:&lt;/span&gt; روی دکمه &amp;quot;✕&amp;quot; در گوشه درس کلیک کنید&lt;/li&gt;&lt;/ul&gt;&lt;h3 dir="rtl" align="justify"&gt;نکات مهم:&lt;/h3&gt;&lt;ul style="text-align: right; direction: rtl; list-style-position: inside;"&gt;&lt;li&gt;برای چاپ یا ذخیره برنامه از منوی ابزارها استفاده کنید&lt;/li&gt;&lt;li&gt;برای انتخاب بهترین ترکیب دروس، از چیدمان خودکار استفاده کنید&lt;/li&gt;&lt;/ul&gt;&lt;/body&gt;&lt;/html&gt;</string>
+           </property>
+           <property name="alignment">
+            <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
+           </property>
+           <property name="wordWrap">
+            <bool>true</bool>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </widget>
+       <widget class="QWidget" name="golestanPage">
+        <layout class="QVBoxLayout" name="verticalLayout_7">
+         <property name="spacing">
+          <number>15</number>
+         </property>
+         <property name="leftMargin">
+          <number>20</number>
+         </property>
+         <property name="topMargin">
+          <number>20</number>
+         </property>
+         <property name="rightMargin">
+          <number>20</number>
+         </property>
+         <property name="bottomMargin">
+          <number>20</number>
+         </property>
+         <item>
+          <widget class="QLabel" name="golestanTitle">
+           <property name="font">
+            <font>
+             <pointsize>14</pointsize>
+             <weight>75</weight>
+             <bold>true</bold>
+            </font>
+           </property>
+           <property name="text">
+            <string>دریافت اطلاعات از گلستان</string>
+           </property>
+           <property name="alignment">
+            <set>Qt::AlignCenter</set>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QLabel" name="golestanImage">
+           <property name="minimumSize">
+            <size>
+             <width>0</width>
+             <height>200</height>
+            </size>
+           </property>
+           <property name="text">
+            <string/>
+           </property>
+           <property name="pixmap">
+            <pixmap>:/images/golestan.png</pixmap>
+           </property>
+           <property name="scaledContents">
+            <bool>true</bool>
+           </property>
+           <property name="alignment">
+            <set>Qt::AlignCenter</set>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QLabel" name="golestanText">
+           <property name="font">
+            <font>
+             <pointsize>11</pointsize>
+            </font>
+           </property>
+           <property name="text">
+            <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p dir="rtl" align="justify"&gt;برنامه می‌تواند به صورت خودکار اطلاعات دروس و مشخصات شما را از سامانه گلستان دریافت کند:&lt;/p&gt;&lt;h3 dir="rtl" align="justify"&gt;دریافت مشخصات شما&lt;/h3&gt;&lt;ul style="text-align: right; direction: rtl; list-style-position: inside;"&gt;&lt;li&gt;از منوی &amp;quot;داده‌ها&amp;quot; گزینه &amp;quot;پروفایل دانشجو&amp;quot; را انتخاب کنید&lt;/li&gt;&lt;li&gt;شماره دانشجویی و رمز عبور خود را وارد کنید&lt;/li&gt;&lt;li&gt;مشخصات شما به صورت خودکار دریافت می‌شود&lt;/li&gt;&lt;/ul&gt;&lt;h3 dir="rtl" align="justify"&gt;دریافت اطلاعات دروس&lt;/h3&gt;&lt;ul style="text-align: right; direction: rtl; list-style-position: inside;"&gt;&lt;li&gt;از منوی &amp;quot;داده‌ها&amp;quot; گزینه &amp;quot;دریافت خودکار از گلستان&amp;quot; را انتخاب کنید&lt;/li&gt;&lt;li&gt;اطلاعات دروس به صورت خودکار دریافت می‌شوند&lt;/li&gt;&lt;li&gt;اطلاعات شامل نام درس، استاد، زمان و محل کلاس است&lt;/li&gt;&lt;/ul&gt;&lt;h3 dir="rtl" align="justify"&gt;مزایای این روش:&lt;/h3&gt;&lt;ul style="text-align: right; direction: rtl; list-style-position: inside;"&gt;&lt;li&gt;صرفه‌جویی در زمان&lt;/li&gt;&lt;li&gt;دقت بیشتر در وارد کردن اطلاعات&lt;/li&gt;&lt;li&gt;همگام‌سازی با آخرین تغییرات سامانه&lt;/li&gt;&lt;li&gt;رمز عبور شما به صورت امن ذخیره می‌شود&lt;/li&gt;&lt;/ul&gt;&lt;/body&gt;&lt;/html&gt;</string>
+           </property>
+           <property name="alignment">
+            <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
+           </property>
+           <property name="wordWrap">
+            <bool>true</bool>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </widget>
+       <widget class="QWidget" name="databasePage">
+        <layout class="QVBoxLayout" name="verticalLayout_9">
+         <property name="spacing">
+          <number>15</number>
+         </property>
+         <property name="leftMargin">
+          <number>20</number>
+         </property>
+         <property name="topMargin">
+          <number>20</number>
+         </property>
+         <property name="rightMargin">
+          <number>20</number>
+         </property>
+         <property name="bottomMargin">
+          <number>20</number>
+         </property>
+         <item>
+          <widget class="QLabel" name="databaseTitle">
+           <property name="font">
+            <font>
+             <pointsize>14</pointsize>
+             <weight>75</weight>
+             <bold>true</bold>
+            </font>
+           </property>
+           <property name="text">
+            <string>ذخیره اطلاعات</string>
+           </property>
+           <property name="alignment">
+            <set>Qt::AlignCenter</set>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QLabel" name="databaseImage">
+           <property name="minimumSize">
+            <size>
+             <width>0</width>
+             <height>200</height>
+            </size>
+           </property>
+           <property name="text">
+            <string/>
+           </property>
+           <property name="pixmap">
+            <pixmap>:/images/database.png</pixmap>
+           </property>
+           <property name="scaledContents">
+            <bool>true</bool>
+           </property>
+           <property name="alignment">
+            <set>Qt::AlignCenter</set>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QLabel" name="databaseText">
+           <property name="font">
+            <font>
+             <pointsize>11</pointsize>
+            </font>
+           </property>
+           <property name="text">
+            <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p dir="rtl" align="justify"&gt;برنامه تمام اطلاعات شما را به صورت امن و مطمئن ذخیره می‌کند:&lt;/p&gt;&lt;h3 dir="rtl" align="justify"&gt;ذخیره خودکار&lt;/h3&gt;&lt;ul style="text-align: right; direction: rtl; list-style-position: inside;"&gt;&lt;li&gt;تمام اطلاعات به صورت خودکار ذخیره می‌شوند&lt;/li&gt;&lt;li&gt;نیازی به ذخیره دستی ندارید&lt;/li&gt;&lt;li&gt;اطلاعات حتی در صورت خاموشی کامپیوتر حفظ می‌شوند&lt;/li&gt;&lt;/ul&gt;&lt;h3 dir="rtl" align="justify"&gt;جستجوی سریع&lt;/h3&gt;&lt;ul style="text-align: right; direction: rtl; list-style-position: inside;"&gt;&lt;li&gt;پیدا کردن سریع دروس با نام یا استاد&lt;/li&gt;&lt;li&gt;فیلتر کردن بر اساس دانشکده یا رشته&lt;/li&gt;&lt;li&gt;مرتب‌سازی نتایج بر اساس نام یا کد درس&lt;/li&gt;&lt;/ul&gt;&lt;h3 dir="rtl" align="justify"&gt;مزایای ذخیره اطلاعات:&lt;/h3&gt;&lt;ul style="text-align: right; direction: rtl; list-style-position: inside;"&gt;&lt;li&gt;دسترسی سریع به اطلاعات دروس در آینده&lt;/li&gt;&lt;li&gt;امکان بازیابی برنامه‌های قبلی&lt;/li&gt;&lt;li&gt;همگام‌سازی با آخرین تغییرات دروس&lt;/li&gt;&lt;li&gt;حفاظت از اطلاعات مهم شما&lt;/li&gt;&lt;/ul&gt;&lt;/body&gt;&lt;/html&gt;</string>
+           </property>
+           <property name="alignment">
+            <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
+           </property>
+           <property name="wordWrap">
+            <bool>true</bool>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </widget>
+       <widget class="QWidget" name="studentProfilePage">
+        <layout class="QVBoxLayout" name="verticalLayout_10">
+         <property name="spacing">
+          <number>15</number>
+         </property>
+         <property name="leftMargin">
+          <number>20</number>
+         </property>
+         <property name="topMargin">
+          <number>20</number>
+         </property>
+         <property name="rightMargin">
+          <number>20</number>
+         </property>
+         <property name="bottomMargin">
+          <number>20</number>
+         </property>
+         <item>
+          <widget class="QLabel" name="studentProfileTitle">
+           <property name="font">
+            <font>
+             <pointsize>14</pointsize>
+             <weight>75</weight>
+             <bold>true</bold>
+            </font>
+           </property>
+           <property name="text">
+            <string>پروفایل دانشجو</string>
+           </property>
+           <property name="alignment">
+            <set>Qt::AlignCenter</set>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QLabel" name="studentProfileImage">
+           <property name="minimumSize">
+            <size>
+             <width>0</width>
+             <height>200</height>
+            </size>
+           </property>
+           <property name="text">
+            <string/>
+           </property>
+           <property name="pixmap">
+            <pixmap>:/images/student_profile.png</pixmap>
+           </property>
+           <property name="scaledContents">
+            <bool>true</bool>
+           </property>
+           <property name="alignment">
+            <set>Qt::AlignCenter</set>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QLabel" name="studentProfileText">
+           <property name="font">
+            <font>
+             <pointsize>11</pointsize>
+            </font>
+           </property>
+           <property name="text">
+            <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p dir="rtl" align="justify"&gt;برنامه امکان مدیریت اطلاعات شخصی و تحصیلی شما را فراهم می‌کند:&lt;/p&gt;&lt;h3 dir="rtl" align="justify"&gt;اطلاعات شخصی&lt;/h3&gt;&lt;ul style="text-align: right; direction: rtl; list-style-position: inside;"&gt;&lt;li&gt;اطلاعات تماس و شماره دانشجویی&lt;/li&gt;&lt;li&gt;دانشکده، رشته و مقطع تحصیلی&lt;/li&gt;&lt;li&gt;عکس پروفایل و اطلاعات تکمیلی&lt;/li&gt;&lt;/ul&gt;&lt;h3 dir="rtl" align="justify"&gt;رکوردهای تحصیلی&lt;/h3&gt;&lt;ul style="text-align: right; direction: rtl; list-style-position: inside;"&gt;&lt;li&gt;مدیریت نیمسال‌های تحصیلی&lt;/li&gt;&lt;li&gt;ثبت دروس و نمرات هر نیمسال&lt;/li&gt;&lt;li&gt;محاسبه معدل ترمی و کلی&lt;/li&gt;&lt;li&gt;نمایش آمار تحصیلی&lt;/li&gt;&lt;/ul&gt;&lt;/body&gt;&lt;/html&gt;</string>
+           </property>
+           <property name="alignment">
+            <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
+           </property>
+           <property name="wordWrap">
+            <bool>true</bool>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </widget>
+       <widget class="QWidget" name="examSchedulePage">
+        <layout class="QVBoxLayout" name="verticalLayout_11">
+         <property name="spacing">
+          <number>15</number>
+         </property>
+         <property name="leftMargin">
+          <number>20</number>
+         </property>
+         <property name="topMargin">
+          <number>20</number>
+         </property>
+         <property name="rightMargin">
+          <number>20</number>
+         </property>
+         <property name="bottomMargin">
+          <number>20</number>
+         </property>
+         <item>
+          <widget class="QLabel" name="examScheduleTitle">
+           <property name="font">
+            <font>
+             <pointsize>14</pointsize>
+             <weight>75</weight>
+             <bold>true</bold>
+            </font>
+           </property>
+           <property name="text">
+            <string>برنامه امتحانات</string>
+           </property>
+           <property name="alignment">
+            <set>Qt::AlignCenter</set>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QLabel" name="examScheduleImage">
+           <property name="minimumSize">
+            <size>
+             <width>0</width>
+             <height>200</height>
+            </size>
+           </property>
+           <property name="text">
+            <string/>
+           </property>
+           <property name="pixmap">
+            <pixmap>:/images/exam_schedule.png</pixmap>
+           </property>
+           <property name="scaledContents">
+            <bool>true</bool>
+           </property>
+           <property name="alignment">
+            <set>Qt::AlignCenter</set>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QLabel" name="examScheduleText">
+           <property name="font">
+            <font>
+             <pointsize>11</pointsize>
+            </font>
+           </property>
+           <property name="text">
+            <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p dir="rtl" align="justify"&gt;برنامه امکان مدیریت و نمایش برنامه امتحانات را فراهم می‌کند:&lt;/p&gt;&lt;h3 dir="rtl" align="justify"&gt;نمایش برنامه امتحانات&lt;/h3&gt;&lt;ul style="text-align: right; direction: rtl; list-style-position: inside;"&gt;&lt;li&gt;نمایش خودکار برنامه امتحانات بر اساس دروس انتخابی&lt;/li&gt;&lt;li&gt;نمایش تاریخ و ساعت دقیق امتحان هر درس&lt;/li&gt;&lt;li&gt;نمایش محل برگزاری امتحان&lt;/li&gt;&lt;/ul&gt;&lt;h3 dir="rtl" align="justify"&gt;قابلیت‌های پیشرفته&lt;/h3&gt;&lt;ul style="text-align: right; direction: rtl; list-style-position: inside;"&gt;&lt;li&gt;صادر کردن برنامه به صورت PDF (عمودی و افقی)&lt;/li&gt;&lt;li&gt;صادر کردن برنامه به صورت HTML&lt;/li&gt;&lt;li&gt;تشخیص تداخل زمانی امتحانات&lt;/li&gt;&lt;li&gt;نمایش تعداد روزهای باقی‌مانده تا امتحان&lt;/li&gt;&lt;/ul&gt;&lt;h3 dir="rtl" align="justify"&gt;مزایای این بخش:&lt;/h3&gt;&lt;ul style="text-align: right; direction: rtl; list-style-position: inside;"&gt;&lt;li&gt;آمادگی بهتر برای امتحانات&lt;/li&gt;&lt;li&gt;چاپ و اشتراک‌گذاری آسان برنامه&lt;/li&gt;&lt;li&gt;هشدار برای امتحانات نزدیک&lt;/li&gt;&lt;li&gt;مدیریت بهتر زمان مطالعه&lt;/li&gt;&lt;/ul&gt;&lt;/body&gt;&lt;/html&gt;</string>
+           </property>
+           <property name="alignment">
+            <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
+           </property>
+           <property name="wordWrap">
+            <bool>true</bool>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </widget>
+       <widget class="QWidget" name="backupPage">
+        <layout class="QVBoxLayout" name="verticalLayout_12">
+         <property name="spacing">
+          <number>15</number>
+         </property>
+         <property name="leftMargin">
+          <number>20</number>
+         </property>
+         <property name="topMargin">
+          <number>20</number>
+         </property>
+         <property name="rightMargin">
+          <number>20</number>
+         </property>
+         <property name="bottomMargin">
+          <number>20</number>
+         </property>
+         <item>
+          <widget class="QLabel" name="backupTitle">
+           <property name="font">
+            <font>
+             <pointsize>14</pointsize>
+             <weight>75</weight>
+             <bold>true</bold>
+            </font>
+           </property>
+           <property name="text">
+            <string>امنیت اطلاعات</string>
+           </property>
+           <property name="alignment">
+            <set>Qt::AlignCenter</set>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QLabel" name="backupImage">
+           <property name="minimumSize">
+            <size>
+             <width>0</width>
+             <height>200</height>
+            </size>
+           </property>
+           <property name="text">
+            <string/>
+           </property>
+           <property name="pixmap">
+            <pixmap>:/images/backup.png</pixmap>
+           </property>
+           <property name="scaledContents">
+            <bool>true</bool>
+           </property>
+           <property name="alignment">
+            <set>Qt::AlignCenter</set>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QLabel" name="backupText">
+           <property name="font">
+            <font>
+             <pointsize>11</pointsize>
+            </font>
+           </property>
+           <property name="text">
+            <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p dir="rtl" align="justify"&gt;برنامه سیستم امنیتی قوی برای حفاظت از اطلاعات شما دارد:&lt;/p&gt;&lt;h3 dir="rtl" align="justify"&gt;پشتیبان‌گیری خودکار&lt;/h3&gt;&lt;ul style="text-align: right; direction: rtl; list-style-position: inside;"&gt;&lt;li&gt;ایجاد خودکار فایل پشتیبان هنگام خروج از برنامه&lt;/li&gt;&lt;li&gt;حفظ 5 فایل پشتیبان آخر&lt;/li&gt;&lt;li&gt;ذخیره کامل وضعیت جدول برنامه&lt;/li&gt;&lt;/ul&gt;&lt;h3 dir="rtl" align="justify"&gt;تاریخچه استفاده&lt;/h3&gt;&lt;ul style="text-align: right; direction: rtl; list-style-position: inside;"&gt;&lt;li&gt;نمایش 5 پشتیبان اخیر در منوی "تاریخچه استفاده"&lt;/li&gt;&lt;li&gt;نمایش تاریخ و زمان&lt;/li&gt;&lt;li&gt;امکان بازیابی هر پشتیبان با یک کلیک&lt;/li&gt;&lt;li&gt;جایگزینی کامل جدول فعلی با پشتیبان انتخابی&lt;/li&gt;&lt;/ul&gt;&lt;h3 dir="rtl" align="justify"&gt;مزایای امنیت اطلاعات:&lt;/h3&gt;&lt;ul style="text-align: right; direction: rtl; list-style-position: inside;"&gt;&lt;li&gt;جلوگیری از از دست رفتن اطلاعات&lt;/li&gt;&lt;li&gt;دسترسی آسان به نسخه‌های قبلی&lt;/li&gt;&lt;li&gt;حفاظت از ساعات کاری شما&lt;/li&gt;&lt;li&gt;آسودگی خاطر در استفاده از برنامه&lt;/li&gt;&lt;/ul&gt;&lt;/body&gt;&lt;/html&gt;</string>
+           </property>
+           <property name="alignment">
+            <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
+           </property>
+           <property name="wordWrap">
+            <bool>true</bool>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </widget>
+       <widget class="QWidget" name="finishPage">
+        <layout class="QVBoxLayout" name="verticalLayout_8">
+         <property name="spacing">
+          <number>15</number>
+         </property>
+         <property name="leftMargin">
+          <number>20</number>
+         </property>
+         <property name="topMargin">
+          <number>20</number>
+         </property>
+         <property name="rightMargin">
+          <number>20</number>
+         </property>
+         <property name="bottomMargin">
+          <number>20</number>
+         </property>
+         <item>
+          <widget class="QLabel" name="finishTitle">
+           <property name="font">
+            <font>
+             <pointsize>16</pointsize>
+             <weight>75</weight>
+             <bold>true</bold>
+            </font>
+           </property>
+           <property name="text">
+            <string>آموزش به پایان رسید! 🎉</string>
+           </property>
+           <property name="alignment">
+            <set>Qt::AlignCenter</set>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QLabel" name="finishIcon">
+           <property name="minimumSize">
+            <size>
+             <width>150</width>
+             <height>150</height>
+            </size>
+           </property>
+           <property name="text">
+            <string/>
+           </property>
+           <property name="pixmap">
+            <pixmap>:/icons/finish.png</pixmap>
+           </property>
+           <property name="scaledContents">
+            <bool>true</bool>
+           </property>
+           <property name="alignment">
+            <set>Qt::AlignCenter</set>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QLabel" name="finishText">
+           <property name="font">
+            <font>
+             <pointsize>12</pointsize>
+            </font>
+           </property>
+           <property name="text">
+            <string>&lt;html&gt;&lt;head/&gt;&lt;body&gt;&lt;p dir="rtl" align="justify"&gt;تبریک می‌گوییم! شما با تمام قابلیت‌های برنامه به صورت کامل آشنا شدید.&lt;/p&gt;&lt;p dir="rtl" align="justify"&gt;برای دسترسی مجدد به این راهنما از منوی &amp;quot;راهنما&amp;quot; گزینه &amp;quot;آموزش برنامه&amp;quot; را انتخاب کنید یا کلید F1 را فشار دهید.&lt;/p&gt;&lt;h3 dir="rtl" align="justify"&gt;راهنمایی‌های بیشتر:&lt;/h3&gt;&lt;ul style="text-align: right; direction: rtl; list-style-position: inside;"&gt;&lt;li&gt;برای مشاهده برنامه امتحانات، از دکمه مخصوص در پایین صفحه استفاده کنید&lt;/li&gt;&lt;li&gt;برای تولید خودکار برنامه، از بخش "دروس انتخابی برای چیدمان خودکار" استفاده کنید&lt;/li&gt;&lt;li&gt;برای پشتیبان‌گیری از برنامه، از منوی ابزارها استفاده کنید&lt;/li&gt;&lt;/ul&gt;&lt;p dir="rtl" align="justify"&gt;. موفق باشید!&lt;/p&gt;&lt;/body&gt;&lt;/html&gt;</string>
+           </property>
+           <property name="alignment">
+            <set>Qt::AlignRight|Qt::AlignTrailing|Qt::AlignVCenter</set>
+           </property>
+           <property name="wordWrap">
+            <bool>true</bool>
+           </property>
+          </widget>
+         </item>
+         <item>
+          <widget class="QCheckBox" name="dontShowAgainCheckBox">
+           <property name="font">
+            <font>
+             <pointsize>10</pointsize>
+            </font>
+           </property>
+           <property name="text">
+            <string>دیگر این پیام را نشان نده</string>
+           </property>
+          </widget>
+         </item>
+        </layout>
+       </widget>
+      </widget>
+     </item>
+     <item>
+      <layout class="QHBoxLayout" name="buttonLayout">
+       <property name="spacing">
+        <number>10</number>
+       </property>
+       <item>
+        <widget class="QPushButton" name="skipButton">
+         <property name="text">
+          <string>رد کردن آموزش</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <spacer name="horizontalSpacer">
+         <property name="orientation">
+          <enum>Qt::Horizontal</enum>
+         </property>
+         <property name="sizeHint" stdset="0">
+          <size>
+           <width>40</width>
+           <height>20</height>
+          </size>
+         </property>
+        </spacer>
+       </item>
+       <item>
+        <widget class="QPushButton" name="backButton">
+         <property name="text">
+          <string>قبلی</string>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QPushButton" name="nextButton">
+         <property name="text">
+          <string>بعدی</string>
+         </property>
+         <property name="default">
+          <bool>true</bool>
+         </property>
+        </widget>
+       </item>
+       <item>
+        <widget class="QPushButton" name="finishButton">
+         <property name="text">
+          <string>پایان</string>
+         </property>
+        </widget>
+       </item>
+      </layout>
+     </item>
+    </layout>
+   </item>
+  </layout>
+ </widget>
+ <resources/>
+ <connections/>
+</ui>
