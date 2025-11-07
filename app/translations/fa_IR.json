@@ -450,7 +450,7 @@
     "button_no": "خیر",
     "button_cancel": "لغو",
     "change_language_title": "تغییر زبان",
-    "change_language_confirmation": "تغییر زبان باعث می‌شود جدول برنامه به طور موقت پاک شود. تمام دروس پس از تغییر زبان دوباره بازگردانده می‌شوند.\n\nآیا می‌خواهید زبان را به {lang} تغییر دهید؟"
+    "change_language_confirmation": "آیا می‌خواهید زبان را به {lang} تغییر دهید؟"
   },
   "language": {
     "persian": "فارسی",
@@ -482,9 +482,9 @@
     "remove": "حذف",
     "save_schedule": "ذخیره برنامه",
     "clear_schedule": "پاک کردن برنامه",
-    "show_exam_page": "نمایش صفحه امتحانات",
+    "show_exam_page": "نمایش جدول امتحانات دروس",
     "add_course": "افزودن درس",
-    "generate_optimal": "تولید بهینه",
+    "generate_optimal": "ساخت برنامه بهینه",
     "apply_combo": "اعمال ترکیب",
     "details": "جزئیات"
   },

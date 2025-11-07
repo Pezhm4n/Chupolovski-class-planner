@@ -450,7 +450,7 @@
     "button_no": "No",
     "button_cancel": "Cancel",
     "change_language_title": "Change Language",
-    "change_language_confirmation": "Changing the language will temporarily clear the schedule table. All courses will be restored after the language change.\n\nDo you want to change the language to {lang}?"
+    "change_language_confirmation": "Do you want to change the language to {lang}?"
   },
   "language": {
     "persian": "Persian",
@@ -482,9 +482,9 @@
     "remove": "Remove",
     "save_schedule": "Save Schedule",
     "clear_schedule": "Clear Schedule",
-    "show_exam_page": "Show Exam Page",
+    "show_exam_page": "Show Exam Schedule Table for Courses",
     "add_course": "Add Course",
-    "generate_optimal": "Generate Optimal",
+    "generate_optimal": "Create Optimal Schedule",
     "apply_combo": "Apply Combination",
     "details": "Details"
   },

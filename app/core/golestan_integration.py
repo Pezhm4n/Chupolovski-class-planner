@@ -103,23 +103,23 @@ def load_golestan_data() -> Dict[str, Any]:
     Returns:
         dict: Courses in internal format
     """
-        try:
-            app_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-            courses_data_dir = os.path.join(app_dir, 'data', 'courses_data')
-            
-            available_courses_file = os.path.join(courses_data_dir, 'available_courses.json')
-            unavailable_courses_file = os.path.join(courses_data_dir, 'unavailable_courses.json')
-            
-            all_courses = {}
-            global COURSE_MAJORS
-            COURSE_MAJORS = {}
-            
-            available_count = 0
-            unavailable_count = 0
-            
-            if os.path.exists(available_courses_file):
-                with open(available_courses_file, 'r', encoding='utf-8') as f:
-                    available_data = json.load(f)
+    try:
+        app_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        courses_data_dir = os.path.join(app_dir, 'data', 'courses_data')
+        
+        available_courses_file = os.path.join(courses_data_dir, 'available_courses.json')
+        unavailable_courses_file = os.path.join(courses_data_dir, 'unavailable_courses.json')
+        
+        all_courses = {}
+        global COURSE_MAJORS
+        COURSE_MAJORS = {}
+        
+        available_count = 0
+        unavailable_count = 0
+        
+        if os.path.exists(available_courses_file):
+            with open(available_courses_file, 'r', encoding='utf-8') as f:
+                available_data = json.load(f)
             for faculty_name, departments in available_data.items():
                 for department_name, courses in departments.items():
                     available_count += len(courses)

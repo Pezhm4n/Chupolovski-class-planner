@@ -51,7 +51,7 @@ def create_dual_course_widget(odd_course_data, even_course_data, parent):
                 
         def draw_diagonal_split(self, painter, rect):
             """Draw the default diagonal split view"""
-            border_width = 2
+            border_width = 0
             inner_rect = rect.adjusted(border_width, border_width, -border_width, -border_width)
             
             odd_path = QtGui.QPainterPath()
@@ -137,19 +137,17 @@ def create_dual_course_widget(odd_course_data, even_course_data, parent):
             painter.setPen(pen)
             painter.drawLine(inner_rect.topLeft(), inner_rect.bottomRight())
             
-            pen = QtGui.QPen(QtGui.QColor(200, 200, 200), 2)
-            painter.setPen(pen)
-            painter.setBrush(QtCore.Qt.NoBrush)
-            painter.drawRoundedRect(rect.adjusted(1, 1, -2, -2), 8, 8)
-            
+            # Highlight only the hovered section
             if self.highlighted_section == 'odd':
                 painter.setPen(QtGui.QPen(QtGui.QColor(231, 76, 60), 3))
                 painter.setBrush(QtCore.Qt.NoBrush)
-                painter.drawRoundedRect(rect.adjusted(1, 1, -2, -2), 8, 8)
+                # Draw border only around odd section
+                painter.drawPath(odd_path)
             elif self.highlighted_section == 'even':
                 painter.setPen(QtGui.QPen(QtGui.QColor(231, 76, 60), 3))
                 painter.setBrush(QtCore.Qt.NoBrush)
-                painter.drawRoundedRect(rect.adjusted(1, 1, -2, -2), 8, 8)
+                # Draw border only around even section
+                painter.drawPath(even_path)
             
         def mouseMoveEvent(self, event):
             """Detect which triangle the mouse is over and apply highlight"""

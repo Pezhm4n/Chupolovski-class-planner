@@ -65,8 +65,8 @@ def create_simple_dual_widget(odd_course_data, even_course_data, parent):
         def create_course_section(self, course_data, parity_label, is_odd=True, key='odd'):
             """Create a section for one course"""
             section = QtWidgets.QFrame()
-            section.setFrameStyle(QtWidgets.QFrame.Box | QtWidgets.QFrame.Plain)
-            section.setLineWidth(1)
+            section.setFrameStyle(QtWidgets.QFrame.NoFrame)
+            section.setLineWidth(0)
             section.setMouseTracking(True)
 
             color = course_data['color']
@@ -77,7 +77,7 @@ def create_simple_dual_widget(odd_course_data, even_course_data, parent):
                         stop:0 rgba({min(255, color.red() + 30)}, {min(255, color.green() + 30)}, {min(255, color.blue() + 30)}, 255),
                         stop:1 rgba({color.red()}, {color.green()}, {color.blue()}, 255)
                     );
-                    border: 1px solid rgba(0, 0, 0, 100);
+                    border: none;
                     border-radius: 4px;
                 }}
             """)
@@ -88,6 +88,7 @@ def create_simple_dual_widget(odd_course_data, even_course_data, parent):
 
             info_layout = QtWidgets.QVBoxLayout()
             info_layout.setSpacing(0)
+            info_layout.setContentsMargins(0, 0, 0, 0)
 
             course_name = course_data['course'].get('name', 'نامشخص')
             if len(course_name) > 20:
@@ -111,39 +112,41 @@ def create_simple_dual_widget(odd_course_data, even_course_data, parent):
             info_layout.addStretch()
 
             right_layout = QtWidgets.QVBoxLayout()
-            right_layout.setSpacing(0)
+            right_layout.setSpacing(2)
+            right_layout.setContentsMargins(0, 0, 0, 0)
 
             parity_widget = QtWidgets.QLabel(parity_label)
             parity_widget.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
-            parity_widget.setFixedSize(22, 22)
+            parity_widget.setFixedSize(20, 20)
 
             if is_odd:
                 parity_widget.setStyleSheet("""
                     background-color: rgba(58, 66, 250, 200);
                     color: white;
-                    border-radius: 11px;
+                    border-radius: 10px;
                     font-weight: bold;
-                    font-size: 10pt;
+                    font-size: 9pt;
                 """)
             else:
                 parity_widget.setStyleSheet("""
                     background-color: rgba(46, 213, 115, 200);
                     color: white;
-                    border-radius: 11px;
+                    border-radius: 10px;
                     font-weight: bold;
-                    font-size: 10pt;
+                    font-size: 9pt;
                 """)
 
             remove_button = QtWidgets.QPushButton('✕')
-            remove_button.setFixedSize(16, 16)
+            remove_button.setFixedSize(14, 14)
             remove_button.setStyleSheet("""
                 QPushButton {
                     background-color: rgba(231, 76, 60, 200);
                     color: white;
                     border: none;
-                    border-radius: 8px;
+                    border-radius: 7px;
                     font-weight: bold;
-                    font-size: 10pt;
+                    font-size: 8pt;
+                    padding: 0px;
                 }
                 QPushButton:hover {
                     background-color: rgba(192, 57, 43, 255);
@@ -152,12 +155,19 @@ def create_simple_dual_widget(odd_course_data, even_course_data, parent):
             course_key = course_data['course_key']
             remove_button.clicked.connect(lambda: self.remove_course(course_key))
 
-            right_layout.addWidget(parity_widget, alignment=QtCore.Qt.AlignmentFlag.AlignRight)
+            top_right_widget = QtWidgets.QWidget()
+            top_right_layout = QtWidgets.QHBoxLayout(top_right_widget)
+            top_right_layout.setContentsMargins(0, 0, 0, 0)
+            top_right_layout.setSpacing(2)
+            top_right_layout.addStretch()
+            top_right_layout.addWidget(remove_button)
+            
+            right_layout.addWidget(top_right_widget)
             right_layout.addStretch()
-            right_layout.addWidget(remove_button, alignment=QtCore.Qt.AlignmentFlag.AlignRight)
+            right_layout.addWidget(parity_widget, alignment=QtCore.Qt.AlignmentFlag.AlignRight)
 
             layout.addLayout(info_layout, stretch=1)
-            layout.addLayout(right_layout)
+            layout.addLayout(right_layout, stretch=0)
 
             section.mousePressEvent = lambda event: self.show_course_details(course_key)
             section.setCursor(QtCore.Qt.PointingHandCursor)
@@ -165,15 +175,6 @@ def create_simple_dual_widget(odd_course_data, even_course_data, parent):
             return section
 
         def enterEvent(self, event):
-            try:
-                if self.parent_window and hasattr(self.parent_window, 'highlight_course_sessions'):
-                    self.parent_window.highlight_course_sessions([
-                        self.odd_data['course_key'],
-                        self.even_data['course_key']
-                    ])
-            except Exception:
-                pass
-            self.highlight_section('both')
             super().enterEvent(event)
 
         def leaveEvent(self, event):
@@ -188,14 +189,25 @@ def create_simple_dual_widget(odd_course_data, even_course_data, parent):
         def mouseMoveEvent(self, event):
             try:
                 pos = event.pos()
-                if self.section_widgets.get('odd') and self.section_widgets['odd'].geometry().contains(pos):
-                    self.highlight_section('odd')
-                elif self.section_widgets.get('even') and self.section_widgets['even'].geometry().contains(pos):
-                    self.highlight_section('even')
+                odd_rect = self.section_widgets.get('odd')
+                even_rect = self.section_widgets.get('even')
+                
+                if odd_rect and odd_rect.geometry().contains(pos):
+                    if self.current_highlight != 'odd':
+                        self.highlight_section('odd')
+                        if self.parent_window and hasattr(self.parent_window, 'highlight_course_sessions'):
+                            self.parent_window.highlight_course_sessions(self.odd_data['course_key'])
+                elif even_rect and even_rect.geometry().contains(pos):
+                    if self.current_highlight != 'even':
+                        self.highlight_section('even')
+                        if self.parent_window and hasattr(self.parent_window, 'highlight_course_sessions'):
+                            self.parent_window.highlight_course_sessions(self.even_data['course_key'])
                 else:
-                    self.highlight_section('both')
-            except Exception:
-                pass
+                    self.clear_highlight()
+                    if self.parent_window and hasattr(self.parent_window, 'clear_course_highlights'):
+                        self.parent_window.clear_course_highlights()
+            except Exception as e:
+                logger.warning(f"Error in mouseMoveEvent: {e}")
             super().mouseMoveEvent(event)
 
         def remove_course(self, course_key):
@@ -245,33 +257,21 @@ def create_simple_dual_widget(odd_course_data, even_course_data, parent):
             self.clear_preview_mode()
 
         def _apply_section_styles(self, force=False):
+            # Reset all sections to base style first
             for key in ('odd', 'even'):
                 widget = self.section_widgets.get(key)
                 if not widget:
                     continue
                 base_style = self.section_styles.get(key, '')
-                if force or self.current_highlight not in (key, 'both'):
-                    widget.setStyleSheet(base_style)
-            if self.current_highlight == 'both':
-                for key in ('odd', 'even'):
-                    widget = self.section_widgets.get(key)
-                    if not widget:
-                        continue
-                    base_style = self.section_styles.get(key, '')
-                    if 'border: 1px solid' in base_style:
-                        highlight_style = base_style.replace('border: 1px solid rgba(0, 0, 0, 100);', 'border: 2px solid #e74c3c;')
-                    else:
-                        highlight_style = base_style + '\nQFrame { border: 2px solid #e74c3c; }'
-                    widget.setStyleSheet(highlight_style)
-                return
-            if self.current_highlight in ('odd', 'even'):
+                widget.setStyleSheet(base_style)
+            
+            # Apply highlight only to the selected section
+            if not force and self.current_highlight in ('odd', 'even'):
                 widget = self.section_widgets.get(self.current_highlight)
                 if widget:
                     base_style = self.section_styles.get(self.current_highlight, '')
-                    if 'border: 1px solid' in base_style:
-                        highlight_style = base_style.replace('border: 1px solid rgba(0, 0, 0, 100);', 'border: 2px solid #e74c3c;')
-                    else:
-                        highlight_style = base_style + '\nQFrame { border: 2px solid #e74c3c; }'
+                    # Add red border for highlighted section only
+                    highlight_style = base_style + '\nQFrame { border: 2px solid #e74c3c; border-radius: 4px; }'
                     widget.setStyleSheet(highlight_style)
 
         def set_preview_mode(self, mode):

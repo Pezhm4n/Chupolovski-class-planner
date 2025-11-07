@@ -168,6 +168,18 @@ QLabel#course_list_label {
 }
 
 /* Table Widget Styles - Enhanced Schedule Table */
+QTableWidget QHeaderView::section:vertical {
+    background: transparent;
+    border: none;
+    padding: 0px;
+    min-width: 50px;
+    max-width: 50px;
+}
+
+QTableWidget QHeaderView::section:vertical:hover {
+    background: transparent;
+}
+
 QTableWidget {
     border: 1px solid #d5dbdb;
     gridline-color: #ecf0f1;
@@ -298,7 +310,7 @@ QWidget#course-cell {
     border-radius: 6px !important;
     padding: 2px !important;
     margin: 1px !important;
-    background-color: rgba(25, 118, 210, 0.1) !important;
+    background-color: rgba(25, 118, 210, 0.2) !important;
 }
 
 /* Remove conflict indicators from schedule table cells */
@@ -317,12 +329,12 @@ QWidget#course-cell QLabel#course-name-label {
 /* Elective course style (green) */
 QWidget#course-cell[elective="true"] {
     border: none !important;
-    background-color: rgba(67, 160, 71, 0.1) !important;
+    background-color: rgba(67, 160, 71, 0.2) !important;
 }
 
 /* Conflict course style (red) - Simplified to remove border */
 QWidget#course-cell[conflict="true"] {
-    background-color: rgba(229, 57, 53, 0.1) !important;
+    background-color: rgba(229, 57, 53, 0.2) !important;
 }
 
 /* Course Name Label Style */
@@ -668,7 +680,7 @@ QPushButton#dialog_close:hover {
 /* Base dual course cell styling */
 QWidget#dual-course-cell {
     background: transparent;
-    border: 2px solid #bdc3c7;
+    border: none !important;
     border-radius: 8px;
     min-height: 80px;
     min-width: 120px;
@@ -676,13 +688,13 @@ QWidget#dual-course-cell {
 
 /* Hover state for dual course cells */
 QWidget#dual-course-cell:hover {
-    border: 3px solid #3498db;
+    border: none !important;
     background: rgba(52, 152, 219, 0.05);
 }
 
 /* Highlighted state (red border for course session highlighting) */
 QWidget#dual-course-cell[highlighted="true"] {
-    border: 3px solid #e74c3c !important;
+    border: none !important;
     border-radius: 8px;
     background: rgba(231, 76, 60, 0.1);
 }
