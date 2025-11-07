@@ -4,7 +4,7 @@ import os
 from PyQt5 import QtWidgets, QtGui, QtCore
 
 # Import from core modules
-from app.core.config import COURSES, DAYS, EXTENDED_TIME_SLOTS
+from app.core.config import COURSES, EXTENDED_TIME_SLOTS, get_days
 from app.core.logger import setup_logging
 
 logger = setup_logging()
@@ -206,12 +206,22 @@ class CourseListWidget(QtWidgets.QWidget):
     
     def show_context_menu(self, position):
         """Show context menu for course list items"""
+        from app.core.translator import translator
+        from app.core.language_manager import language_manager
+        
         main_window = self.get_main_window()
         if not main_window:
             return
             
         menu = QtWidgets.QMenu()
-        add_to_auto_action = menu.addAction("اضافه به لیست برنامه‌ریزی خودکار")
+        # Set layout direction based on current language
+        current_lang = language_manager.get_current_language()
+        if current_lang == 'fa':
+            menu.setLayoutDirection(QtCore.Qt.RightToLeft)
+        else:
+            menu.setLayoutDirection(QtCore.Qt.LeftToRight)
+        
+        add_to_auto_action = menu.addAction(translator.t("messages.context_menu_add_to_auto"))
         action = menu.exec_(self.mapToGlobal(position))
         
         if action == add_to_auto_action:
@@ -233,7 +243,8 @@ class CourseListWidget(QtWidgets.QWidget):
             
             if not exists:
                 # Create display text with position-based priority
-                course_name = course.get('name', 'نامشخص')
+                from app.core.translator import translator
+                course_name = course.get('name', translator.t("messages.unknown"))
                 position = main_window.auto_select_list.count() + 1
                 display = f"({position}) {course_name}"
                 
@@ -245,17 +256,39 @@ class CourseListWidget(QtWidgets.QWidget):
                 main_window.auto_select_list.addItem(new_item)
                 
                 # Show confirmation
-                QtWidgets.QMessageBox.information(
-                    main_window, 'اضافه به لیست', 
-                    f'درس "{course_name}" به لیست برنامه‌ریزی خودکار اضافه شد.'
-                )
+                msg_box = QtWidgets.QMessageBox(main_window)
+                msg_box.setIcon(QtWidgets.QMessageBox.Information)
+                msg_box.setWindowTitle(translator.t("messages.add_to_list_title"))
+                msg_box.setText(translator.t("messages.add_to_list_success", course_name=course_name))
+                
+                # Set layout direction based on current language
+                from app.core.language_manager import language_manager
+                current_lang = language_manager.get_current_language()
+                if current_lang == 'fa':
+                    msg_box.setLayoutDirection(QtCore.Qt.RightToLeft)
+                else:
+                    msg_box.setLayoutDirection(QtCore.Qt.LeftToRight)
+                
+                msg_box.exec_()
             else:
                 course = COURSES.get(self.course_key)
-                course_name = course.get('name', 'نامشخص') if course else 'نامشخص'
-                QtWidgets.QMessageBox.information(
-                    main_window, 'اضافه به لیست', 
-                    f'درس "{course_name}" قبلاً در لیست برنامه‌ریزی خودکار وجود دارد.'
-                )
+                from app.core.translator import translator
+                course_name = course.get('name', translator.t("messages.unknown")) if course else translator.t("messages.unknown")
+                
+                msg_box = QtWidgets.QMessageBox(main_window)
+                msg_box.setIcon(QtWidgets.QMessageBox.Information)
+                msg_box.setWindowTitle(translator.t("messages.add_to_list_title"))
+                msg_box.setText(translator.t("messages.add_to_list_exists", course_name=course_name))
+                
+                # Set layout direction based on current language
+                from app.core.language_manager import language_manager
+                current_lang = language_manager.get_current_language()
+                if current_lang == 'fa':
+                    msg_box.setLayoutDirection(QtCore.Qt.RightToLeft)
+                else:
+                    msg_box.setLayoutDirection(QtCore.Qt.LeftToRight)
+                
+                msg_box.exec_()
         except Exception as e:
             logger.error(f"Error adding to auto schedule list: {e}")
             
@@ -307,7 +340,7 @@ class CourseListWidget(QtWidgets.QWidget):
         super().mouseMoveEvent(event)
     
     def update_conflict_indicator(self, main_window, course_key):
-        """Update the conflict indicator based on current schedule"""
+        """Update the conflict indicator based on current schedule - FIXED to check parity compatibility"""
         course = COURSES.get(course_key)
         if not course or not main_window.placed:
             self.conflict_indicator.hide()
@@ -315,6 +348,7 @@ class CourseListWidget(QtWidgets.QWidget):
             
         # Check for conflicts with currently placed courses
         has_conflict = False
+        DAYS = get_days()
         for sess in course['schedule']:
             if sess['day'] not in DAYS:
                 continue
@@ -340,10 +374,56 @@ class CourseListWidget(QtWidgets.QWidget):
                     # For single courses, check directly
                     if info.get('course') == course_key:
                         continue
+                
                 prow_start = prow
                 prow_span = info['rows']
+                
+                # Check for time overlap
                 if not (srow + span <= prow_start or prow_start + prow_span <= srow):
-                    has_conflict = True
+                    # Time overlap detected - check if they are parity compatible
+                    # Gather existing course keys depending on widget type
+                    if info.get('type') == 'dual':
+                        existing_course_keys = [ck for ck in info.get('courses', []) if ck]
+                    else:
+                        existing_course_keys = [info.get('course')]
+
+                    if not existing_course_keys:
+                        has_conflict = True
+                    else:
+                        compatibility_found = False
+                        for existing_course_key in existing_course_keys:
+                            if existing_course_key not in COURSES:
+                                continue
+                            existing_course = COURSES[existing_course_key]
+                            for existing_sess in existing_course.get('schedule', []):
+                                if existing_sess['day'] != sess['day']:
+                                    continue
+                                try:
+                                    existing_start = EXTENDED_TIME_SLOTS.index(existing_sess['start'])
+                                    existing_end = EXTENDED_TIME_SLOTS.index(existing_sess['end'])
+                                except ValueError:
+                                    continue
+                                if existing_start != srow or existing_end != srow + span:
+                                    continue
+
+                                sess_parity = sess.get('parity', '') or ''
+                                existing_parity = existing_sess.get('parity', '') or ''
+
+                                if not isinstance(sess_parity, str):
+                                    sess_parity = str(sess_parity)
+                                if not isinstance(existing_parity, str):
+                                    existing_parity = str(existing_parity)
+
+                                if (sess_parity == 'ز' and existing_parity == 'ف') or (sess_parity == 'ف' and existing_parity == 'ز'):
+                                    compatibility_found = True
+                                    break
+                            if compatibility_found:
+                                break
+
+                        if not compatibility_found:
+                            has_conflict = True
+                
+                if has_conflict:
                     break
             
             if has_conflict:
@@ -358,7 +438,7 @@ class CourseListWidget(QtWidgets.QWidget):
     
     def enterEvent(self, event):
         """Show additional information when mouse enters the widget with safety wrapper"""
-        logger.info("overlay_hover_enter: Course list widget hover enter")
+        logger.debug("overlay_hover_enter: Course list widget hover enter")
         try:
             # Safety check for parent
             if not hasattr(self, 'parent_list') or not self.parent_list:
@@ -373,7 +453,7 @@ class CourseListWidget(QtWidgets.QWidget):
     
     def leaveEvent(self, event):
         """Hide additional information when mouse leaves the widget with safety wrapper"""
-        logger.info("overlay_hover_leave: Course list widget hover leave")
+        logger.debug("overlay_hover_leave: Course list widget hover leave")
         try:
             # Safety check for parent
             if not hasattr(self, 'parent_list') or not self.parent_list:
@@ -428,6 +508,9 @@ class AnimatedCourseWidget(QtWidgets.QFrame):
     
     def show_context_menu(self, position):
         """Show context menu for course cell items"""
+        from app.core.translator import translator
+        from app.core.language_manager import language_manager
+        
         # Get main window reference
         main_window = self.parent().parent()
         while main_window and not isinstance(main_window, QtWidgets.QMainWindow):
@@ -437,7 +520,14 @@ class AnimatedCourseWidget(QtWidgets.QFrame):
             return
             
         menu = QtWidgets.QMenu()
-        add_to_auto_action = menu.addAction("اضافه به لیست برنامه‌ریزی خودکار")
+        # Set layout direction based on current language
+        current_lang = language_manager.get_current_language()
+        if current_lang == 'fa':
+            menu.setLayoutDirection(QtCore.Qt.RightToLeft)
+        else:
+            menu.setLayoutDirection(QtCore.Qt.LeftToRight)
+        
+        add_to_auto_action = menu.addAction(translator.t("messages.context_menu_add_to_auto"))
         action = menu.exec_(self.mapToGlobal(position))
         
         if action == add_to_auto_action:
@@ -471,23 +561,46 @@ class AnimatedCourseWidget(QtWidgets.QFrame):
                 main_window.auto_select_list.addItem(new_item)
                 
                 # Show confirmation
-                QtWidgets.QMessageBox.information(
-                    main_window, 'اضافه به لیست', 
-                    f'درس "{course_name}" به لیست برنامه‌ریزی خودکار اضافه شد.'
-                )
+                from app.core.translator import translator
+                msg_box = QtWidgets.QMessageBox(main_window)
+                msg_box.setIcon(QtWidgets.QMessageBox.Information)
+                msg_box.setWindowTitle(translator.t("messages.add_to_list_title"))
+                msg_box.setText(translator.t("messages.add_to_list_success", course_name=course_name))
+                
+                # Set layout direction based on current language
+                from app.core.language_manager import language_manager
+                current_lang = language_manager.get_current_language()
+                if current_lang == 'fa':
+                    msg_box.setLayoutDirection(QtCore.Qt.RightToLeft)
+                else:
+                    msg_box.setLayoutDirection(QtCore.Qt.LeftToRight)
+                
+                msg_box.exec_()
             else:
                 course = COURSES.get(self.course_key)
-                course_name = course.get('name', 'نامشخص') if course else 'نامشخص'
-                QtWidgets.QMessageBox.information(
-                    main_window, 'اضافه به لیست', 
-                    f'درس "{course_name}" قبلاً در لیست برنامه‌ریزی خودکار وجود دارد.'
-                )
+                from app.core.translator import translator
+                course_name = course.get('name', translator.t("messages.unknown")) if course else translator.t("messages.unknown")
+                
+                msg_box = QtWidgets.QMessageBox(main_window)
+                msg_box.setIcon(QtWidgets.QMessageBox.Information)
+                msg_box.setWindowTitle(translator.t("messages.add_to_list_title"))
+                msg_box.setText(translator.t("messages.add_to_list_exists", course_name=course_name))
+                
+                # Set layout direction based on current language
+                from app.core.language_manager import language_manager
+                current_lang = language_manager.get_current_language()
+                if current_lang == 'fa':
+                    msg_box.setLayoutDirection(QtCore.Qt.RightToLeft)
+                else:
+                    msg_box.setLayoutDirection(QtCore.Qt.LeftToRight)
+                
+                msg_box.exec_()
         except Exception as e:
             logger.error(f"Error adding to auto schedule list: {e}")
             
     def enterEvent(self, event):
         """Handle mouse enter event for hover effects with safety wrapper"""
-        logger.info("overlay_hover_enter: Animated course widget hover enter")
+        logger.debug("overlay_hover_enter: Animated course widget hover enter")
         try:
             # Safety check for parent
             if not hasattr(self, 'parent') or not self.parent():
@@ -513,7 +626,7 @@ class AnimatedCourseWidget(QtWidgets.QFrame):
         
     def leaveEvent(self, event):
         """Handle mouse leave event to restore normal styling with safety wrapper"""
-        logger.info("overlay_hover_leave: Animated course widget hover leave")
+        logger.debug("overlay_hover_leave: Animated course widget hover leave")
         try:
             # Safety check for parent
             if not hasattr(self, 'parent') or not self.parent():

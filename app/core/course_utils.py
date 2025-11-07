@@ -3,12 +3,6 @@
 """
 Course utility functions for Schedule Planner
 Contains helper functions for time calculations and schedule optimization
-
-Priority System:
-- Lower priority numbers have higher priority (1 = highest priority)
-- Priority is stored in UserRole + 1 data role of QListWidget items
-- When conflicts occur, courses with higher priority (lower numbers) replace courses with lower priority (higher numbers)
-- Drag & drop reordering automatically updates priorities based on item position
 """
 
 import itertools
@@ -16,10 +10,7 @@ from itertools import product
 import sys
 import os
 
-# Import from core modules
-from .config import COURSES, DAYS, TIME_SLOTS
-
-# ---------------------- Time Utility Functions ----------------------
+from .config import COURSES, TIME_SLOTS, get_days
 
 def to_minutes(tstr):
     """Convert time string (HH:MM) to minutes since midnight"""
@@ -38,30 +29,17 @@ def schedules_conflict(sch1, sch2):
         for b in sch2:
             if a['day'] != b['day']:
                 continue
-            # Allow courses with different parity (Odd/Even) in the same timeslot
-            # Courses can coexist ONLY if one is "even" (ز) and the other is "odd" (ف)
-            # All other combinations result in conflict:
-            # - fixed vs fixed → conflict
-            # - even vs even → conflict
-            # - odd vs odd → conflict
-            # - fixed vs even → conflict
-            # - fixed vs odd → conflict
-            # - even vs odd → allowed
-            # - odd vs even → allowed
             a_parity = a.get('parity', '')
             b_parity = b.get('parity', '')
             
-            # Check if they are compatible (one even, one odd)
             is_compatible = (
-                (a_parity == 'ز' and b_parity == 'ف') or  # زوج and فرد
-                (a_parity == 'ف' and b_parity == 'ز')     # فرد and زوج
+                (a_parity == 'ز' and b_parity == 'ف') or
+                (a_parity == 'ف' and b_parity == 'ز')
             )
             
-            # If they are compatible, they can coexist - no conflict
             if is_compatible:
                 continue
             
-            # If we reach here, check for time overlap - this will result in conflict
             if overlap(to_minutes(a['start']), to_minutes(a['end']), to_minutes(b['start']), to_minutes(b['end'])):
                 return True
     return False
@@ -94,33 +72,20 @@ def calculate_empty_time_for_combo(combo_keys):
                 penalty += gap / 60.0
     return penalty
 
-
-# ---------------------- Schedule Optimization Functions ----------------------
-
 def generate_best_combinations_for_groups(group_keys):
-    """Generate best schedule combinations for groups of courses (minimizing days and gaps)
-    
-    Note: This function does not consider priorities. Priority-based conflict resolution
-    is handled in the main window's add_course_to_table method.
-    """
-    # group_keys: list of group_key strings (base code)
-    # build candidate lists for each group: course keys in COURSES whose code startswith group_key
+    """Generate best schedule combinations for groups of courses (minimizing days and gaps)"""
     groups = []
     for g in group_keys:
         candidates = [k for k, v in COURSES.items() if v.get('code', '').split('_')[0] == g]
         if not candidates:
-            # fallback: try match by name contains g
             candidates = [k for k, v in COURSES.items() if v.get('code', '') == g or g in v.get('name', '')]
         if not candidates:
-            # can't produce combos
             return []
         groups.append(candidates)
 
     combos = []
     for pick in product(*groups):
-        # pick is a tuple of course keys (one per group)
         keys = list(pick)
-        # check conflicts pairwise
         ok = True
         for i in range(len(keys)):
             for j in range(i + 1, len(keys)):
@@ -143,19 +108,17 @@ def generate_priority_based_schedules(ordered_course_keys):
     """Generate schedules respecting user-defined priority order"""
     valid_schedules = []
     
-    # Method 1: Pure greedy - add courses in priority order until conflict
     greedy_schedule = create_greedy_schedule(ordered_course_keys)
     if greedy_schedule:
         valid_schedules.append({
             'courses': greedy_schedule,
             'method': 'Priority Greedy',
-            'score': len(greedy_schedule) * 100,  # Higher score for more courses
+            'score': len(greedy_schedule) * 100,
             'priority_preserved': True,
             'days': calculate_days_needed_for_combo(greedy_schedule),
             'empty': calculate_empty_time_for_combo(greedy_schedule)
         })
     
-    # Method 2: Generate alternatives by skipping lower-priority conflicts
     for skip_count in range(1, min(4, len(ordered_course_keys))):
         alternative = create_alternative_schedule(ordered_course_keys, skip_count)
         if alternative and alternative not in [s['courses'] for s in valid_schedules]:
@@ -179,7 +142,6 @@ def create_greedy_schedule(ordered_course_keys):
         if course_key not in COURSES:
             continue
             
-        # Check conflicts with already selected courses
         current_schedule = COURSES[course_key].get('schedule', [])
         has_conflict = False
         
@@ -189,7 +151,6 @@ def create_greedy_schedule(ordered_course_keys):
                 has_conflict = True
                 break
         
-        # Add course only if no conflicts (priority-first principle)
         if not has_conflict:
             selected_courses.append(course_key)
     
@@ -202,12 +163,10 @@ def create_alternative_schedule(ordered_course_keys, skip_count):
     selected_courses = []
     skipped_courses = []
     
-    # First, try to add courses in priority order, skipping up to skip_count courses
     for course_key in remaining_courses:
         if len(skipped_courses) >= skip_count:
             break
             
-        # Check if this course conflicts with already selected courses
         current_schedule = COURSES[course_key].get('schedule', [])
         has_conflict = any(
             schedules_conflict(current_schedule, COURSES[sel].get('schedule', []))
@@ -215,11 +174,10 @@ def create_alternative_schedule(ordered_course_keys, skip_count):
         )
         
         if has_conflict:
-            skipped_courses.append(course_key)  # Skip this course
+            skipped_courses.append(course_key)
         else:
-            selected_courses.append(course_key)  # Add this course
+            selected_courses.append(course_key)
     
-    # Try to add remaining courses that weren't skipped
     for course_key in remaining_courses:
         if course_key not in selected_courses and course_key not in skipped_courses:
             current_schedule = COURSES[course_key].get('schedule', [])

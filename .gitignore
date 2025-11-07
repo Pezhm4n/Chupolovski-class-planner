@@ -56,3 +56,7 @@ app/data/golestan_courses.db
 app/.env
 
 *.db
+
+*.mdc
+
+app/data/cache/

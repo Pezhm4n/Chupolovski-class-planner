@@ -10,7 +10,6 @@ import logging
 import traceback
 from typing import Callable, Any
 
-# Import logger
 try:
     from .logger import setup_logging
     logger = setup_logging()
@@ -28,7 +27,6 @@ def handle_exception(exc_type, exc_value, exc_traceback):
         exc_traceback: Exception traceback
     """
     if issubclass(exc_type, KeyboardInterrupt):
-        # Don't log keyboard interrupts
         sys.__excepthook__(exc_type, exc_value, exc_traceback)
         return
 
@@ -61,5 +59,4 @@ def safe_execute(func: Callable, *args, **kwargs) -> Any:
         logger.error(traceback.format_exc())
         return None
 
-# Set up global exception handler on import
 setup_global_exception_handler()

@@ -15,7 +15,8 @@ from PyQt5.QtWidgets import (QDialog, QApplication, QVBoxLayout, QHBoxLayout,
                              QTableWidgetItem, QSplitter, QFrame, QScrollArea,
                              QDialogButtonBox, QWidget, QFormLayout, QSpinBox,
                              QDoubleSpinBox, QPushButton, QCalendarWidget, QTabWidget,
-                             QLineEdit, QGraphicsDropShadowEffect, QGraphicsOpacityEffect, QSizePolicy)
+                             QLineEdit, QGraphicsDropShadowEffect, QGraphicsOpacityEffect, QSizePolicy,
+                             QHeaderView, QAbstractItemView)
 from PyQt5.QtCore import Qt, QPropertyAnimation, QEasingCurve, QDate, QSize
 from PyQt5.QtGui import QPixmap, QFont, QColor, QPalette, QIcon, QPainter, QPainterPath
 from PyQt5 import uic
@@ -25,6 +26,8 @@ from app.data.student_db import StudentDatabase
 from app.core.credentials import load_local_credentials
 from app.ui.credentials_dialog import get_golestan_credentials
 from app.scrapers.requests_scraper.fetch_data import get_student_record
+from app.core.translator import translator
+from app.core.language_manager import language_manager
 
 
 class CircularImageLabel(QLabel):
@@ -98,6 +101,9 @@ class StudentProfileDialog(QDialog):
         super().__init__(parent)
         self.student = None
         self.is_dark_mode = False
+        self._language_connected = False
+        self._data_loaded = False  # Flag to track if data was successfully loaded
+        self._connect_language_signal()
 
         # UI Standards for better readability
         self.SPACING_SMALL = 8
@@ -133,30 +139,67 @@ class StudentProfileDialog(QDialog):
         try:
             uic.loadUi(student_profile_ui_file, self)
         except FileNotFoundError:
-            print(f"Error: UI file not found: {student_profile_ui_file}")
+            from PyQt5.QtWidgets import QMessageBox
+            QMessageBox.critical(
+                self,
+                translator.t("common.error"),
+                self._t("ui_file_not_found", path=student_profile_ui_file)
+            )
             sys.exit(1)
         except Exception as e:
-            print(f"Error loading UI: {str(e)}")
+            from PyQt5.QtWidgets import QMessageBox
+            QMessageBox.critical(
+                self,
+                translator.t("common.error"),
+                self._t("ui_load_error", error=str(e))
+            )
             sys.exit(1)
 
         # Initialize UI components
         self.init_ui()
+        
+        # Apply translations
+        self._apply_translations()
 
-        # Load student data
         self.load_student_data()
+    
+    def _connect_language_signal(self):
+        """Connect to language change signal."""
+        if not self._language_connected:
+            language_manager.language_changed.connect(self._on_language_changed)
+            self._language_connected = True
+    
+    def _on_language_changed(self, _lang):
+        """Handle language change."""
+        self._apply_translations()
+        # Re-display student data with new translations
+        if self.student:
+            self.display_student_data()
+    
+    def _apply_translations(self):
+        """Apply translations to UI elements."""
+        language_manager.apply_layout_direction(self)
+        self.setWindowTitle(self._t("window_title"))
+        if hasattr(self, 'ui_titleLabel'):
+            self.ui_titleLabel.setText(translator.t("common.student_profile"))
+        if hasattr(self, 'section_semestersTitleLabel'):
+            self.section_semestersTitleLabel.setText(self._t("semesters_title"))
+        if hasattr(self, 'section_coursesTitleLabel'):
+            self.section_coursesTitleLabel.setText(self._t("courses_title"))
+    
+    def _t(self, key, **kwargs):
+        """Shortcut for translating student profile dialog strings."""
+        return translator.t(f"student_profile_dialog.{key}", **kwargs)
 
     def init_ui(self):
         """Initialize the user interface components."""
-        self.setWindowTitle("پروفایل دانشجو - Golestoon Class Planner")
+        self.setWindowTitle(self._t("window_title"))
         self.resize(1400, 900)
         self.setMinimumSize(1000, 700)
-        self.setMaximumSize(1600, 1200)
-        self.setLayoutDirection(Qt.RightToLeft)
+        self.setMaximumSize(16777215, 16777215)
         
-        # Set window flags to enable native window controls
         self.setWindowFlags(Qt.Dialog | Qt.WindowCloseButtonHint | Qt.WindowMaximizeButtonHint | Qt.WindowMinimizeButtonHint)
 
-        # Apply global dark theme stylesheet
         self.setStyleSheet("""
             QDialog {
                 background-color: #1e1e2e;
@@ -166,16 +209,13 @@ class StudentProfileDialog(QDialog):
             }
         """)
 
-        # Style the header frame
         self.ui_headerFrame.setStyleSheet("""
             QFrame {
-                background-color: #2d2d44;
+                background-color: rgba(45, 45, 68, 0.6);
                 border: none;
-                border-bottom: 1px solid #4a4a6a;
             }
         """)
 
-        # Style the title label
         self.ui_titleLabel.setStyleSheet("""
             QLabel {
                 color: #ffffff;
@@ -184,16 +224,20 @@ class StudentProfileDialog(QDialog):
             }
         """)
 
-        # Style the header card with distinct color
         self.profile_studentInfoCard.setStyleSheet("""
             QFrame {
-                background-color: #2d2d44;
-                border: 2px solid #4a4a6a;
-                border-radius: 4px;
+                background-color: rgba(45, 45, 68, 0.7);
+                border: none;
+                border-radius: 16px;
             }
         """)
+        header_shadow = QGraphicsDropShadowEffect()
+        header_shadow.setBlurRadius(20)
+        header_shadow.setXOffset(0)
+        header_shadow.setYOffset(4)
+        header_shadow.setColor(QColor(0, 0, 0, 50))
+        self.profile_studentInfoCard.setGraphicsEffect(header_shadow)
 
-        # Style the footer frame
         self.ui_footerFrame.setStyleSheet("""
             QFrame {
                 background-color: #2d2d44;
@@ -201,7 +245,6 @@ class StudentProfileDialog(QDialog):
             }
         """)
 
-        # Style the button box
         self.ui_buttonBox.setStyleSheet("""
             QDialogButtonBox {
                 color: #ffffff;
@@ -222,25 +265,24 @@ class StudentProfileDialog(QDialog):
             }
         """)
 
-        # Style the scroll area
         self.ui_contentScrollArea.setStyleSheet("""
             QScrollArea {
                 background-color: transparent;
                 border: none;
             }
             QScrollBar:vertical {
-                background-color: #2d2d44;
-                width: 15px;
-                border-radius: 7px;
-                margin: 15px 0 15px 0;
+                background-color: rgba(45, 45, 68, 0.3);
+                width: 12px;
+                border-radius: 6px;
+                margin: 0px;
             }
             QScrollBar::handle:vertical {
-                background-color: #4a4a6a;
-                border-radius: 7px;
-                min-height: 20px;
+                background-color: rgba(102, 126, 234, 0.5);
+                border-radius: 6px;
+                min-height: 30px;
             }
             QScrollBar::handle:vertical:hover {
-                background-color: #5a5a7a;
+                background-color: rgba(102, 126, 234, 0.7);
             }
             QScrollBar::sub-line:vertical, QScrollBar::add-line:vertical {
                 height: 0px;
@@ -250,115 +292,147 @@ class StudentProfileDialog(QDialog):
             }
         """)
 
-        # Table styling with dark theme and alternating rows
+        self.section_coursesTableWidget.setEditTriggers(QAbstractItemView.NoEditTriggers)
+        self.section_coursesTableWidget.verticalHeader().setSectionResizeMode(QHeaderView.Fixed)
         self.section_coursesTableWidget.setStyleSheet("""
             QTableWidget {
-                background-color: #2a2a3e;
-                alternate-background-color: #25253a;
-                border: 2px solid #4a4a6a;
-                border-radius: 6px;
-                gridline-color: #4a4a6a;
+                background-color: rgba(42, 42, 62, 0.5);
+                alternate-background-color: rgba(37, 37, 58, 0.5);
+                border: none;
+                border-radius: 16px;
+                gridline-color: rgba(74, 74, 106, 0.3);
                 font-size: 11px;
-                selection-background-color: #5a5a7a;
+                selection-background-color: rgba(90, 90, 122, 0.6);
                 selection-color: #ffffff;
                 outline: none;
                 color: #ffffff;
             }
             QTableWidget::item {
-                padding: 8px;
-                border: 1px solid #4a4a6a;
+                padding: 12px;
+                border: none;
+                border-bottom: 1px solid rgba(74, 74, 106, 0.15);
             }
             QTableWidget::item:hover {
-                background-color: #3a3a5a;
+                background-color: rgba(58, 58, 90, 0.4);
             }
             QHeaderView::section {
-                background-color: #3a3a5a;
+                background-color: rgba(58, 58, 90, 0.5);
                 color: #ffffff;
                 font-weight: bold;
                 font-size: 12px;
-                border: 2px solid #5a5a7a;
-                border-radius: 4px;
+                border: none;
+                border-bottom: 2px solid rgba(102, 126, 234, 0.4);
+                border-radius: 0px;
                 text-align: center;
-                min-height: 40px;
+                min-height: 45px;
+                padding: 8px;
             }
             QHeaderView::section:first {
-                border-top-left-radius: 6px;
+                border-top-left-radius: 16px;
             }
             QHeaderView::section:last {
-                border-top-right-radius: 6px;
+                border-top-right-radius: 16px;
             }
         """)
+        table_shadow = QGraphicsDropShadowEffect()
+        table_shadow.setBlurRadius(25)
+        table_shadow.setXOffset(0)
+        table_shadow.setYOffset(4)
+        table_shadow.setColor(QColor(0, 0, 0, 40))
+        self.section_coursesTableWidget.setGraphicsEffect(table_shadow)
 
-        # Tree widget styling with dark theme
+        self.section_semestersTreeWidget.setEditTriggers(QAbstractItemView.NoEditTriggers)
         self.section_semestersTreeWidget.setStyleSheet("""
             QTreeWidget {
-                background-color: #2a2a3e;
-                alternate-background-color: #25253a;
-                border: 2px solid #4a4a6a;
-                border-radius: 6px;
-                padding: 6px;
+                background-color: rgba(42, 42, 62, 0.5);
+                alternate-background-color: rgba(37, 37, 58, 0.5);
+                border: none;
+                border-radius: 16px;
+                padding: 8px;
                 font-size: 11px;
                 outline: none;
                 color: #ffffff;
-                selection-background-color: #5a5a7a;
+                selection-background-color: rgba(102, 126, 234, 0.4);
                 selection-color: #ffffff;
             }
             QTreeWidget::item {
-                padding: 6px;
-                border-radius: 3px;
-                border: 1px solid transparent;
+                padding: 12px 10px;
+                border-radius: 12px;
+                border: none;
+                margin: 3px 0px;
             }
             QTreeWidget::item:selected {
-                background-color: #5a5a7a;
+                background-color: rgba(102, 126, 234, 0.5);
                 color: #ffffff;
-                border: 1px solid #7a7a9a;
+                border: none;
             }
             QTreeWidget::item:hover {
-                background-color: #3a3a5a;
+                background-color: rgba(58, 58, 90, 0.4);
             }
             QHeaderView::section {
-                background-color: #3a3a5a;  
+                background-color: rgba(58, 58, 90, 0.5);
                 color: #ffffff;
-                border: 2px solid #5a5a7a;  
+                border: none;
+                border-bottom: 2px solid rgba(102, 126, 234, 0.4);
                 font-weight: bold;
                 font-size: 12px;
-                border-radius: 4px;
+                border-radius: 0px;
                 text-align: center;
-                min-height: 40px;
+                min-height: 45px;
+                padding: 8px;
+            }
+            QHeaderView::section:first {
+                border-top-left-radius: 16px;
+            }
+            QHeaderView::section:last {
+                border-top-right-radius: 16px;
             }
         """)
+        tree_shadow = QGraphicsDropShadowEffect()
+        tree_shadow.setBlurRadius(25)
+        tree_shadow.setXOffset(0)
+        tree_shadow.setYOffset(4)
+        tree_shadow.setColor(QColor(0, 0, 0, 40))
+        self.section_semestersTreeWidget.setGraphicsEffect(tree_shadow)
         
-        # Set minimum height for better visibility
-        self.section_semestersTreeWidget.setMinimumHeight(350)
+        self.section_semestersTreeWidget.setMinimumHeight(500)
+        self.section_semestersTreeWidget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
 
-        # Style the semesters section frame with dark background
         self.section_semestersFrame.setStyleSheet("""
             QFrame {
-                background-color: #2d2d44;
-                border: 2px solid #4a4a6a;
-                border-radius: 12px;
-                padding: 12px;
+                background-color: rgba(45, 45, 68, 0.4);
+                border: none;
+                border-radius: 20px;
+                padding: 16px;
             }
         """)
+        semesters_frame_shadow = QGraphicsDropShadowEffect()
+        semesters_frame_shadow.setBlurRadius(30)
+        semesters_frame_shadow.setXOffset(0)
+        semesters_frame_shadow.setYOffset(6)
+        semesters_frame_shadow.setColor(QColor(0, 0, 0, 50))
+        self.section_semestersFrame.setGraphicsEffect(semesters_frame_shadow)
         
-        # Set minimum and maximum height for the semesters section frame
-        self.section_semestersFrame.setMinimumHeight(400)
-        self.section_semestersFrame.setMaximumHeight(800)
+        self.section_semestersFrame.setMinimumHeight(500)
+        self.section_semestersFrame.setMaximumHeight(16777215)
         
-        # Make the frame resizable
         self.section_semestersFrame.setFrameShape(QFrame.StyledPanel)
 
-        # Style the courses section frame with dark background
         self.section_coursesFrame.setStyleSheet("""
             QFrame {
-                background-color: #2d2d44;
-                border: 2px solid #4a4a6a;
-                border-radius: 12px;
-                padding: 12px;
+                background-color: rgba(45, 45, 68, 0.4);
+                border: none;
+                border-radius: 20px;
+                padding: 16px;
             }
         """)
+        courses_frame_shadow = QGraphicsDropShadowEffect()
+        courses_frame_shadow.setBlurRadius(30)
+        courses_frame_shadow.setXOffset(0)
+        courses_frame_shadow.setYOffset(6)
+        courses_frame_shadow.setColor(QColor(0, 0, 0, 50))
+        self.section_coursesFrame.setGraphicsEffect(courses_frame_shadow)
 
-        # Style section headers
         self.section_semestersTitleLabel.setStyleSheet("""
             QLabel {
                 color: #ffffff;
@@ -375,19 +449,19 @@ class StudentProfileDialog(QDialog):
             }
         """)
         
-        # Set minimum height for courses section
-        self.section_coursesFrame.setMinimumHeight(400)
+        self.section_coursesFrame.setMinimumHeight(500)
+        self.section_coursesFrame.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
         
-        # Make splitter handle more visible
         self.section_contentSplitter.setStyleSheet("""
             QSplitter::handle {
-                background-color: #4a4a6a;
-                border-radius: 2px;
+                background-color: rgba(74, 74, 106, 0.5);
+                border-radius: 4px;
             }
             QSplitter::handle:hover {
-                background-color: #5a5a7a;
+                background-color: rgba(90, 90, 122, 0.7);
             }
         """)
+        self.section_contentSplitter.setSizes([1, 1])
 
     def toggle_maximize(self):
         """Toggle between maximized and normal window state."""
@@ -401,46 +475,43 @@ class StudentProfileDialog(QDialog):
         if not self.student:
             return
 
-        # Display student photo
         self.display_student_photo()
-
-        # Display basic info with proper hierarchy
         self.display_student_info()
-
-        # Add statistics cards
         self.add_statistics_cards()
-
-        # Add GPA trend chart
         self.add_gpa_trend_chart()
-
-        # Add GPA predictor (dark themed)
         self.add_gpa_predictor()
-
-        # Connect semester selection if we have data
-        if self.student and self.student.semesters:
-            self.section_semestersTreeWidget.currentItemChanged.connect(self.on_semester_selected)
-
-        # Populate semesters tree
         self.populate_semesters_tree()
         
-        # Connect semester selection after populating
+        self.section_semestersTreeWidget.itemClicked.connect(self.on_semester_selected)
         self.section_semestersTreeWidget.currentItemChanged.connect(self.on_semester_selected)
-        
-        # Add minimize capability to semesters section
-        self.add_semester_section_minimize()
+    
+    def showEvent(self, event):
+        """Handle show event."""
+        super().showEvent(event)
+        if not self._data_loaded:
+            from PyQt5.QtCore import QTimer
+            QTimer.singleShot(0, self.reject)
+            event.ignore()
+    
+    def closeEvent(self, event):
+        """Clean up on close."""
+        if self._language_connected:
+            try:
+                language_manager.language_changed.disconnect(self._on_language_changed)
+            except (TypeError, RuntimeError):
+                pass
+            self._language_connected = False
+        super().closeEvent(event)
 
     def display_student_photo(self):
         """Display student photo with professional circular design."""
-        # Create container for photo
         photo_container = QWidget()
         photo_container.setFixedSize(self.PHOTO_SIZE + 16, self.PHOTO_SIZE + 16)
 
-        # Create circular label
         circular_label = CircularImageLabel(photo_container)
         circular_label.setFixedSize(self.PHOTO_SIZE, self.PHOTO_SIZE)
         circular_label.move(8, 8)
 
-        # Style the container with 4px blue border
         photo_container.setStyleSheet(f"""
             QWidget {{
                 background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
@@ -450,7 +521,6 @@ class StudentProfileDialog(QDialog):
             }}
         """)
 
-        # Add shadow effect
         shadow = QGraphicsDropShadowEffect()
         shadow.setBlurRadius(20)
         shadow.setXOffset(0)
@@ -471,7 +541,6 @@ class StudentProfileDialog(QDialog):
         else:
             self.set_placeholder_photo(circular_label)
 
-        # Replace the existing photo label
         header_frame = self.findChild(QFrame, "profile_studentInfoCard")
         header_layout = header_frame.layout()
 
@@ -493,7 +562,6 @@ class StudentProfileDialog(QDialog):
 
     def display_student_info(self):
         """Display student information with proper visual hierarchy."""
-        # Student name - largest, most prominent
         self.profile_studentNameLabel.setText(self.student.name)
         self.profile_studentNameLabel.setFont(QFont("Arial", 22, QFont.Bold))
         self.profile_studentNameLabel.setStyleSheet("""
@@ -501,50 +569,43 @@ class StudentProfileDialog(QDialog):
             padding: 6px 0 3px 0;
         """)
 
-        # Student ID - medium size, secondary
-        self.profile_studentIdLabel.setText(f"شماره دانشجویی: {self.student.student_id}")
+        self.profile_studentIdLabel.setText(self._t("student_id_label", id=self.student.student_id))
         self.profile_studentIdLabel.setFont(QFont("Arial", 14, QFont.Normal))
         self.profile_studentIdLabel.setStyleSheet("""
             color: #b0b0c0;
             padding: 3px 0;
         """)
 
-        # Faculty and Major - smaller, tertiary
-        self.profile_facultyLabel.setText(f"دانشکده: {self.student.faculty}")
+        self.profile_facultyLabel.setText(self._t("faculty_label", faculty=self.student.faculty))
         self.profile_facultyLabel.setFont(QFont("Arial", 11, QFont.Normal))
         self.profile_facultyLabel.setStyleSheet("""
             color: #b0b0c0;
             padding: 1px 0;
         """)
 
-        self.profile_majorLabel.setText(f"رشته: {self.student.major}")
+        self.profile_majorLabel.setText(self._t("major_label", major=self.student.major))
         self.profile_majorLabel.setFont(QFont("Arial", 11, QFont.Normal))
         self.profile_majorLabel.setStyleSheet("""
             color: #b0b0c0;
             padding: 1px 0;
         """)
 
-        # Update the GPA, units, and best GPA labels with proper styling
-        # GPA label
         gpa_text = f"{self.student.overall_gpa:.2f}" if self.student.overall_gpa is not None else "0.00"
-        self.profile_gpaLabel.setText(f"میانگین کل: {gpa_text}")
+        self.profile_gpaLabel.setText(self._t("overall_gpa_label", gpa=gpa_text))
         self.profile_gpaLabel.setFont(QFont("Arial", 28, QFont.Bold))
         self.profile_gpaLabel.setStyleSheet("""
             color: #ffffff;
             padding: 5px 0;
         """)
 
-        # Units label
         units_text = f"{int(self.student.total_units_passed)}" if self.student.total_units_passed is not None else "0"
-        self.profile_unitsLabel.setText(f"واحدهای گذرانده: {units_text}")
+        self.profile_unitsLabel.setText(self._t("units_passed_label", units=units_text))
         self.profile_unitsLabel.setFont(QFont("Arial", 12))
         self.profile_unitsLabel.setStyleSheet("""
             color: #b0b0c0;
             padding: 3px 0;
         """)
 
-        # Best GPA label
-        # Calculate best semester GPA
         best_gpa = Decimal('0.00')
         if self.student.semesters:
             valid_gpas = [semester.semester_gpa for semester in self.student.semesters
@@ -552,7 +613,7 @@ class StudentProfileDialog(QDialog):
             if valid_gpas:
                 best_gpa = max(valid_gpas)
         
-        self.profile_bestGpaLabel.setText(f"بهترین میانگین ترم: {best_gpa:.2f}")
+        self.profile_bestGpaLabel.setText(self._t("best_gpa_label", gpa=f"{best_gpa:.2f}"))
         self.profile_bestGpaLabel.setFont(QFont("Arial", 12))
         self.profile_bestGpaLabel.setStyleSheet("""
             color: #b0b0c0;
@@ -561,7 +622,6 @@ class StudentProfileDialog(QDialog):
 
     def add_statistics_cards(self):
         """Add enhanced statistics cards."""
-        # Create stats container
         stats_frame = QFrame()
         stats_frame.setFrameShape(QFrame.NoFrame)
         stats_frame.setStyleSheet("""
@@ -574,7 +634,6 @@ class StudentProfileDialog(QDialog):
         stats_layout.setSpacing(self.SPACING_MEDIUM)
         stats_layout.setContentsMargins(0, 0, 0, 0)
 
-        # Calculate statistics
         total_courses = sum(len(semester.courses) for semester in self.student.semesters)
         passed_courses = sum(
             1 for semester in self.student.semesters
@@ -582,7 +641,6 @@ class StudentProfileDialog(QDialog):
             if course.grade is not None and course.grade >= Decimal('10.00')
         )
 
-        # Best semester GPA
         best_gpa = Decimal('0.00')
         if self.student.semesters:
             valid_gpas = [semester.semester_gpa for semester in self.student.semesters
@@ -590,40 +648,37 @@ class StudentProfileDialog(QDialog):
             if valid_gpas:
                 best_gpa = max(valid_gpas)
 
-        # Card definitions
         cards_data = [
             {
                 "icon": "🎓",
-                "title": "معدل کل",
+                "title": self._t("stats_card_gpa_title"),
                 "value": f"{self.student.overall_gpa:.2f}" if self.student.overall_gpa else "0.00",
-                "subtitle": "از 20",
+                "subtitle": self._t("stats_card_gpa_subtitle"),
                 "color": "#667eea",
                 "color_dark": "#5568d3"
             },
             {
                 "icon": "📚",
-                "title": "واحد گذرانده",
+                "title": self._t("stats_card_units_title"),
                 "value": f"{int(self.student.total_units_passed)}" if self.student.total_units_passed else "0",
-                "subtitle": f"از 140 واحد",
+                "subtitle": self._t("stats_card_units_subtitle"),
                 "color": "#48bb78",
                 "color_dark": "#38a169"
             },
             {
                 "icon": "📈",
-                "title": "بهترین ترم",
+                "title": self._t("stats_card_best_title"),
                 "value": f"{best_gpa:.2f}",
-                "subtitle": "میانگین",
+                "subtitle": self._t("stats_card_best_subtitle"),
                 "color": "#ed8936",
                 "color_dark": "#dd6b20"
             }
         ]
 
-        # Create cards
         for card_data in cards_data:
             card = self.create_stat_card(card_data)
             stats_layout.addWidget(card)
 
-        # Add to main layout
         main_layout = self.findChild(QWidget, "ui_scrollAreaWidgetContents").layout()
         main_layout.insertWidget(1, stats_frame)
 
@@ -633,50 +688,53 @@ class StudentProfileDialog(QDialog):
         card.setMinimumHeight(self.CARD_MIN_HEIGHT)
         card.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.MinimumExpanding)
         
-        # Apply colored backgrounds based on card type
-        if "معدل کل" in data['title']:
-            # GPA card: Purple
+        icon = data.get('icon', '')
+        if "🎓" in icon:
+            # GPA card: Purple solid color (no gradient)
             card.setStyleSheet("""
                 QFrame {
                     background-color: rgba(139, 92, 246, 0.2);
-                    border-radius: 12px;
-                    padding: 12px;
+                    border: none;
+                    border-radius: 20px;
+                    padding: 16px;
                 }
             """)
-        elif "واحد گذرانده" in data['title']:
-            # Units card: Green
+        elif "📚" in icon:
+            # Units card: Green solid color (no gradient)
             card.setStyleSheet("""
                 QFrame {
                     background-color: rgba(34, 197, 94, 0.2);
-                    border-radius: 12px;
-                    padding: 12px;
+                    border: none;
+                    border-radius: 20px;
+                    padding: 16px;
                 }
             """)
-        elif "بهترین ترم" in data['title']:
-            # Best GPA card: Blue
+        elif "📈" in icon:
+            # Best GPA card: Blue solid color (no gradient)
             card.setStyleSheet("""
                 QFrame {
                     background-color: rgba(59, 130, 246, 0.2);
-                    border-radius: 12px;
-                    padding: 12px;
+                    border: none;
+                    border-radius: 20px;
+                    padding: 16px;
                 }
             """)
         else:
             # Default card style
             card.setStyleSheet("""
                 QFrame {
-                    background-color: #2d2d44;
-                    border-radius: 12px;
-                    padding: 12px;
+                    background-color: rgba(45, 45, 68, 0.4);
+                    border: none;
+                    border-radius: 20px;
+                    padding: 16px;
                 }
             """)
 
-        # Add shadow
         shadow = QGraphicsDropShadowEffect()
-        shadow.setBlurRadius(15)
+        shadow.setBlurRadius(25)
         shadow.setXOffset(0)
-        shadow.setYOffset(2)
-        shadow.setColor(QColor(0, 0, 0, 40))
+        shadow.setYOffset(6)
+        shadow.setColor(QColor(0, 0, 0, 60))
         card.setGraphicsEffect(shadow)
 
         layout = QVBoxLayout(card)
@@ -688,11 +746,11 @@ class StudentProfileDialog(QDialog):
         top_row.setSpacing(self.SPACING_SMALL)
 
         icon_label = QLabel(data['icon'])
-        icon_label.setFont(QFont("Arial", self.ICON_SIZE_MEDIUM))
+        icon_label.setFont(QFont("Arial", self.ICON_SIZE_LARGE))
 
         title_label = QLabel(data['title'])
-        title_label.setFont(QFont("Arial", self.FONT_SIZE_SMALL, QFont.DemiBold))
-        title_label.setStyleSheet("color: #b0b0c0;")
+        title_label.setFont(QFont("Arial", self.FONT_SIZE_MEDIUM, QFont.Bold))
+        title_label.setStyleSheet("color: #ffffff; font-weight: bold;")
 
         top_row.addWidget(icon_label)
         top_row.addWidget(title_label)
@@ -718,27 +776,24 @@ class StudentProfileDialog(QDialog):
     def add_gpa_trend_chart(self):
         """Add GPA trend chart with optimized sizing."""
         try:
-            # Set the matplotlib backend before importing pyplot
             import matplotlib
             matplotlib.use('Qt5Agg')
             import matplotlib.pyplot as plt
             from matplotlib.backends.backend_qt5agg import FigureCanvasQTAgg as FigureCanvas
 
-            # Filter out semesters with zero GPA (current semester)
             valid_semesters = [s for s in self.student.semesters if s.semester_gpa is not None and s.semester_gpa > 0]
             sorted_semesters = sorted(valid_semesters, key=lambda s: s.semester_id)
 
             if not sorted_semesters:
                 return
 
-            # Create chart frame with dark theme
             chart_frame = QFrame()
             chart_frame.setStyleSheet("""
                 QFrame {
-                    background: #2d2d44;
-                    border: 2px solid #4a4a6a;
-                    border-radius: 10px;
-                    padding: 14px;
+                    background: rgba(45, 45, 68, 0.4);
+                    border: none;
+                    border-radius: 20px;
+                    padding: 18px;
                 }
             """)
 
@@ -747,8 +802,8 @@ class StudentProfileDialog(QDialog):
             chart_layout.setContentsMargins(self.PADDING_MEDIUM, self.PADDING_MEDIUM,
                                             self.PADDING_MEDIUM, self.PADDING_MEDIUM)
 
-            # Title - in Persian to match other titles
-            title = QLabel("📊 روند معدل ترمی")
+            # Title
+            title = QLabel(self._t("gpa_trend_title"))
             title.setFont(QFont("Arial", self.FONT_SIZE_LARGE, QFont.Bold))
             title.setStyleSheet("color: #ffffff;")
             chart_layout.addWidget(title)
@@ -787,24 +842,19 @@ class StudentProfileDialog(QDialog):
             ax.yaxis.label.set_color('#ffffff')
             ax.title.set_color('#ffffff')
 
-            # Create bar chart
             bars = ax.bar(term_numbers, gpas, color='#667eea', alpha=0.8, edgecolor='#4a5568', linewidth=1.2)
 
-            # Add value labels on bars
             for i, (bar, gpa) in enumerate(zip(bars, gpas)):
                 height = bar.get_height()
                 ax.text(bar.get_x() + bar.get_width()/2., height + 0.1,
                         f'{gpa:.2f}',
                         ha='center', va='bottom', fontsize=self.FONT_SIZE_SMALL, fontweight='bold', color='#ffffff')
 
-            # Calculate average excluding zero GPAs
             avg_gpa = sum(gpas) / len(gpas) if gpas else 0
             
-            # Add average line
             ax.axhline(y=avg_gpa, color='#48bb78', linestyle='--',
                        linewidth=2, alpha=0.8, label=f'Average: {avg_gpa:.2f}')
 
-            # Styling - keep English for chart elements
             ax.set_xlabel('Term Number', fontsize=self.FONT_SIZE_NORMAL, fontweight='500', color='#ffffff')
             ax.set_ylabel('GPA', fontsize=self.FONT_SIZE_NORMAL, fontweight='500', color='#ffffff')
             ax.set_ylim(0, 20)
@@ -813,7 +863,6 @@ class StudentProfileDialog(QDialog):
             ax.grid(True, alpha=0.3, linestyle='--', linewidth=0.5, axis='y', color='#4a4a6a')
             ax.legend(loc='upper right', fontsize=self.FONT_SIZE_SMALL, framealpha=0.9, facecolor='#2d2d44', edgecolor='#4a4a6a', labelcolor='#ffffff')
 
-            # Add shadow to frame
             shadow = QGraphicsDropShadowEffect()
             shadow.setBlurRadius(15)
             shadow.setXOffset(0)
@@ -821,12 +870,10 @@ class StudentProfileDialog(QDialog):
             shadow.setColor(QColor(0, 0, 0, 30))
             chart_frame.setGraphicsEffect(shadow)
 
-            # Add to canvas
             canvas = FigureCanvas(fig)
             canvas.setFixedHeight(self.CHART_HEIGHT)
             chart_layout.addWidget(canvas)
 
-            # Add to main layout at the end
             main_layout = self.findChild(QWidget, "ui_scrollAreaWidgetContents").layout()
             main_layout.addWidget(chart_frame)
 
@@ -848,7 +895,6 @@ class StudentProfileDialog(QDialog):
         else:
             border_color = "#ed8936"
 
-        # Apply 3px colored border as requested
         card.setStyleSheet(f"""
             QFrame {{
                 background: #2d2d44;
@@ -895,10 +941,10 @@ class StudentProfileDialog(QDialog):
             predictor_frame = QFrame()
             predictor_frame.setStyleSheet("""
                 QFrame {
-                    background: #2d2d44;
-                    border: 2px solid #4a4a6a;
-                    border-radius: 10px;
-                    padding: 16px;
+                    background: rgba(45, 45, 68, 0.4);
+                    border: none;
+                    border-radius: 20px;
+                    padding: 18px;
                 }
             """)
 
@@ -906,13 +952,13 @@ class StudentProfileDialog(QDialog):
             predictor_layout.setSpacing(self.SPACING_MEDIUM)
 
             # Title
-            title = QLabel("🔮 پیش‌بینی معدل ترم بعد")
+            title = QLabel(self._t("gpa_predictor_title"))
             title.setFont(QFont("Arial", self.FONT_SIZE_LARGE, QFont.Bold))
             title.setStyleSheet("color: #ffffff;")
             predictor_layout.addWidget(title)
 
             # Description
-            desc = QLabel("با انتخاب تعداد واحد و نمره مورد انتظار، معدل احتمالی خود را محاسبه کنید")
+            desc = QLabel(self._t("gpa_predictor_desc"))
             desc.setFont(QFont("Arial", self.FONT_SIZE_SMALL))
             desc.setStyleSheet("color: #b0b0c0;")
             predictor_layout.addWidget(desc)
@@ -968,10 +1014,11 @@ class StudentProfileDialog(QDialog):
             """)
 
             # Add rows to form layout - labels and inputs side-by-side
-            form_layout.addRow(QLabel("تعداد واحد:"), self.units_input)
-            form_layout.addRow(QLabel("نمره پیش‌بینی:"), self.grade_input)
+            units_label = QLabel(self._t("units_label"))
+            grade_label = QLabel(self._t("grade_label"))
+            form_layout.addRow(units_label, self.units_input)
+            form_layout.addRow(grade_label, self.grade_input)
             
-            # Style the labels in the form
             for i in range(form_layout.rowCount()):
                 label_item = form_layout.itemAt(i, QFormLayout.LabelRole)
                 if label_item and label_item.widget():
@@ -981,7 +1028,7 @@ class StudentProfileDialog(QDialog):
             predictor_layout.addWidget(form_widget)
 
             # Calculate button
-            calc_button = QPushButton("محاسبه معدل جدید")
+            calc_button = QPushButton(self._t("calculate_button"))
             calc_button.setFixedHeight(self.BUTTON_HEIGHT)
             calc_button.setCursor(Qt.PointingHandCursor)
             calc_button.setFont(QFont("Arial", self.FONT_SIZE_NORMAL, QFont.DemiBold))
@@ -1010,10 +1057,10 @@ class StudentProfileDialog(QDialog):
             self.result_widget.setVisible(False)
             self.result_widget.setStyleSheet("""
                 QFrame {
-                    background: #2a2a3e;
-                    border: 2px solid #4a4a6a;
-                    border-radius: 10px;
-                    padding: 16px;
+                    background: rgba(42, 42, 62, 0.6);
+                    border: none;
+                    border-radius: 16px;
+                    padding: 18px;
                 }
             """)
 
@@ -1039,7 +1086,7 @@ class StudentProfileDialog(QDialog):
             actions_layout = QHBoxLayout()
             actions_layout.setSpacing(self.SPACING_MEDIUM)
 
-            print_button = QPushButton("چاپ کارنامه")
+            print_button = QPushButton(self._t("print_transcript"))
             print_button.setFixedHeight(self.BUTTON_HEIGHT)
             print_button.setCursor(Qt.PointingHandCursor)
             print_button.setFont(QFont("Arial", self.FONT_SIZE_NORMAL))
@@ -1058,7 +1105,7 @@ class StudentProfileDialog(QDialog):
             print_button.clicked.connect(self.save_academic_screenshot)
             print_button.setVisible(False)
 
-            pdf_button = QPushButton("ذخیره کارنامه")
+            pdf_button = QPushButton(self._t("save_transcript"))
             pdf_button.setFixedHeight(self.BUTTON_HEIGHT)
             pdf_button.setCursor(Qt.PointingHandCursor)
             pdf_button.setFont(QFont("Arial", self.FONT_SIZE_NORMAL))
@@ -1112,13 +1159,13 @@ class StudentProfileDialog(QDialog):
                 self.predicted_label.setText(f"{predicted_gpa:.2f}")
 
                 if change > 0:
-                    self.change_label.setText(f"افزایش {change:.2f} نسبت به معدل فعلی 📈")
+                    self.change_label.setText(self._t("increase", change=f"{change:.2f}"))
                     self.change_label.setStyleSheet("color: #15803d;")
                 elif change < 0:
-                    self.change_label.setText(f"کاهش {abs(change):.2f} نسبت به معدل فعلی 📉")
+                    self.change_label.setText(self._t("decrease", change=f"{abs(change):.2f}"))
                     self.change_label.setStyleSheet("color: #dc2626;")
                 else:
-                    self.change_label.setText("بدون تغییر نسبت به معدل فعلی")
+                    self.change_label.setText(self._t("no_change"))
                     self.change_label.setStyleSheet("color: #6c757d;")
 
         except Exception as e:
@@ -1133,7 +1180,7 @@ class StudentProfileDialog(QDialog):
         # Get file path from user
         file_path, _ = QFileDialog.getSaveFileName(
             self, 
-            "ذخیره خلاصه تحصیلی", 
+            self._t("save_summary_title"), 
             "academic_summary.png", 
             "PNG Files (*.png)"
         )
@@ -1155,7 +1202,7 @@ class StudentProfileDialog(QDialog):
                 layout.setContentsMargins(20, 20, 20, 20)
                 
                 # Header
-                header = QLabel("خلاصه وضعیت تحصیلی")
+                header = QLabel(self._t("summary_header"))
                 header.setFont(QFont("Arial", 20, QFont.Bold))
                 header.setAlignment(Qt.AlignCenter)
                 header.setStyleSheet("color: #ffffff; padding: 10px;")
@@ -1174,21 +1221,21 @@ class StudentProfileDialog(QDialog):
                 info_layout = QVBoxLayout(info_frame)
                 
                 # Student name
-                name_label = QLabel(f"نام دانشجو: {self.student.name}")
+                name_label = QLabel(self._t("summary_student_name", name=self.student.name))
                 name_label.setFont(QFont("Arial", 16, QFont.Bold))
                 name_label.setStyleSheet("color: #ffffff;")
                 
                 # Student ID
-                id_label = QLabel(f"شماره دانشجویی: {self.student.student_id}")
+                id_label = QLabel(self._t("summary_student_id", id=self.student.student_id))
                 id_label.setFont(QFont("Arial", 12))
                 id_label.setStyleSheet("color: #b0b0c0;")
                 
                 # Faculty and major
-                faculty_label = QLabel(f"دانشکده: {self.student.faculty}")
+                faculty_label = QLabel(self._t("summary_faculty", faculty=self.student.faculty))
                 faculty_label.setFont(QFont("Arial", 12))
                 faculty_label.setStyleSheet("color: #b0b0c0;")
                 
-                major_label = QLabel(f"رشته: {self.student.major}")
+                major_label = QLabel(self._t("summary_major", major=self.student.major))
                 major_label.setFont(QFont("Arial", 12))
                 major_label.setStyleSheet("color: #b0b0c0;")
                 
@@ -1214,7 +1261,7 @@ class StudentProfileDialog(QDialog):
                 gpa_text = f"{self.student.overall_gpa:.2f}" if self.student.overall_gpa is not None else "0.00"
                 gpa_box = QFrame()
                 gpa_layout = QVBoxLayout(gpa_box)
-                gpa_title = QLabel("معدل کل")
+                gpa_title = QLabel(self._t("summary_gpa_title"))
                 gpa_title.setFont(QFont("Arial", 10))
                 gpa_title.setStyleSheet("color: #b0b0c0;")
                 gpa_value = QLabel(gpa_text)
@@ -1227,7 +1274,7 @@ class StudentProfileDialog(QDialog):
                 units_text = f"{int(self.student.total_units_passed)}" if self.student.total_units_passed is not None else "0"
                 units_box = QFrame()
                 units_layout = QVBoxLayout(units_box)
-                units_title = QLabel("واحدهای گذرانده")
+                units_title = QLabel(self._t("summary_units_title"))
                 units_title.setFont(QFont("Arial", 10))
                 units_title.setStyleSheet("color: #b0b0c0;")
                 units_value = QLabel(units_text)
@@ -1245,7 +1292,7 @@ class StudentProfileDialog(QDialog):
                         best_gpa = max(valid_gpas)
                 best_gpa_box = QFrame()
                 best_gpa_layout = QVBoxLayout(best_gpa_box)
-                best_gpa_title = QLabel("بهترین ترم")
+                best_gpa_title = QLabel(self._t("summary_best_title"))
                 best_gpa_title.setFont(QFont("Arial", 10))
                 best_gpa_title.setStyleSheet("color: #b0b0c0;")
                 best_gpa_value = QLabel(f"{best_gpa:.2f}")
@@ -1264,7 +1311,7 @@ class StudentProfileDialog(QDialog):
                     semesters_frame = QFrame()
                     semesters_layout = QVBoxLayout(semesters_frame)
                     
-                    semesters_title = QLabel("ترم‌های تحصیلی")
+                    semesters_title = QLabel(self._t("summary_semesters_title"))
                     semesters_title.setFont(QFont("Arial", 16, QFont.Bold))
                     semesters_title.setStyleSheet("color: #ffffff;")
                     semesters_layout.addWidget(semesters_title)
@@ -1289,7 +1336,7 @@ class StudentProfileDialog(QDialog):
                         
                         # GPA
                         gpa = float(semester.semester_gpa) if semester.semester_gpa else 0.0
-                        gpa_label = QLabel(f"معدل ترم: {gpa:.2f}")
+                        gpa_label = QLabel(self._t("summary_semester_gpa", gpa=f"{gpa:.2f}"))
                         gpa_label.setFont(QFont("Arial", 11))
                         if gpa >= 17:
                             gpa_label.setStyleSheet("color: #48bb78;")
@@ -1299,12 +1346,12 @@ class StudentProfileDialog(QDialog):
                             gpa_label.setStyleSheet("color: #ed8936;")
                         
                         # Units
-                        units_label = QLabel(f"واحدهای گذرانده: {int(semester.units_passed)}/{int(semester.units_taken)}")
+                        units_label = QLabel(self._t("summary_semester_units", units_passed=int(semester.units_passed), units_taken=int(semester.units_taken)))
                         units_label.setFont(QFont("Arial", 11))
                         units_label.setStyleSheet("color: #b0b0c0;")
                         
                         # Courses section title
-                        courses_title = QLabel("دروس ترم:")
+                        courses_title = QLabel(self._t("summary_semester_courses"))
                         courses_title.setFont(QFont("Arial", 11, QFont.Bold))
                         courses_title.setStyleSheet("color: #ffffff;")
                         
@@ -1344,24 +1391,26 @@ class StudentProfileDialog(QDialog):
                 # Save the pixmap
                 if pixmap.save(file_path, "PNG"):
                     from PyQt5.QtWidgets import QMessageBox
-                    QMessageBox.information(self, "ذخیره خلاصه", "خلاصه وضعیت تحصیلی با موفقیت ذخیره شد.")
+                    QMessageBox.information(self, self._t("save_summary_title"), self._t("save_summary_success"))
                 else:
                     from PyQt5.QtWidgets import QMessageBox
-                    QMessageBox.critical(self, "خطا", "خطا در ذخیره خلاصه.")
+                    QMessageBox.critical(self, translator.t("common.error"), self._t("save_summary_error"))
                     
             except Exception as e:
                 from PyQt5.QtWidgets import QMessageBox
-                QMessageBox.critical(self, "خطا", f"خطا در ایجاد خلاصه:\n{str(e)}")
+                QMessageBox.critical(self, translator.t("common.error"), self._t("save_summary_error_detail", error=str(e)))
 
     def load_student_data(self):
-        """Load student data."""
+        """Load student data with non-blocking loading dialog."""
         try:
+            from app.ui.loading_dialog import LoadingDialog, GolestanWorker
+            
             credentials = load_local_credentials()
 
             if credentials is None:
                 result = get_golestan_credentials(self)
-                if result[0] is None:
-                    self.reject()
+                if result[0] is None or result[1] is None:
+                    self._data_loaded = False
                     return
                 student_number, password = result
             else:
@@ -1370,21 +1419,70 @@ class StudentProfileDialog(QDialog):
 
             db = StudentDatabase(student_number)
 
+            # Check database first
             if db.student_exists():
                 self.student = db.load_student()
                 print(f"✓ Loaded from database: {student_number}")
-            else:
-                print(f"⟳ Fetching from Golestan: {student_number}")
-                self.student = get_student_record(username=student_number, password=password, db=db)
-                db.save_student(self.student)
-                print(f"✓ Saved to database: {student_number}")
+                self.display_student_data()
+                self._data_loaded = True
+                return
 
-            self.display_student_data()
+            # Show loading dialog
+            loading_dialog = LoadingDialog(
+                self, 
+                self._t("loading_message")
+            )
+            loading_dialog.show()
+            QApplication.processEvents()
+
+            # Create worker thread
+            worker = GolestanWorker(
+                'get_student_record',
+                username=student_number,
+                password=password,
+                db=db
+            )
+
+            # Connect signals
+            def on_progress(message):
+                loading_dialog.set_message(message)
+
+            def on_finished(result):
+                loading_dialog.close()
+                if isinstance(result, Exception):
+                    print(f"Error loading student data: {result}")
+                    from PyQt5.QtWidgets import QMessageBox
+                    QMessageBox.critical(self, self._t("load_error_title"), self._t("load_error_message", error=str(result)))
+                    self._data_loaded = False
+                    self.reject()
+                else:
+                    # Success - result is the Student object
+                    self.student = result
+                    if self.student:
+                        db.save_student(self.student)
+                        print(f"✓ Saved to database: {student_number}")
+                        self.display_student_data()
+                        self._data_loaded = True
+                    else:
+                        self._data_loaded = False
+
+            worker.progress.connect(on_progress)
+            worker.finished.connect(on_finished)
+
+            # Start worker
+            worker.start()
+
+            # Keep dialog visible until worker finishes
+            while worker.isRunning():
+                QApplication.processEvents()
+                from PyQt5.QtCore import QThread
+                QThread.msleep(50)
 
         except Exception as e:
             print(f"Error loading student data: {e}")
             from PyQt5.QtWidgets import QMessageBox
-            QMessageBox.critical(self, "خطا", f"خطا در بارگذاری اطلاعات:\n{str(e)}")
+            QMessageBox.critical(self, self._t("load_error_title"), self._t("load_error_message", error=str(e)))
+            self._data_loaded = False
             self.reject()
 
     def populate_semesters_tree(self):
@@ -1394,10 +1492,16 @@ class StudentProfileDialog(QDialog):
         # Ensure proper RTL layout for the tree
         self.section_semestersTreeWidget.setLayoutDirection(Qt.RightToLeft)
         
-        # Set column widths for better visibility
-        self.section_semestersTreeWidget.setColumnWidth(0, 250)
-        self.section_semestersTreeWidget.setColumnWidth(1, 100)
-        self.section_semestersTreeWidget.setColumnWidth(2, 150)
+        # Set column widths for better visibility - fit columns properly
+        # Semester name column - smaller to leave space for other columns
+        self.section_semestersTreeWidget.setColumnWidth(0, 280)  # Semester name - reduced
+        self.section_semestersTreeWidget.setColumnWidth(1, 100)  # GPA
+        self.section_semestersTreeWidget.setColumnWidth(2, 120)  # Units
+        # Prevent column resizing by user
+        header = self.section_semestersTreeWidget.header()
+        header.setSectionResizeMode(0, QHeaderView.Fixed)
+        header.setSectionResizeMode(1, QHeaderView.Fixed)
+        header.setSectionResizeMode(2, QHeaderView.Fixed)
 
         if not self.student or not self.student.semesters:
             return
@@ -1406,7 +1510,11 @@ class StudentProfileDialog(QDialog):
 
         for semester in sorted_semesters:
             item = QTreeWidgetItem(self.section_semestersTreeWidget)
-            item.setText(0, semester.semester_description)
+            # Truncate semester name if too long to fit column
+            semester_name = semester.semester_description
+            if len(semester_name) > 35:  # Adjusted for column width of 280
+                semester_name = semester_name[:35] + "..."
+            item.setText(0, semester_name)
             item.setTextAlignment(0, Qt.AlignCenter)
 
             # Color code GPA according to user requirements
@@ -1434,6 +1542,9 @@ class StudentProfileDialog(QDialog):
             font = QFont("Arial", self.FONT_SIZE_NORMAL)
             for col in range(3):
                 item.setFont(col, font)
+            
+            # Set item height to be larger to reduce vertical scrollbar need
+            item.setSizeHint(0, QSize(0, 50))  # Height of 50px per item
 
             self.section_semestersTreeWidget.addTopLevelItem(item)
 
@@ -1443,14 +1554,16 @@ class StudentProfileDialog(QDialog):
             first_item = self.section_semestersTreeWidget.topLevelItem(0)
             self.section_semestersTreeWidget.setCurrentItem(first_item)
 
-    def on_semester_selected(self):
-        """Handle semester selection."""
-        selected_items = self.section_semestersTreeWidget.selectedItems()
-        if not selected_items:
-            return
-
-        item = selected_items[0]
-        semester = item.data(0, Qt.UserRole)
+    def on_semester_selected(self, item=None, previous_item=None):
+        """Handle semester selection - works with both itemClicked and currentItemChanged signals."""
+        # Handle both signal signatures
+        if item is None:
+            selected_items = self.section_semestersTreeWidget.selectedItems()
+            if not selected_items:
+                return
+            item = selected_items[0]
+        
+        semester = item.data(0, Qt.UserRole) if item else None
 
         if semester:
             self.display_semester_courses(semester)
@@ -1460,18 +1573,29 @@ class StudentProfileDialog(QDialog):
         self.section_coursesTableWidget.setRowCount(0)
         self.section_coursesTableWidget.setColumnCount(5)
         self.section_coursesTableWidget.setHorizontalHeaderLabels([
-            'نام درس', 'واحد', 'نمره', 'وضعیت', 'ترم'
+            self._t("table_headers.course_name"),
+            self._t("table_headers.units"),
+            self._t("table_headers.grade"),
+            self._t("table_headers.status"),
+            self._t("table_headers.semester")
         ])
         
         # Ensure proper RTL layout for the table
         self.section_coursesTableWidget.setLayoutDirection(Qt.RightToLeft)
         
-        # Set column widths for better visibility
-        self.section_coursesTableWidget.setColumnWidth(0, 300)
-        self.section_coursesTableWidget.setColumnWidth(1, 80)
-        self.section_coursesTableWidget.setColumnWidth(2, 80)
-        self.section_coursesTableWidget.setColumnWidth(3, 100)
-        self.section_coursesTableWidget.setColumnWidth(4, 150)
+        # Set column widths for better visibility - fit columns properly
+        header = self.section_coursesTableWidget.horizontalHeader()
+        self.section_coursesTableWidget.setColumnWidth(0, 350)  # Course name - fit
+        self.section_coursesTableWidget.setColumnWidth(1, 80)  # Units
+        self.section_coursesTableWidget.setColumnWidth(2, 90)  # Grade
+        self.section_coursesTableWidget.setColumnWidth(3, 100)  # Status
+        self.section_coursesTableWidget.setColumnWidth(4, 150)  # Semester - reduced
+        # Prevent column resizing by user
+        header.setSectionResizeMode(0, QHeaderView.Fixed)
+        header.setSectionResizeMode(1, QHeaderView.Fixed)
+        header.setSectionResizeMode(2, QHeaderView.Fixed)
+        header.setSectionResizeMode(3, QHeaderView.Fixed)
+        header.setSectionResizeMode(4, QHeaderView.Fixed)
         
         # Center align all headers
         for col in range(5):
@@ -1480,7 +1604,12 @@ class StudentProfileDialog(QDialog):
         if not semester or not semester.courses:
             return
 
+        # Set row height to be larger to reduce vertical scrollbar need
         self.section_coursesTableWidget.setRowCount(len(semester.courses))
+        # Set row height to accommodate content better
+        self.section_coursesTableWidget.verticalHeader().setDefaultSectionSize(50)
+        # Hide vertical header for cleaner look
+        self.section_coursesTableWidget.verticalHeader().setVisible(False)
 
         for row, course in enumerate(semester.courses):
             # Course name
@@ -1527,8 +1656,11 @@ class StudentProfileDialog(QDialog):
             status_item.setForeground(QColor("#ffffff"))
             self.section_coursesTableWidget.setItem(row, 3, status_item)
 
-            # Semester
-            semester_item = QTableWidgetItem(semester.semester_description[:20])
+            # Semester - truncate if too long to fit column
+            semester_text = semester.semester_description
+            if len(semester_text) > 25:  # Adjusted for column width of 150
+                semester_text = semester_text[:25] + "..."
+            semester_item = QTableWidgetItem(semester_text)
             semester_item.setTextAlignment(Qt.AlignCenter)
             semester_item.setFont(QFont("Arial", self.FONT_SIZE_SMALL))
             semester_item.setForeground(QColor("#b0b0c0"))
@@ -1536,47 +1668,8 @@ class StudentProfileDialog(QDialog):
 
     def toggle_semesters_visibility(self):
         """Toggle visibility of semesters tree widget."""
-        if self.section_semestersTreeWidget.isVisible():
-            self.section_semestersTreeWidget.hide()
-            self.semester_minimize_button.setText("+")
-            # Reduce the frame height when minimized
-            self.section_semestersFrame.setMaximumHeight(100)
-        else:
-            self.section_semestersTreeWidget.show()
-            self.semester_minimize_button.setText("−")
-            # Restore the frame height when expanded
-            self.section_semestersFrame.setMaximumHeight(800)
+        pass
 
     def add_semester_section_minimize(self):
         """Add minimize capability to semesters section."""
-        from PyQt5.QtWidgets import QPushButton
-        
-        # Create a horizontal layout for the title bar
-        title_layout = self.section_semestersTitleLabel.parent().layout()
-        
-        # Add stretch to push the button to the right
-        title_layout.addStretch()
-        
-        # Add a minimize button to the semesters section title
-        minimize_button = QPushButton("−")
-        minimize_button.setFixedSize(24, 24)
-        minimize_button.setStyleSheet("""
-            QPushButton {
-                background-color: #4a4a6a;
-                color: white;
-                border: 1px solid #5a5a7a;
-                border-radius: 12px;
-                font-weight: bold;
-            }
-            QPushButton:hover {
-                background-color: #5a5a7a;
-            }
-        """)
-        
-        title_layout.addWidget(minimize_button)
-        
-        # Connect the button to toggle the tree widget visibility
-        minimize_button.clicked.connect(self.toggle_semesters_visibility)
-        
-        # Store reference to the button for later use
-        self.semester_minimize_button = minimize_button
+        pass

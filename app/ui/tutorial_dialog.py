@@ -8,6 +8,8 @@ Provides an interactive guide for new users
 import sys
 import os
 from PyQt5 import QtWidgets, QtCore, QtGui, uic
+from app.core.translator import translator
+from app.core.language_manager import language_manager
 
 
 class TutorialDialog(QtWidgets.QDialog):
@@ -18,6 +20,8 @@ class TutorialDialog(QtWidgets.QDialog):
     
     def __init__(self, parent=None):
         super().__init__(parent)
+        self._language_connected = False
+        self._connect_language_signal()
         
         # Get the directory of this file
         ui_dir = os.path.dirname(os.path.abspath(__file__))
@@ -26,11 +30,26 @@ class TutorialDialog(QtWidgets.QDialog):
         # Load UI from external file
         try:
             uic.loadUi(tutorial_ui_file, self)
+            
+            # Override layout direction from UI file based on current language
+            current_lang = language_manager.get_current_language()
+            if current_lang == 'fa':
+                self.setLayoutDirection(QtCore.Qt.RightToLeft)
+            else:
+                self.setLayoutDirection(QtCore.Qt.LeftToRight)
         except FileNotFoundError:
-            QtWidgets.QMessageBox.critical(self, "خطا", f"فایل UI یافت نشد: {tutorial_ui_file}")
+            QtWidgets.QMessageBox.critical(
+                self, 
+                translator.t("tutorial.ui_error_title"), 
+                translator.t("tutorial.ui_error_not_found", path=tutorial_ui_file)
+            )
             sys.exit(1)
         except Exception as e:
-            QtWidgets.QMessageBox.critical(self, "خطا", f"خطا در بارگذاری UI: {str(e)}")
+            QtWidgets.QMessageBox.critical(
+                self, 
+                translator.t("tutorial.ui_error_title"), 
+                translator.t("tutorial.ui_error_load", error=str(e))
+            )
             sys.exit(1)
         
         # Initialize state BEFORE setup_ui
@@ -40,17 +59,231 @@ class TutorialDialog(QtWidgets.QDialog):
         # Set up the dialog
         self.setup_ui()
         self.setup_connections()
+        self._apply_translations()
         
         self.update_ui()
+    
+    def _connect_language_signal(self):
+        """Connect to language change signal."""
+        if not self._language_connected:
+            language_manager.language_changed.connect(self._on_language_changed)
+            self._language_connected = True
+    
+    def _on_language_changed(self, _lang):
+        """Handle language change."""
+        self._apply_translations()
+    
+    def _apply_translations(self):
+        """Apply translations to UI elements."""
+        language_manager.apply_layout_direction(self)
+        
+        # Get current language to set text direction
+        current_lang = language_manager.get_current_language()
+        text_direction = QtCore.Qt.RightToLeft if current_lang == 'fa' else QtCore.Qt.LeftToRight
+        
+        # Recursively set layout direction for all child widgets
+        self._set_widgets_direction(self, text_direction)
+        
+        # Set window title
+        self.setWindowTitle(translator.t("tutorial.window_title"))
+        
+        # Update sidebar title
+        if hasattr(self, 'sidebarTitle'):
+            self.sidebarTitle.setText(translator.t("tutorial.sidebar_title"))
+            self.sidebarTitle.setLayoutDirection(text_direction)
+        
+        # Update sidebar buttons
+        if hasattr(self, 'welcomeButton'):
+            self.welcomeButton.setText(f"🏠 {translator.t('tutorial.welcome')}")
+            self.welcomeButton.setLayoutDirection(text_direction)
+        if hasattr(self, 'interfaceButton'):
+            self.interfaceButton.setText(f"🖥️ {translator.t('tutorial.interface')}")
+            self.interfaceButton.setLayoutDirection(text_direction)
+        if hasattr(self, 'addCourseButton'):
+            self.addCourseButton.setText(f"➕ {translator.t('tutorial.add_course')}")
+            self.addCourseButton.setLayoutDirection(text_direction)
+        if hasattr(self, 'manageCoursesButton'):
+            self.manageCoursesButton.setText(f"🔧 {translator.t('tutorial.manage_courses')}")
+            self.manageCoursesButton.setLayoutDirection(text_direction)
+        if hasattr(self, 'scheduleButton'):
+            self.scheduleButton.setText(f"📅 {translator.t('tutorial.schedule')}")
+            self.scheduleButton.setLayoutDirection(text_direction)
+        if hasattr(self, 'golestanButton'):
+            self.golestanButton.setText(f"🌐 {translator.t('tutorial.golestan')}")
+            self.golestanButton.setLayoutDirection(text_direction)
+        if hasattr(self, 'databaseButton'):
+            self.databaseButton.setText(f"💾 {translator.t('tutorial.database')}")
+            self.databaseButton.setLayoutDirection(text_direction)
+        if hasattr(self, 'studentProfileButton'):
+            self.studentProfileButton.setText(f"👤 {translator.t('tutorial.student_profile')}")
+            self.studentProfileButton.setLayoutDirection(text_direction)
+        if hasattr(self, 'examScheduleButton'):
+            self.examScheduleButton.setText(f"📝 {translator.t('tutorial.exam_schedule')}")
+            self.examScheduleButton.setLayoutDirection(text_direction)
+        if hasattr(self, 'backupButton'):
+            self.backupButton.setText(f"🔒 {translator.t('tutorial.backup')}")
+            self.backupButton.setLayoutDirection(text_direction)
+        if hasattr(self, 'finishButtonSidebar'):
+            self.finishButtonSidebar.setText(f"🏁 {translator.t('tutorial.finish')}")
+            self.finishButtonSidebar.setLayoutDirection(text_direction)
+        
+        # Update main title
+        if hasattr(self, 'titleLabel'):
+            self.titleLabel.setText(translator.t("tutorial.welcome_title"))
+            self.titleLabel.setLayoutDirection(text_direction)
+        
+        # Update page content
+        self._update_page_content()
+        
+        # Ensure stackedWidget and all its pages have correct direction
+        if hasattr(self, 'stackedWidget'):
+            self.stackedWidget.setLayoutDirection(text_direction)
+            # Apply to all pages in stackedWidget
+            for i in range(self.stackedWidget.count()):
+                page = self.stackedWidget.widget(i)
+                if page:
+                    self._set_widgets_direction(page, text_direction)
+        
+        # Update buttons
+        if hasattr(self, 'skipButton'):
+            self.skipButton.setText(translator.t("tutorial.skip"))
+            self.skipButton.setLayoutDirection(text_direction)
+        if hasattr(self, 'backButton'):
+            self.backButton.setText(translator.t("tutorial.previous"))
+            self.backButton.setLayoutDirection(text_direction)
+        if hasattr(self, 'nextButton'):
+            self.nextButton.setText(translator.t("tutorial.next"))
+            self.nextButton.setLayoutDirection(text_direction)
+        if hasattr(self, 'finishButton'):
+            self.finishButton.setText(translator.t("tutorial.end"))
+            self.finishButton.setLayoutDirection(text_direction)
+        if hasattr(self, 'dontShowAgainCheckBox'):
+            self.dontShowAgainCheckBox.setText(translator.t("tutorial.dont_show_again"))
+            self.dontShowAgainCheckBox.setLayoutDirection(text_direction)
+    
+    def _update_page_content(self):
+        """Update content of all tutorial pages."""
+        # Get current language to set text direction
+        current_lang = language_manager.get_current_language()
+        text_direction = QtCore.Qt.RightToLeft if current_lang == 'fa' else QtCore.Qt.LeftToRight
+        
+        # Set text alignment based on language
+        if current_lang == 'fa':
+            text_alignment = QtCore.Qt.AlignRight | QtCore.Qt.AlignTop | QtCore.Qt.AlignAbsolute
+        else:
+            text_alignment = QtCore.Qt.AlignLeft | QtCore.Qt.AlignTop | QtCore.Qt.AlignAbsolute
+        
+        # Helper function to set text and alignment for labels
+        def set_label_text_and_alignment(label, text_key, is_title=False):
+            if hasattr(self, label):
+                label_widget = getattr(self, label)
+                label_widget.setText(translator.t(text_key))
+                label_widget.setLayoutDirection(text_direction)
+                # Titles should be centered, other text should be aligned based on language
+                if is_title:
+                    label_widget.setAlignment(QtCore.Qt.AlignCenter | QtCore.Qt.AlignTop)
+                else:
+                    label_widget.setAlignment(text_alignment)
+        
+        # Welcome page
+        set_label_text_and_alignment('welcomeText', "tutorial.welcome_text")
+        
+        # Interface page
+        set_label_text_and_alignment('interfaceTitle', "tutorial.interface_title", is_title=True)
+        set_label_text_and_alignment('interfaceText', "tutorial.interface_text")
+        
+        # Add course page
+        set_label_text_and_alignment('addCourseTitle', "tutorial.add_course_title", is_title=True)
+        set_label_text_and_alignment('addCourseText', "tutorial.add_course_text")
+        
+        # Manage courses page
+        set_label_text_and_alignment('manageCoursesTitle', "tutorial.manage_courses_title", is_title=True)
+        set_label_text_and_alignment('manageCoursesText', "tutorial.manage_courses_text")
+        
+        # Schedule page
+        set_label_text_and_alignment('scheduleTitle', "tutorial.schedule_title", is_title=True)
+        set_label_text_and_alignment('scheduleText', "tutorial.schedule_text")
+        
+        # Golestan page
+        set_label_text_and_alignment('golestanTitle', "tutorial.golestan_title", is_title=True)
+        set_label_text_and_alignment('golestanText', "tutorial.golestan_text")
+        
+        # Database page
+        set_label_text_and_alignment('databaseTitle', "tutorial.database_title", is_title=True)
+        set_label_text_and_alignment('databaseText', "tutorial.database_text")
+        
+        # Student profile page
+        set_label_text_and_alignment('studentProfileTitle', "tutorial.student_profile_title", is_title=True)
+        set_label_text_and_alignment('studentProfileText', "tutorial.student_profile_text")
+        
+        # Exam schedule page
+        set_label_text_and_alignment('examScheduleTitle', "tutorial.exam_schedule_title", is_title=True)
+        set_label_text_and_alignment('examScheduleText', "tutorial.exam_schedule_text")
+        
+        # Backup page
+        set_label_text_and_alignment('backupTitle', "tutorial.backup_title", is_title=True)
+        set_label_text_and_alignment('backupText', "tutorial.backup_text")
+        
+        # Finish page
+        set_label_text_and_alignment('finishTitle', "tutorial.finish_title", is_title=True)
+        set_label_text_and_alignment('finishText', "tutorial.finish_text")
+    
+    def _set_widgets_direction(self, widget, direction):
+        """Recursively set layout direction for widget and all its children."""
+        try:
+            if hasattr(widget, 'setLayoutDirection'):
+                widget.setLayoutDirection(direction)
+        except:
+            pass
+        
+        # Recursively apply to all children (QWidget, QLabel, QTextEdit, etc.)
+        for child in widget.findChildren(QtWidgets.QWidget):
+            try:
+                if hasattr(child, 'setLayoutDirection'):
+                    child.setLayoutDirection(direction)
+            except:
+                pass
+        
+        # Also apply to QLabel and QTextEdit specifically (they might not be caught by QWidget)
+        # Get current language to set text alignment
+        current_lang = language_manager.get_current_language()
+        if current_lang == 'fa':
+            text_alignment = QtCore.Qt.AlignRight | QtCore.Qt.AlignTop | QtCore.Qt.AlignAbsolute
+        else:
+            text_alignment = QtCore.Qt.AlignLeft | QtCore.Qt.AlignTop | QtCore.Qt.AlignAbsolute
+        
+        for label in widget.findChildren(QtWidgets.QLabel):
+            try:
+                label.setLayoutDirection(direction)
+                # Set text alignment for labels (but not for title labels which should be centered)
+                if not hasattr(label, 'objectName') or not label.objectName() or not label.objectName().endswith('Title'):
+                    label.setAlignment(text_alignment)
+            except:
+                pass
+        
+        for text_edit in widget.findChildren(QtWidgets.QTextEdit):
+            try:
+                text_edit.setLayoutDirection(direction)
+            except:
+                pass
+        
+        for plain_text in widget.findChildren(QtWidgets.QPlainTextEdit):
+            try:
+                plain_text.setLayoutDirection(direction)
+            except:
+                pass
+    
+    def _t(self, key, **kwargs):
+        """Shortcut for translating tutorial strings."""
+        return translator.t(f"tutorial.{key}", **kwargs)
         
     def setup_ui(self):
         """Set up the user interface"""
-        # Set window properties
-        self.setWindowTitle("راهنمای گلستون کلاس پلنر")
+        # Set window properties (title will be set in _apply_translations)
         # Use standard QDialog modal behavior
         self.setModal(True)
         self.resize(900, 650)
-        # RTL layout is set in the UI file
+        # RTL layout will be set in _apply_translations
         
         # Set up buttons
         self.backButton.setEnabled(False)
@@ -197,8 +430,8 @@ class TutorialDialog(QtWidgets.QDialog):
         """Skip the tutorial"""
         reply = QtWidgets.QMessageBox.question(
             self, 
-            'رد کردن آموزش', 
-            'آیا مطمئن هستید که می‌خواهید آموزش را رد کنید؟',
+            self._t("skip_confirm_title"), 
+            self._t("skip_confirm_text"),
             QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
             QtWidgets.QMessageBox.No
         )
@@ -206,6 +439,16 @@ class TutorialDialog(QtWidgets.QDialog):
         if reply == QtWidgets.QMessageBox.Yes:
             self.tutorial_finished.emit(False)  # False means skipped
             self.accept()
+    
+    def closeEvent(self, event):
+        """Clean up on close."""
+        if self._language_connected:
+            try:
+                language_manager.language_changed.disconnect(self._on_language_changed)
+            except (TypeError, RuntimeError):
+                pass
+            self._language_connected = False
+        super().closeEvent(event)
             
     def finish_tutorial(self):
         """Finish the tutorial"""

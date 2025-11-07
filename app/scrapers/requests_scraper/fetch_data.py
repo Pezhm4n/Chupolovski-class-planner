@@ -154,7 +154,9 @@ class GolestanSession:
                 continue
         else:
             print("🚫 All authentication attempts failed")
-            return False
+            # If we've tried max_attempts times and still failed, 
+            # it's likely due to incorrect username/password
+            raise RuntimeError("Authentication failed after multiple attempts. Please check your username and password.")
 
         cookie_tuples = [
             ("ASP.NET_SessionId", self.session_id),

@@ -606,9 +606,17 @@
     </property>
     <addaction name="action_tutorial"/>
    </widget>
+   <widget class="QMenu" name="menu_language">
+    <property name="title">
+     <string>زبان</string>
+    </property>
+    <addaction name="action_persian"/>
+    <addaction name="action_english"/>
+   </widget>
    <addaction name="menu_data"/>
    <addaction name="menu_tools"/>
    <addaction name="menu_help"/>
+   <addaction name="menu_language"/>
    <addaction name="action_student_profile"/>
   </widget>
   <widget class="QStatusBar" name="statusbar"/>
@@ -645,6 +653,22 @@
   <action name="action_tutorial">
    <property name="text">
     <string>آموزش برنامه</string>
+   </property>
+  </action>
+  <action name="action_persian">
+   <property name="checkable">
+    <bool>true</bool>
+   </property>
+   <property name="text">
+    <string>فارسی</string>
+   </property>
+  </action>
+  <action name="action_english">
+   <property name="checkable">
+    <bool>true</bool>
+   </property>
+   <property name="text">
+    <string>English</string>
    </property>
   </action>
  </widget>

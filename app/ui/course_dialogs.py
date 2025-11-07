@@ -11,11 +11,53 @@ import os
 from PyQt5 import QtWidgets, QtCore
 
 # Import from core modules
-from app.core.config import DAYS, TIME_SLOTS, EXTENDED_TIME_SLOTS, COURSES
+from app.core.config import EXTENDED_TIME_SLOTS, COURSES, get_day_label_map
 from app.core.logger import setup_logging
 from app.core.data_manager import save_user_data
+from app.core.translator import translator
+from app.core.language_manager import language_manager
 
 logger = setup_logging()
+
+
+# ---------------------------------------------------------------------------
+# Helpers
+# ---------------------------------------------------------------------------
+
+_PARITY_VALUES = [
+    ("", "parity.none"),
+    ("ز", "parity.even"),
+    ("ف", "parity.odd"),
+]
+
+
+def _populate_day_combo(combo: QtWidgets.QComboBox, selected=None):
+    mapping = get_day_label_map()
+    current = selected if selected is not None else combo.currentData()
+    combo.clear()
+    for canonical, label in mapping:
+        combo.addItem(label, canonical)
+    if current:
+        idx = combo.findData(current)
+        if idx >= 0:
+            combo.setCurrentIndex(idx)
+
+
+def _populate_parity_combo(combo: QtWidgets.QComboBox, selected=None):
+    current = selected if selected is not None else combo.currentData()
+    combo.clear()
+    for value, key in _PARITY_VALUES:
+        combo.addItem(translator.t(key), value)
+    if current is not None:
+        idx = combo.findData(current)
+        if idx >= 0:
+            combo.setCurrentIndex(idx)
+
+
+def _set_widget_direction(direction, *widgets):
+    for widget in widgets:
+        if hasattr(widget, "setLayoutDirection"):
+            widget.setLayoutDirection(direction)
 
 
 # ---------------------- Add Course Dialog ----------------------
@@ -24,85 +66,90 @@ class AddCourseDialog(QtWidgets.QDialog):
     """Dialog for adding new courses"""
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle('افزودن درس جدید')
         self.setModal(True)
         self.resize(500, 400)
-        # Set layout direction to RTL
-        self.setLayoutDirection(QtCore.Qt.RightToLeft)
 
-        layout = QtWidgets.QVBoxLayout(self)
+        self._language_connected = False
+
+        main_layout = QtWidgets.QVBoxLayout(self)
         form = QtWidgets.QFormLayout()
-        # Set form layout to RTL alignment
         form.setLabelAlignment(QtCore.Qt.AlignRight)
         form.setFormAlignment(QtCore.Qt.AlignRight | QtCore.Qt.AlignTop)
 
+        self.name_label = QtWidgets.QLabel()
+        self.code_label = QtWidgets.QLabel()
+        self.instructor_label = QtWidgets.QLabel()
+        self.location_label = QtWidgets.QLabel()
+        self.capacity_label = QtWidgets.QLabel()
+        self.description_label = QtWidgets.QLabel()
+        self.exam_time_label = QtWidgets.QLabel()
+        self.credits_label = QtWidgets.QLabel()
+
         self.name_edit = QtWidgets.QLineEdit()
-        self.name_edit.setLayoutDirection(QtCore.Qt.RightToLeft)
         self.code_edit = QtWidgets.QLineEdit()
-        self.code_edit.setLayoutDirection(QtCore.Qt.RightToLeft)
         self.instructor_edit = QtWidgets.QLineEdit()
-        self.instructor_edit.setLayoutDirection(QtCore.Qt.RightToLeft)
         self.location_edit = QtWidgets.QLineEdit()
-        self.location_edit.setLayoutDirection(QtCore.Qt.RightToLeft)
-        self.capacity_edit = QtWidgets.QLineEdit()  # New capacity field
-        self.capacity_edit.setLayoutDirection(QtCore.Qt.RightToLeft)
+        self.capacity_edit = QtWidgets.QLineEdit()
         self.description_edit = QtWidgets.QTextEdit()
-        self.description_edit.setLayoutDirection(QtCore.Qt.RightToLeft)
         self.description_edit.setMaximumHeight(80)
         self.exam_time_edit = QtWidgets.QLineEdit()
-        self.exam_time_edit.setLayoutDirection(QtCore.Qt.RightToLeft)
-        self.exam_time_edit.setPlaceholderText('مثال: 1403/10/15 - 09:00-11:00')
         self.credits_spin = QtWidgets.QSpinBox()
         self.credits_spin.setRange(0, 10)
         self.credits_spin.setValue(3)
 
-        form.addRow('نام درس:', self.name_edit)
-        form.addRow('کد درس (مثال 1142207_01):', self.code_edit)
-        form.addRow('نام استاد:', self.instructor_edit)
-        form.addRow('محل/کلاس:', self.location_edit)
-        form.addRow('ظرفیت:', self.capacity_edit)  # Add capacity field
-        form.addRow('توضیحات درس:', self.description_edit)
-        form.addRow('زمان امتحان:', self.exam_time_edit)
-        form.addRow('تعداد واحد:', self.credits_spin)
+        form.addRow(self.name_label, self.name_edit)
+        form.addRow(self.code_label, self.code_edit)
+        form.addRow(self.instructor_label, self.instructor_edit)
+        form.addRow(self.location_label, self.location_edit)
+        form.addRow(self.capacity_label, self.capacity_edit)
+        form.addRow(self.description_label, self.description_edit)
+        form.addRow(self.exam_time_label, self.exam_time_edit)
+        form.addRow(self.credits_label, self.credits_spin)
 
-        layout.addLayout(form)
+        main_layout.addLayout(form)
 
-        # جلسات: هر جلسه شامل day + start + end + parity
         self.sessions_layout = QtWidgets.QVBoxLayout()
-        layout.addWidget(QtWidgets.QLabel('جلسات درس (اضافه/حذف کنید):'))
-        layout.addLayout(self.sessions_layout)
+        self.sessions_heading = QtWidgets.QLabel()
+        main_layout.addWidget(self.sessions_heading)
+        main_layout.addLayout(self.sessions_layout)
 
         btn_row = QtWidgets.QHBoxLayout()
-        add_session_btn = QtWidgets.QPushButton('افزودن جلسه')
-        add_session_btn.clicked.connect(self.add_session_row)
-        remove_session_btn = QtWidgets.QPushButton('حذف جلسه')
-        remove_session_btn.clicked.connect(self.remove_session_row)
-        btn_row.addWidget(add_session_btn)
-        btn_row.addWidget(remove_session_btn)
-        layout.addLayout(btn_row)
+        self.add_session_btn = QtWidgets.QPushButton()
+        self.add_session_btn.clicked.connect(self.add_session_row)
+        self.remove_session_btn = QtWidgets.QPushButton()
+        self.remove_session_btn.clicked.connect(self.remove_session_row)
+        btn_row.addWidget(self.add_session_btn)
+        btn_row.addWidget(self.remove_session_btn)
+        main_layout.addLayout(btn_row)
 
-        # ناحیهٔ پایین برای دکمه‌ها
-        dlg_btns = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.Ok | QtWidgets.QDialogButtonBox.Cancel)
-        dlg_btns.accepted.connect(self.accept)
-        dlg_btns.rejected.connect(self.reject)
-        layout.addWidget(dlg_btns)
+        self.button_box = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.Ok | QtWidgets.QDialogButtonBox.Cancel)
+        self.button_box.accepted.connect(self.accept)
+        self.button_box.rejected.connect(self.reject)
+        main_layout.addWidget(self.button_box)
 
-        # اضافه کردن یک جلسه پیش‌فرض
         self.session_rows = []
         self.add_session_row()
+
+        self._connect_language_signal()
+        self._apply_translations()
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self._connect_language_signal()
+        self._apply_translations()
 
     def add_session_row(self):
         """Add a new session row to the dialog"""
         row_widget = QtWidgets.QWidget()
         row_layout = QtWidgets.QHBoxLayout(row_widget)
         day_cb = QtWidgets.QComboBox()
-        day_cb.addItems(DAYS)
         start_cb = QtWidgets.QComboBox()
         end_cb = QtWidgets.QComboBox()
         start_cb.addItems(EXTENDED_TIME_SLOTS)
         end_cb.addItems(EXTENDED_TIME_SLOTS)
         parity_cb = QtWidgets.QComboBox()
-        parity_cb.addItems(['', 'ز', 'ف'])
+        _populate_day_combo(day_cb)
+        _populate_parity_combo(parity_cb)
         row_layout.addWidget(day_cb)
         row_layout.addWidget(start_cb)
         row_layout.addWidget(end_cb)
@@ -130,10 +177,18 @@ class AddCourseDialog(QtWidgets.QDialog):
         
         # Validation: Course name and instructor are mandatory
         if not name:
-            QtWidgets.QMessageBox.warning(self, 'خطا', 'لطفاً نام درس و نام استاد را وارد کنید.')
+            QtWidgets.QMessageBox.warning(
+                self,
+                translator.t("common.error"),
+                translator.t("common.required_course_fields")
+            )
             return None
         if not instructor:
-            QtWidgets.QMessageBox.warning(self, 'خطا', 'لطفاً نام درس و نام استاد را وارد کنید.')
+            QtWidgets.QMessageBox.warning(
+                self,
+                translator.t("common.error"),
+                translator.t("common.required_course_fields")
+            )
             return None
         if not code:
             # Generate a unique code if not provided
@@ -142,19 +197,27 @@ class AddCourseDialog(QtWidgets.QDialog):
             
         sessions = []
         for (_, day_cb, start_cb, end_cb, parity_cb) in self.session_rows:
-            day = day_cb.currentText()
+            day = day_cb.currentData() or day_cb.currentText()
             start = start_cb.currentText()
             end = end_cb.currentText()
-            parity = parity_cb.currentText()
+            parity = parity_cb.currentData() or ""
             # validate times
             try:
                 si = EXTENDED_TIME_SLOTS.index(start)
                 ei = EXTENDED_TIME_SLOTS.index(end)
             except ValueError:
-                QtWidgets.QMessageBox.warning(self, 'خطا', 'ساعت نامعتبر در یکی از جلسات.')
+                QtWidgets.QMessageBox.warning(
+                    self,
+                    translator.t("common.error"),
+                    translator.t("common.invalid_session_time")
+                )
                 return None
             if ei <= si:
-                QtWidgets.QMessageBox.warning(self, 'خطا', 'زمان پایان باید بعد از شروع باشد.')
+                QtWidgets.QMessageBox.warning(
+                    self,
+                    translator.t("common.error"),
+                    translator.t("common.invalid_session_order")
+                )
                 return None
             sessions.append({'day': day, 'start': start, 'end': end, 'parity': parity})
         
@@ -167,11 +230,78 @@ class AddCourseDialog(QtWidgets.QDialog):
             'schedule': sessions,
             'location': location,
             'capacity': capacity,  # Add capacity to course data
-            'description': description or 'توضیحی ارائه نشده',
-            'exam_time': exam_time or 'اعلام نشده',
+            'description': description or translator.t("common.no_description"),
+            'exam_time': exam_time or translator.t("common.no_exam_time"),
             'major': 'دروس اضافه‌شده توسط کاربر'  # Add to correct category
         }
         return course
+
+    # ------------------------------------------------------------------
+    # Translation handling
+    # ------------------------------------------------------------------
+
+    def _connect_language_signal(self):
+        if not self._language_connected:
+            language_manager.language_changed.connect(self._on_language_changed)
+            self._language_connected = True
+
+    def _disconnect_language_signal(self):
+        if self._language_connected:
+            try:
+                language_manager.language_changed.disconnect(self._on_language_changed)
+            except TypeError:
+                pass
+            self._language_connected = False
+
+    def _on_language_changed(self, _lang):
+        self._apply_translations()
+
+    def _apply_translations(self):
+        language_manager.apply_layout_direction(self)
+        direction = language_manager.get_layout_direction()
+
+        _set_widget_direction(
+            direction,
+            self,
+            self.name_edit,
+            self.code_edit,
+            self.instructor_edit,
+            self.location_edit,
+            self.capacity_edit,
+            self.description_edit,
+            self.exam_time_edit,
+        )
+
+        self.setWindowTitle(translator.t("dialogs.add_course.title"))
+        self.name_label.setText(translator.t("dialogs.add_course.course_name"))
+        self.code_label.setText(translator.t("dialogs.add_course.course_code"))
+        self.instructor_label.setText(translator.t("dialogs.add_course.instructor"))
+        self.location_label.setText(translator.t("dialogs.add_course.location"))
+        self.capacity_label.setText(translator.t("dialogs.add_course.capacity"))
+        self.description_label.setText(translator.t("dialogs.add_course.description"))
+        self.exam_time_label.setText(translator.t("dialogs.add_course.exam_time"))
+        self.credits_label.setText(translator.t("dialogs.add_course.credits"))
+
+        self.sessions_heading.setText(translator.t("dialogs.add_course.sessions_hint"))
+        self.add_session_btn.setText(translator.t("buttons.add"))
+        self.remove_session_btn.setText(translator.t("buttons.remove"))
+
+        self.exam_time_edit.setPlaceholderText(translator.t("dialogs.add_course.exam_placeholder"))
+
+        ok_btn = self.button_box.button(QtWidgets.QDialogButtonBox.Ok)
+        cancel_btn = self.button_box.button(QtWidgets.QDialogButtonBox.Cancel)
+        if ok_btn:
+            ok_btn.setText(translator.t("common.ok"))
+        if cancel_btn:
+            cancel_btn.setText(translator.t("common.cancel"))
+
+        for (_, day_cb, _, _, parity_cb) in self.session_rows:
+            _populate_day_combo(day_cb)
+            _populate_parity_combo(parity_cb)
+
+    def closeEvent(self, event):
+        self._disconnect_language_signal()
+        super().closeEvent(event)
 
 
 # ---------------------- Edit Course Dialog ----------------------
@@ -181,70 +311,66 @@ class EditCourseDialog(QtWidgets.QDialog):
     def __init__(self, course_data, parent=None):
         super().__init__(parent)
         self.course_data = course_data
-        self.setWindowTitle('ویرایش اطلاعات درس')
         self.setModal(True)
         self.resize(500, 400)
-        # Set layout direction to RTL
-        self.setLayoutDirection(QtCore.Qt.RightToLeft)
+        self._language_connected = False
 
         layout = QtWidgets.QVBoxLayout(self)
         form = QtWidgets.QFormLayout()
-        # Set form layout to RTL alignment
         form.setLabelAlignment(QtCore.Qt.AlignRight)
         form.setFormAlignment(QtCore.Qt.AlignRight | QtCore.Qt.AlignTop)
 
-        # Pre-fill with existing data
+        self.name_label = QtWidgets.QLabel()
+        self.code_label = QtWidgets.QLabel()
+        self.instructor_label = QtWidgets.QLabel()
+        self.location_label = QtWidgets.QLabel()
+        self.capacity_label = QtWidgets.QLabel()
+        self.description_label = QtWidgets.QLabel()
+        self.exam_time_label = QtWidgets.QLabel()
+        self.credits_label = QtWidgets.QLabel()
+
         self.name_edit = QtWidgets.QLineEdit(course_data.get('name', ''))
-        self.name_edit.setLayoutDirection(QtCore.Qt.RightToLeft)
         self.code_edit = QtWidgets.QLineEdit(course_data.get('code', ''))
-        self.code_edit.setLayoutDirection(QtCore.Qt.RightToLeft)
         self.instructor_edit = QtWidgets.QLineEdit(course_data.get('instructor', ''))
-        self.instructor_edit.setLayoutDirection(QtCore.Qt.RightToLeft)
         self.location_edit = QtWidgets.QLineEdit(course_data.get('location', ''))
-        self.location_edit.setLayoutDirection(QtCore.Qt.RightToLeft)
-        self.capacity_edit = QtWidgets.QLineEdit(course_data.get('capacity', ''))  # Capacity field
-        self.capacity_edit.setLayoutDirection(QtCore.Qt.RightToLeft)
+        self.capacity_edit = QtWidgets.QLineEdit(course_data.get('capacity', ''))
         self.description_edit = QtWidgets.QTextEdit()
-        self.description_edit.setLayoutDirection(QtCore.Qt.RightToLeft)
         self.description_edit.setPlainText(course_data.get('description', ''))
         self.description_edit.setMaximumHeight(80)
         self.exam_time_edit = QtWidgets.QLineEdit(course_data.get('exam_time', ''))
-        self.exam_time_edit.setLayoutDirection(QtCore.Qt.RightToLeft)
-        self.exam_time_edit.setPlaceholderText('مثال: 1403/10/15 - 09:00-11:00')
         self.credits_spin = QtWidgets.QSpinBox()
         self.credits_spin.setRange(0, 10)
         self.credits_spin.setValue(course_data.get('credits', 3))
 
-        form.addRow('نام درس:', self.name_edit)
-        form.addRow('کد درس:', self.code_edit)
-        form.addRow('نام استاد:', self.instructor_edit)
-        form.addRow('محل/کلاس:', self.location_edit)
-        form.addRow('ظرفیت:', self.capacity_edit)  # Add capacity field
-        form.addRow('توضیحات درس:', self.description_edit)
-        form.addRow('زمان امتحان:', self.exam_time_edit)
-        form.addRow('تعداد واحد:', self.credits_spin)
+        form.addRow(self.name_label, self.name_edit)
+        form.addRow(self.code_label, self.code_edit)
+        form.addRow(self.instructor_label, self.instructor_edit)
+        form.addRow(self.location_label, self.location_edit)
+        form.addRow(self.capacity_label, self.capacity_edit)
+        form.addRow(self.description_label, self.description_edit)
+        form.addRow(self.exam_time_label, self.exam_time_edit)
+        form.addRow(self.credits_label, self.credits_spin)
 
         layout.addLayout(form)
 
-        # Sessions
         self.sessions_layout = QtWidgets.QVBoxLayout()
-        layout.addWidget(QtWidgets.QLabel('جلسات درس:'))
+        self.sessions_heading = QtWidgets.QLabel()
+        layout.addWidget(self.sessions_heading)
         layout.addLayout(self.sessions_layout)
 
         btn_row = QtWidgets.QHBoxLayout()
-        add_session_btn = QtWidgets.QPushButton('افزودن جلسه')
-        add_session_btn.clicked.connect(self.add_session_row)
-        remove_session_btn = QtWidgets.QPushButton('حذف جلسه')
-        remove_session_btn.clicked.connect(self.remove_session_row)
-        btn_row.addWidget(add_session_btn)
-        btn_row.addWidget(remove_session_btn)
+        self.add_session_btn = QtWidgets.QPushButton()
+        self.add_session_btn.clicked.connect(self.add_session_row)
+        self.remove_session_btn = QtWidgets.QPushButton()
+        self.remove_session_btn.clicked.connect(self.remove_session_row)
+        btn_row.addWidget(self.add_session_btn)
+        btn_row.addWidget(self.remove_session_btn)
         layout.addLayout(btn_row)
 
-        # Dialog buttons
-        dlg_btns = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.Ok | QtWidgets.QDialogButtonBox.Cancel)
-        dlg_btns.accepted.connect(self.accept)
-        dlg_btns.rejected.connect(self.reject)
-        layout.addWidget(dlg_btns)
+        self.button_box = QtWidgets.QDialogButtonBox(QtWidgets.QDialogButtonBox.Ok | QtWidgets.QDialogButtonBox.Cancel)
+        self.button_box.accepted.connect(self.accept)
+        self.button_box.rejected.connect(self.reject)
+        layout.addWidget(self.button_box)
 
         # Load existing sessions
         self.session_rows = []
@@ -255,30 +381,29 @@ class EditCourseDialog(QtWidgets.QDialog):
         if not self.session_rows:
             self.add_session_row()
 
+        self._connect_language_signal()
+        self._apply_translations()
+
     def add_session_row(self, session_data=None):
         """Add a session row, optionally with pre-filled data"""
         row_widget = QtWidgets.QWidget()
         row_layout = QtWidgets.QHBoxLayout(row_widget)
         
         day_cb = QtWidgets.QComboBox()
-        day_cb.addItems(DAYS)
         start_cb = QtWidgets.QComboBox()
         end_cb = QtWidgets.QComboBox()
         start_cb.addItems(EXTENDED_TIME_SLOTS)
         end_cb.addItems(EXTENDED_TIME_SLOTS)
         parity_cb = QtWidgets.QComboBox()
-        parity_cb.addItems(['', 'ز', 'ف'])
+        _populate_day_combo(day_cb, selected=session_data.get('day') if session_data else None)
+        _populate_parity_combo(parity_cb, selected=session_data.get('parity') if session_data else None)
         
         # Pre-fill if data provided
         if session_data:
-            if session_data.get('day') in DAYS:
-                day_cb.setCurrentText(session_data['day'])
             if session_data.get('start') in EXTENDED_TIME_SLOTS:
                 start_cb.setCurrentText(session_data['start'])
             if session_data.get('end') in EXTENDED_TIME_SLOTS:
                 end_cb.setCurrentText(session_data['end'])
-            if session_data.get('parity') in ['', 'ز', 'ف']:
-                parity_cb.setCurrentText(session_data.get('parity', ''))
         
         row_layout.addWidget(day_cb)
         row_layout.addWidget(start_cb)
@@ -308,10 +433,18 @@ class EditCourseDialog(QtWidgets.QDialog):
         
         # Validation: Course name and instructor are mandatory
         if not name:
-            QtWidgets.QMessageBox.warning(self, 'خطا', 'لطفاً نام درس و نام استاد را وارد کنید.')
+            QtWidgets.QMessageBox.warning(
+                self,
+                translator.t("common.error"),
+                translator.t("common.required_course_fields")
+            )
             return None
         if not instructor:
-            QtWidgets.QMessageBox.warning(self, 'خطا', 'لطفاً نام درس و نام استاد را وارد کنید.')
+            QtWidgets.QMessageBox.warning(
+                self,
+                translator.t("common.error"),
+                translator.t("common.required_course_fields")
+            )
             return None
         if not code:
             # Generate a unique code if not provided
@@ -320,21 +453,29 @@ class EditCourseDialog(QtWidgets.QDialog):
             
         sessions = []
         for (_, day_cb, start_cb, end_cb, parity_cb) in self.session_rows:
-            day = day_cb.currentText()
+            day = day_cb.currentData() or day_cb.currentText()
             start = start_cb.currentText()
             end = end_cb.currentText()
-            parity = parity_cb.currentText()
+            parity = parity_cb.currentData() or ""
             
             # Validate times
             try:
                 si = EXTENDED_TIME_SLOTS.index(start)
                 ei = EXTENDED_TIME_SLOTS.index(end)
             except ValueError:
-                QtWidgets.QMessageBox.warning(self, 'خطا', 'ساعت نامعتبر در یکی از جلسات.')
+                QtWidgets.QMessageBox.warning(
+                    self,
+                    translator.t("common.error"),
+                    translator.t("common.invalid_session_time")
+                )
                 return None
                 
             if ei <= si:
-                QtWidgets.QMessageBox.warning(self, 'خطا', 'زمان پایان باید بعد از شروع باشد.')
+                QtWidgets.QMessageBox.warning(
+                    self,
+                    translator.t("common.error"),
+                    translator.t("common.invalid_session_order")
+                )
                 return None
                 
             sessions.append({'day': day, 'start': start, 'end': end, 'parity': parity})
@@ -348,9 +489,80 @@ class EditCourseDialog(QtWidgets.QDialog):
             'schedule': sessions,
             'location': location,
             'capacity': capacity,  # Add capacity to course data
-            'description': description or 'توضیحی ارائه نشده',
-            'exam_time': exam_time or 'اعلام نشده',
+            'description': description or translator.t("common.no_description"),
+            'exam_time': exam_time or translator.t("common.no_exam_time"),
             'major': 'دروس اضافه‌شده توسط کاربر'  # Keep in correct category
         }
         
         return course
+
+    # ------------------------------------------------------------------
+    # Translation handling
+    # ------------------------------------------------------------------
+
+    def _connect_language_signal(self):
+        if not self._language_connected:
+            language_manager.language_changed.connect(self._on_language_changed)
+            self._language_connected = True
+
+    def _disconnect_language_signal(self):
+        if self._language_connected:
+            try:
+                language_manager.language_changed.disconnect(self._on_language_changed)
+            except TypeError:
+                pass
+            self._language_connected = False
+
+    def _on_language_changed(self, _lang):
+        self._apply_translations()
+
+    def _apply_translations(self):
+        language_manager.apply_layout_direction(self)
+        direction = language_manager.get_layout_direction()
+
+        _set_widget_direction(
+            direction,
+            self,
+            self.name_edit,
+            self.code_edit,
+            self.instructor_edit,
+            self.location_edit,
+            self.capacity_edit,
+            self.description_edit,
+            self.exam_time_edit,
+        )
+
+        self.setWindowTitle(translator.t("dialogs.edit_course.title"))
+        self.name_label.setText(translator.t("dialogs.add_course.course_name"))
+        self.code_label.setText(translator.t("dialogs.add_course.course_code"))
+        self.instructor_label.setText(translator.t("dialogs.add_course.instructor"))
+        self.location_label.setText(translator.t("dialogs.add_course.location"))
+        self.capacity_label.setText(translator.t("dialogs.add_course.capacity"))
+        self.description_label.setText(translator.t("dialogs.add_course.description"))
+        self.exam_time_label.setText(translator.t("dialogs.add_course.exam_time"))
+        self.credits_label.setText(translator.t("dialogs.add_course.credits"))
+
+        self.sessions_heading.setText(translator.t("dialogs.add_course.sessions_hint"))
+        self.add_session_btn.setText(translator.t("buttons.add"))
+        self.remove_session_btn.setText(translator.t("buttons.remove"))
+        self.exam_time_edit.setPlaceholderText(translator.t("dialogs.add_course.exam_placeholder"))
+
+        ok_btn = self.button_box.button(QtWidgets.QDialogButtonBox.Ok)
+        cancel_btn = self.button_box.button(QtWidgets.QDialogButtonBox.Cancel)
+        if ok_btn:
+            ok_btn.setText(translator.t("common.ok"))
+        if cancel_btn:
+            cancel_btn.setText(translator.t("common.cancel"))
+
+        for (_, day_cb, _, _, parity_cb) in self.session_rows:
+            _populate_day_combo(day_cb)
+            _populate_parity_combo(parity_cb)
+
+    def showEvent(self, event):
+        super().showEvent(event)
+        self._connect_language_signal()
+        self._apply_translations()
+
+    def closeEvent(self, event):
+        self._disconnect_language_signal()
+        super().closeEvent(event)

@@ -13,97 +13,346 @@ from PyQt5.QtWidgets import (QDialog, QVBoxLayout, QHBoxLayout, QLabel,
                              QLineEdit, QCheckBox, QPushButton, QMessageBox)
 from PyQt5.QtCore import Qt
 from app.core.credentials import save_local_credentials
+from app.core.translator import translator
+from app.core.language_manager import language_manager
 
 class GolestanCredentialsDialog(QDialog):
     """Dialog for entering Golestan credentials securely."""
     
     def __init__(self, parent=None):
         super().__init__(parent)
-        self.setWindowTitle("ورود به گلستان")
+        self._language_connected = False
+        self._connect_language_signal()
+        self._apply_translations()
         self.setWindowModality(Qt.ApplicationModal)
-        self.setFixedSize(450, 280)  # Wider and taller dialog to accommodate show password checkbox
-        self.setLayoutDirection(Qt.RightToLeft)  # RTL layout
+        self.setFixedSize(600, 450)
         
         # Initialize UI components
         self.init_ui()
         
+    def _connect_language_signal(self):
+        """Connect to language change signal."""
+        if not self._language_connected:
+            language_manager.language_changed.connect(self._on_language_changed)
+            self._language_connected = True
+    
+    def _on_language_changed(self, _lang):
+        """Handle language change."""
+        self._apply_translations()
+    
+    def closeEvent(self, event):
+        """Clean up on close."""
+        if self._language_connected:
+            try:
+                language_manager.language_changed.disconnect(self._on_language_changed)
+            except (TypeError, RuntimeError):
+                pass
+            self._language_connected = False
+        super().closeEvent(event)
+    
+    def _apply_translations(self):
+        """Apply translations to UI elements."""
+        language_manager.apply_layout_direction(self)
+        if hasattr(self, 'title_label'):
+            self._update_ui_texts()
+        
+    def _t(self, key, **kwargs):
+        """Shortcut for translating credentials dialog strings."""
+        return translator.t(f"credentials_dialog.{key}", **kwargs)
+        
     def init_ui(self):
         """Initialize the user interface."""
+        # Apply improved light theme to dialog
+        self.setStyleSheet("""
+            QDialog {
+                background-color: #f8f9fa;
+                color: #333333;
+            }
+            QLabel {
+                color: #333333;
+                font-size: 13px;
+            }
+            QCheckBox {
+                color: #333333;
+                font-size: 12px;
+                spacing: 8px;
+            }
+            QCheckBox::indicator {
+                width: 18px;
+                height: 18px;
+                border: 2px solid #ccc;
+                border-radius: 4px;
+                background-color: white;
+            }
+            QCheckBox::indicator:checked {
+                background-color: #3498db;
+                border: 2px solid #2980b9;
+            }
+            QCheckBox::indicator:hover {
+                border: 2px solid #3498db;
+            }
+        """)
+        
         layout = QVBoxLayout()
-        layout.setSpacing(15)
-        layout.setContentsMargins(20, 20, 20, 20)  # Expand margins
+        layout.setSpacing(16)
+        layout.setContentsMargins(20, 20, 20, 20)
         
         # Title
-        title_label = QLabel("ورود به سامانه گلستان")
+        title_label = QLabel()
         title_label.setAlignment(Qt.AlignCenter)
-        title_label.setStyleSheet("font-size: 16px; font-weight: bold; color: #2c3e50;")
+        title_label.setStyleSheet("""
+            font-size: 18px; 
+            font-weight: bold; 
+            color: #2c3e50;
+            padding: 0px;
+            margin: 0px;
+        """)
+        self.title_label = title_label
         layout.addWidget(title_label)
         
         # Description
-        desc_label = QLabel("لطفاً اطلاعات ورود به گلستان را وارد کنید:")
+        desc_label = QLabel()
         desc_label.setAlignment(Qt.AlignCenter)
+        desc_label.setWordWrap(True)
+        desc_label.setStyleSheet("""
+            color: #7f8c8d; 
+            font-size: 11px;
+            padding: 0px;
+            margin: 0px;
+        """)
+        self.desc_label = desc_label
         layout.addWidget(desc_label)
         
-        # Student number input
-        student_layout = QHBoxLayout()
-        student_layout.setSpacing(12)
-        student_label = QLabel("شماره دانشجویی:")
+        # Add spacing
+        layout.addSpacing(12)
+        
+        student_container = QVBoxLayout()
+        student_container.setSpacing(6)
+        student_container.setContentsMargins(0, 0, 0, 0)
+        student_label = QLabel()
+        student_label.setStyleSheet("""
+            color: #34495e; 
+            font-weight: 600; 
+            font-size: 12px;
+            padding: 0px;
+            margin: 0px;
+        """)
+        self.student_label = student_label
+        student_container.addWidget(student_label)
+        
         self.student_input = QLineEdit()
-        self.student_input.setPlaceholderText("شماره دانشجویی خود را وارد کنید")
+        self.student_input.setMinimumHeight(40)
+        self.student_input.setMinimumWidth(400)
         self.student_input.setStyleSheet("""
             QLineEdit {
-                font-size: 12px;
-                padding: 4px;
-                border: 1px solid #ccc;
-                border-radius: 4px;
+                font-size: 13px;
+                padding: 10px 14px;
+                border: 2px solid #e1e8ed;
+                border-radius: 6px;
                 background-color: white;
-                color: black;
+                color: #2c3e50;
+            }
+            QLineEdit:focus {
+                border: 2px solid #3498db;
+                background-color: #fefefe;
+            }
+            QLineEdit:hover {
+                border: 2px solid #bdc3c7;
             }
         """)
-        student_layout.addWidget(student_label)
-        student_layout.addWidget(self.student_input)
-        layout.addLayout(student_layout)
+        student_container.addWidget(self.student_input)
+        layout.addLayout(student_container)
         
-        # Password input
-        password_layout = QHBoxLayout()
-        password_layout.setSpacing(12)
-        password_label = QLabel("رمز عبور:")
+        layout.addSpacing(12)
+        
+        password_container = QVBoxLayout()
+        password_container.setSpacing(6)
+        password_container.setContentsMargins(0, 0, 0, 0)
+        password_label = QLabel()
+        password_label.setStyleSheet("""
+            color: #34495e; 
+            font-weight: 600; 
+            font-size: 12px;
+            padding: 0px;
+            margin: 0px;
+        """)
+        self.password_label = password_label
+        password_container.addWidget(password_label)
+        
         self.password_input = QLineEdit()
         self.password_input.setEchoMode(QLineEdit.Password)
-        self.password_input.setPlaceholderText("رمز عبور گلستان خود را وارد کنید")
+        self.password_input.setMinimumHeight(40)
+        self.password_input.setMinimumWidth(400)
         self.password_input.setStyleSheet("""
             QLineEdit {
-                font-size: 12px;
-                padding: 4px;
-                border: 1px solid #ccc;
-                border-radius: 4px;
+                font-size: 13px;
+                padding: 10px 14px;
+                border: 2px solid #e1e8ed;
+                border-radius: 6px;
                 background-color: white;
-                color: black;
+                color: #2c3e50;
+            }
+            QLineEdit:focus {
+                border: 2px solid #3498db;
+                background-color: #fefefe;
+            }
+            QLineEdit:hover {
+                border: 2px solid #bdc3c7;
             }
         """)
-        password_layout.addWidget(password_label)
-        password_layout.addWidget(self.password_input)
-        layout.addLayout(password_layout)
+        password_container.addWidget(self.password_input)
+        layout.addLayout(password_container)
         
-        # Show password checkbox
-        self.show_password_checkbox = QCheckBox("نمایش رمز عبور")
+        layout.addSpacing(12)
+        
+        checkboxes_layout = QVBoxLayout()
+        checkboxes_layout.setSpacing(10)
+        checkboxes_layout.setContentsMargins(0, 0, 0, 0)
+        
+        show_password_container = QHBoxLayout()
+        show_password_container.setSpacing(8)
+        show_password_container.setContentsMargins(0, 0, 0, 0)
+        self.show_password_checkbox = QCheckBox()
         self.show_password_checkbox.setChecked(False)
+        self.show_password_checkbox.setStyleSheet("""
+            QCheckBox {
+                color: #34495e;
+                font-size: 12px;
+                spacing: 0px;
+                padding: 0px;
+                margin: 0px;
+            }
+            QCheckBox::indicator {
+                width: 18px;
+                height: 18px;
+                border: 2px solid #ccc;
+                border-radius: 4px;
+                background-color: white;
+            }
+            QCheckBox::indicator:checked {
+                background-color: #3498db;
+                border: 2px solid #2980b9;
+            }
+            QCheckBox::indicator:hover {
+                border: 2px solid #3498db;
+            }
+        """)
+        self.show_password_checkbox.setText("")
+        show_password_label = QLabel()
+        show_password_label.setWordWrap(True)
+        show_password_label.setStyleSheet("""
+            color: #34495e;
+            font-size: 12px;
+            padding: 0px;
+            margin: 0px;
+        """)
+        self.show_password_label = show_password_label
         self.show_password_checkbox.stateChanged.connect(self.toggle_password_visibility)
-        layout.addWidget(self.show_password_checkbox)
+        show_password_container.addWidget(self.show_password_checkbox)
+        show_password_container.addWidget(show_password_label)
+        show_password_container.addStretch()
+        checkboxes_layout.addLayout(show_password_container)
         
-        # Remember credentials checkbox
-        self.remember_checkbox = QCheckBox("ذخیره اطلاعات ورود برای واکشی خودکار")
+        remember_container = QHBoxLayout()
+        remember_container.setSpacing(8)
+        remember_container.setContentsMargins(0, 0, 0, 0)
+        self.remember_checkbox = QCheckBox()
         self.remember_checkbox.setChecked(True)
-        layout.addWidget(self.remember_checkbox)
+        self.remember_checkbox.setStyleSheet("""
+            QCheckBox {
+                color: #34495e;
+                font-size: 12px;
+                spacing: 0px;
+                padding: 0px;
+                margin: 0px;
+            }
+            QCheckBox::indicator {
+                width: 18px;
+                height: 18px;
+                border: 2px solid #ccc;
+                border-radius: 4px;
+                background-color: white;
+            }
+            QCheckBox::indicator:checked {
+                background-color: #3498db;
+                border: 2px solid #2980b9;
+            }
+            QCheckBox::indicator:hover {
+                border: 2px solid #3498db;
+            }
+        """)
+        self.remember_checkbox.setText("")
+        remember_label = QLabel()
+        remember_label.setWordWrap(True)
+        remember_label.setStyleSheet("""
+            color: #34495e;
+            font-size: 12px;
+            padding: 0px;
+            margin: 0px;
+        """)
+        self.remember_label = remember_label
+        remember_container.addWidget(self.remember_checkbox)
+        remember_container.addWidget(remember_label)
+        remember_container.addStretch()
+        checkboxes_layout.addLayout(remember_container)
         
-        # Buttons
+        layout.addLayout(checkboxes_layout)
+        
+        layout.addSpacing(12)
+        
         button_layout = QHBoxLayout()
         button_layout.setSpacing(10)
-        self.cancel_button = QPushButton("انصراف")
-        self.ok_button = QPushButton("تایید")
+        button_layout.setContentsMargins(0, 0, 0, 0)
+        button_layout.addStretch()
+        
+        self.cancel_button = QPushButton()
+        self.cancel_button.setMinimumHeight(38)
+        self.cancel_button.setMinimumWidth(90)
+        self.cancel_button.setStyleSheet("""
+            QPushButton {
+                background-color: #ffffff;
+                color: #34495e;
+                border: 2px solid #bdc3c7;
+                border-radius: 6px;
+                padding: 8px 20px;
+                font-size: 12px;
+                font-weight: 600;
+            }
+            QPushButton:hover {
+                background-color: #f8f9fa;
+                border: 2px solid #95a5a6;
+                color: #2c3e50;
+            }
+            QPushButton:pressed {
+                background-color: #ecf0f1;
+                border: 2px solid #7f8c8d;
+            }
+        """)
+        
+        self.ok_button = QPushButton()
         self.ok_button.setDefault(True)
-        self.ok_button.setStyleSheet("background-color: #3498db; color: white; font-weight: bold; padding: 8px 16px;")
-        self.cancel_button.setStyleSheet("padding: 8px 16px;")
+        self.ok_button.setMinimumHeight(38)
+        self.ok_button.setMinimumWidth(100)
+        self.ok_button.setStyleSheet("""
+            QPushButton {
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #3498db, stop:1 #2980b9);
+                color: white;
+                border: none;
+                border-radius: 6px;
+                padding: 8px 20px;
+                font-size: 12px;
+                font-weight: bold;
+            }
+            QPushButton:hover {
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #2980b9, stop:1 #1f618d);
+            }
+            QPushButton:pressed {
+                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                    stop:0 #1f618d, stop:1 #154360);
+            }
+        """)
         
         button_layout.addWidget(self.cancel_button)
         button_layout.addWidget(self.ok_button)
@@ -116,6 +365,25 @@ class GolestanCredentialsDialog(QDialog):
         self.ok_button.clicked.connect(self.validate_and_accept)
         self.student_input.returnPressed.connect(self.focus_password)
         self.password_input.returnPressed.connect(self.validate_and_accept)
+        
+        # Apply translations to UI elements
+        self._update_ui_texts()
+    
+    def _update_ui_texts(self):
+        """Update all UI texts with translations."""
+        self.setWindowTitle(self._t("window_title"))
+        self.title_label.setText(self._t("title"))
+        self.desc_label.setText(self._t("description"))
+        self.student_label.setText(self._t("student_number_label"))
+        self.student_input.setPlaceholderText(self._t("student_number_placeholder"))
+        self.password_label.setText(self._t("password_label"))
+        self.password_input.setPlaceholderText(self._t("password_placeholder"))
+        if hasattr(self, 'show_password_label'):
+            self.show_password_label.setText(self._t("show_password"))
+        if hasattr(self, 'remember_label'):
+            self.remember_label.setText(self._t("remember_credentials"))
+        self.cancel_button.setText(self._t("cancel_button"))
+        self.ok_button.setText(self._t("ok_button"))
         
     def toggle_password_visibility(self, state):
         """Toggle password visibility based on checkbox state."""
@@ -135,19 +403,19 @@ class GolestanCredentialsDialog(QDialog):
         
         # Validate student number
         if not student_number:
-            QMessageBox.warning(self, "خطا", "لطفاً شماره دانشجویی را وارد کنید.")
+            QMessageBox.warning(self, self._t("error_title"), self._t("error_student_number_empty"))
             self.student_input.setFocus()
             return
             
         # Check if student number is numeric and at least 5 digits
         if not re.match(r'^\d{5,}$', student_number):
-            QMessageBox.warning(self, "خطا", "شماره دانشجویی باید عددی و حداقل ۵ رقم باشد.")
+            QMessageBox.warning(self, self._t("error_title"), self._t("error_student_number_invalid"))
             self.student_input.setFocus()
             self.student_input.selectAll()
             return
             
         if not password:
-            QMessageBox.warning(self, "خطا", "لطفاً رمز عبور را وارد کنید.")
+            QMessageBox.warning(self, self._t("error_title"), self._t("error_password_empty"))
             self.password_input.setFocus()
             return
             
@@ -171,7 +439,7 @@ class GolestanCredentialsDialog(QDialog):
             
     def save_credentials(self, student_number, password, remember):
         """
-        Save credentials if user requested to remember them.
+        Save credentials if requested.
         
         Args:
             student_number: Golestan student number
@@ -179,21 +447,21 @@ class GolestanCredentialsDialog(QDialog):
             remember: Whether to save credentials
             
         Returns:
-            bool: True if saved successfully or not requested to save, False on error
+            bool: True if saved successfully, False on error
         """
         if remember:
             success = save_local_credentials(student_number, password, remember)
             if success:
                 QMessageBox.information(
                     self, 
-                    "موفقیت", 
-                    "اطلاعات ورود گلستان با موفقیت ذخیره شد. این اطلاعات فقط روی این دستگاه نگهداری می‌شود."
+                    self._t("success_title"), 
+                    self._t("success_message")
                 )
             else:
                 QMessageBox.warning(
                     self, 
-                    "خطا", 
-                    "خطا در ذخیره اطلاعات ورود. لطفاً دوباره تلاش کنید."
+                    self._t("save_error_title"), 
+                    self._t("save_error_message")
                 )
                 return False
         return True
@@ -212,14 +480,11 @@ def get_golestan_credentials(parent=None):
     dialog = GolestanCredentialsDialog(parent)
     result = dialog.get_credentials()
     
-    if result[0] is not None:  # Not cancelled
+    if result[0] is not None:
         student_number, password, remember = result
-        # Try to save credentials if requested
         if dialog.save_credentials(student_number, password, remember):
             return (student_number, password)
         else:
-            # If saving failed, return None to indicate failure
             return (None, None)
     
-    # Cancelled or saving failed
     return (None, None)
