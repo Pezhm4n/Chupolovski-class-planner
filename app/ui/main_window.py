@@ -326,8 +326,11 @@ class SchedulerWindow(QtWidgets.QMainWindow):
             self.schedule_table.horizontalHeader().setLayoutDirection(table_direction)
             
             # Configure table appearance
-            self.schedule_table.verticalHeader().setVisible(False)
+            self.schedule_table.verticalHeader().setVisible(True)
             self.schedule_table.horizontalHeader().setDefaultAlignment(
+                QtCore.Qt.AlignmentFlag.AlignCenter | QtCore.Qt.AlignmentFlag.AlignVCenter
+            )
+            self.schedule_table.verticalHeader().setDefaultAlignment(
                 QtCore.Qt.AlignmentFlag.AlignCenter | QtCore.Qt.AlignmentFlag.AlignVCenter
             )
             self.schedule_table.setShowGrid(False)
@@ -336,42 +339,71 @@ class SchedulerWindow(QtWidgets.QMainWindow):
             self.schedule_table.horizontalHeader().setSectionResizeMode(
                 QtWidgets.QHeaderView.Stretch
             )
-            self.schedule_table.setVerticalHeaderItem(
-                0, QtWidgets.QTableWidgetItem("7:00–8:00")
+            self.schedule_table.verticalHeader().setSectionResizeMode(
+                QtWidgets.QHeaderView.Fixed
             )
-            self.schedule_table.setVerticalHeaderItem(
-                1, QtWidgets.QTableWidgetItem("8:00–9:00")
-            )
-            self.schedule_table.setVerticalHeaderItem(
-                2, QtWidgets.QTableWidgetItem("9:00–10:00")
-            )
-            self.schedule_table.setVerticalHeaderItem(
-                3, QtWidgets.QTableWidgetItem("10:00–11:00")
-            )
-            self.schedule_table.setVerticalHeaderItem(
-                4, QtWidgets.QTableWidgetItem("11:00–12:00")
-            )
-            self.schedule_table.setVerticalHeaderItem(
-                5, QtWidgets.QTableWidgetItem("12:00–13:00")
-            )
-            self.schedule_table.setVerticalHeaderItem(
-                6, QtWidgets.QTableWidgetItem("13:00–14:00")
-            )
-            self.schedule_table.setVerticalHeaderItem(
-                7, QtWidgets.QTableWidgetItem("14:00–15:00")
-            )
-            self.schedule_table.setVerticalHeaderItem(
-                8, QtWidgets.QTableWidgetItem("15:00–16:00")
-            )
-            self.schedule_table.setVerticalHeaderItem(
-                9, QtWidgets.QTableWidgetItem("16:00–17:00")
-            )
-            self.schedule_table.setVerticalHeaderItem(
-                10, QtWidgets.QTableWidgetItem("17:00–18:00")
-            )
-            self.schedule_table.setVerticalHeaderItem(
-                11, QtWidgets.QTableWidgetItem("18:00–19:00")
-            )
+            
+            # Set fixed row height for consistent appearance
+            row_height = 30
+            for i in range(len(EXTENDED_TIME_SLOTS) - 1):
+                self.schedule_table.verticalHeader().resizeSection(i, row_height)
+                self.schedule_table.setRowHeight(i, row_height)
+            
+            for i in range(len(EXTENDED_TIME_SLOTS) - 1):
+                empty_item = QtWidgets.QTableWidgetItem("")
+                self.schedule_table.setVerticalHeaderItem(i, empty_item)
+            
+            class TimeHeaderView(QtWidgets.QHeaderView):
+                def __init__(self, parent_table, time_slots):
+                    super().__init__(QtCore.Qt.Vertical, parent_table)
+                    self.parent_table = parent_table
+                    self.time_slots = time_slots
+                    self.hour_positions = {}
+                    
+                    for hour in range(7, 19):
+                        for i in range(len(time_slots) - 1):
+                            start_time = time_slots[i]
+                            h = int(start_time.split(':')[0])
+                            m = int(start_time.split(':')[1])
+                            if h == hour and m == 0:
+                                self.hour_positions[hour] = i
+                                break
+                
+                def paintEvent(self, event):
+                    super().paintEvent(event)
+                    painter = QtGui.QPainter(self.viewport())
+                    painter.setRenderHint(QtGui.QPainter.Antialiasing)
+                    
+                    font = QtGui.QFont("IRANSans UI", 14, QtGui.QFont.Bold)
+                    painter.setFont(font)
+                    painter.setPen(QtGui.QPen(QtGui.QColor("#2c3e50")))
+                    
+                    viewport_rect = self.viewport().rect()
+                    
+                    for hour, row_idx in self.hour_positions.items():
+                        if row_idx > 0:
+                            prev_row_idx = row_idx - 1
+                            y_pos = self.sectionViewportPosition(prev_row_idx)
+                            row_height = self.sectionSize(prev_row_idx)
+                            center_y = y_pos + row_height
+                        else:
+                            y_pos = 0
+                            row_height = self.sectionSize(row_idx)
+                            center_y = row_height / 2
+                        
+                        text_y = center_y - 9
+                        
+                        if text_y >= viewport_rect.top() - 15 and text_y <= viewport_rect.bottom() + 15:
+                            text_rect = QtCore.QRect(0, int(text_y), self.width(), 18)
+                            painter.drawText(text_rect, QtCore.Qt.AlignCenter, str(hour))
+            
+            vertical_header = self.schedule_table.verticalHeader()
+            time_header = TimeHeaderView(self.schedule_table, EXTENDED_TIME_SLOTS)
+            self.schedule_table.setVerticalHeader(time_header)
+            time_header.setSectionResizeMode(QtWidgets.QHeaderView.Fixed)
+            for i in range(len(EXTENDED_TIME_SLOTS) - 1):
+                time_header.resizeSection(i, row_height)
+            
 
             # Add hover effect to cells
             self.schedule_table.cellEntered.connect(self.on_cell_entered)
@@ -667,7 +699,7 @@ class SchedulerWindow(QtWidgets.QMainWindow):
 
             if self.db is None:
                 from app.core.data_manager import load_courses_from_json
-                    load_courses_from_json()
+                load_courses_from_json()
             else:
                 if not COURSES:
                     self.load_courses_from_database()
@@ -831,10 +863,13 @@ class SchedulerWindow(QtWidgets.QMainWindow):
 
             if item:
                 course_key = item.data(QtCore.Qt.ItemDataRole.UserRole)
+                
+                if course_key is None:
+                    return
+                
                 self.last_hover_key = course_key
 
                 if not isinstance(course_key, str):
-                    logger.warning(f"Invalid course_key type: {type(course_key)}, value: {course_key}")
                     return
 
                 # Get the course details
@@ -2018,21 +2053,20 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         except Exception as e:
             logger.error(f"Failed to setup table responsive: {e}")
 
+    def showEvent(self, event):
+        super().showEvent(event)
+
     def resizeEvent(self, a0):
-        """Handle window resize events"""
         try:
             super().resizeEvent(a0)
             
-            # Recalculate splitter sizes on resize
             if hasattr(self, 'main_splitter'):
                 window_width = self.width()
-                left_width = max(280, int(window_width * 0.25))   # Min 280px
-                center_width = max(600, int(window_width * 0.50)) # Min 600px
-                right_width = max(250, int(window_width * 0.25))  # Min 250px
-                
+                left_width = max(280, int(window_width * 0.25))
+                center_width = max(600, int(window_width * 0.50))
+                right_width = max(250, int(window_width * 0.25))
                 self.main_splitter.setSizes([left_width, center_width, right_width])
             
-            # Reapply layout adjustments on resize
             self.reduce_layout_margins()
             
         except Exception as e:
@@ -3445,13 +3479,11 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         del self.placed[start_tuple]
 
     def remove_course_from_dual_widget(self, course_key, dual_widget):
-        """Remove one course from a dual widget and convert to single"""
+        """Remove one course from dual widget and convert to single, or remove only this cell"""
         try:
-            # Get the other course data
             other_course_data = dual_widget.get_other_course_data(course_key)
             other_course_key = other_course_data['course_key']
             
-            # Find the position of this dual widget
             widget_position = None
             span = 1
             for (srow, scol), info in list(self.placed.items()):
@@ -3462,30 +3494,53 @@ class SchedulerWindow(QtWidgets.QMainWindow):
             
             if widget_position is None:
                 logger.error("Could not find dual widget position")
-                # Fallback to regular remove
-                self.remove_course_from_schedule(course_key)
                 return
             
             srow, scol = widget_position
             
-            # Remove the dual widget
             self.schedule_table.removeCellWidget(srow, scol)
             del self.placed[widget_position]
             
-            # Create single course widget for the remaining course
             from .widgets import AnimatedCourseWidget
-            cell_widget = AnimatedCourseWidget(other_course_key, other_course_data['color'], False, self)
+            from app.core.config import COURSES
+            
+            course = COURSES.get(other_course_key, {})
+            if not course:
+                for r in range(srow, srow + span):
+                    self.schedule_table.setItem(r, scol, QtWidgets.QTableWidgetItem(''))
+                self.schedule_table.setSpan(srow, scol, 1, 1)
+                return
+            
+            bg_color = other_course_data.get('color')
+            if not isinstance(bg_color, QtGui.QColor):
+                from app.core.course_utils import get_course_color
+                bg_color = get_course_color(course)
+            
+            cell_widget = AnimatedCourseWidget(other_course_key, bg_color, False, self)
             cell_widget.setObjectName('course-cell')
             cell_widget.setProperty('conflict', False)
             cell_widget.setProperty('elective', False)
             
-            # Build cell layout
-            course = COURSES.get(other_course_key, {})
+            def enter_event(event, widget=cell_widget):
+                try:
+                    if hasattr(widget, 'course_key') and widget.course_key:
+                        self.highlight_course_sessions(widget.course_key)
+                except Exception as e:
+                    logger.warning(f"Hover enter event error: {e}")
+            
+            def leave_event(event, widget=cell_widget):
+                try:
+                    self.clear_course_highlights()
+                except Exception as e:
+                    logger.warning(f"Hover leave event error: {e}")
+            
+            cell_widget.enterEvent = enter_event
+            cell_widget.leaveEvent = leave_event
+            
             cell_layout = QtWidgets.QVBoxLayout(cell_widget)
             cell_layout.setContentsMargins(2, 1, 2, 1)
             cell_layout.setSpacing(0)
             
-            # Top row with X button
             top_row = QtWidgets.QHBoxLayout()
             top_row.setContentsMargins(0, 0, 0, 0)
             top_row.addStretch()
@@ -3497,7 +3552,6 @@ class SchedulerWindow(QtWidgets.QMainWindow):
             top_row.addWidget(x_button)
             cell_layout.addLayout(top_row)
             
-            # Course info
             course_name_label = QtWidgets.QLabel(course.get('name', 'Unknown'))
             course_name_label.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
             course_name_label.setWordWrap(True)
@@ -3516,7 +3570,6 @@ class SchedulerWindow(QtWidgets.QMainWindow):
             cell_layout.addWidget(professor_label)
             cell_layout.addWidget(code_label)
             
-            # Parity indicator
             session = other_course_data.get('session', {})
             parity_indicator = session.get('parity', '')
             if parity_indicator:
@@ -3533,7 +3586,6 @@ class SchedulerWindow(QtWidgets.QMainWindow):
                 bottom_row.addStretch()
                 cell_layout.addLayout(bottom_row)
             
-            # Place the single widget
             self.schedule_table.setCellWidget(srow, scol, cell_widget)
             if span > 1:
                 self.schedule_table.setSpan(srow, scol, span, 1)
@@ -3546,41 +3598,114 @@ class SchedulerWindow(QtWidgets.QMainWindow):
                 'type': 'single'
             }
             
-            logger.info(f"Converted dual widget to single course: {other_course_key}")
+            logger.info(f"Converted dual widget to single course: {other_course_key} at ({srow}, {scol})")
+            
+            self._remove_course_sessions_except_cell(course_key, (srow, scol))
+            
+            self.update_stats_panel()
+            self.update_status()
             
         except Exception as e:
             logger.error(f"Error removing course from dual widget: {e}")
             import traceback
             traceback.print_exc()
-            # Fallback to regular remove
-            self.remove_course_from_schedule(course_key)
+    
+    def _remove_course_sessions_except_cell(self, course_key, except_cell):
+        """Remove all sessions of a course except the specified cell"""
+        to_remove = []
+        to_convert = []
+        except_srow, except_scol = except_cell
         
-        # Update UI
-        self.update_stats_panel()
-        self.update_status()
+        for (srow, scol), info in list(self.placed.items()):
+            if (srow, scol) == (except_srow, except_scol):
+                continue
+                
+            if info.get('type') == 'dual':
+                if course_key in info.get('courses', []):
+                    dual_widget = info.get('widget')
+                    if dual_widget:
+                        other_course_data = dual_widget.get_other_course_data(course_key)
+                        other_course_key = other_course_data['course_key']
+                        
+                        has_other_sessions = False
+                        for (orow, ocol), oinfo in list(self.placed.items()):
+                            if (orow, ocol) == (except_srow, except_scol):
+                                continue
+                            if (orow, ocol) != (srow, scol):
+                                if oinfo.get('type') == 'dual':
+                                    if other_course_key in oinfo.get('courses', []):
+                                        has_other_sessions = True
+                                        break
+                                elif oinfo.get('course') == other_course_key:
+                                    has_other_sessions = True
+                                    break
+                        
+                        if has_other_sessions:
+                            to_convert.append((srow, scol, dual_widget))
+                        else:
+                            to_remove.append((srow, scol))
+            else:
+                if info.get('course') == course_key:
+                    to_remove.append((srow, scol))
+        
+        for srow, scol, dual_widget in to_convert:
+            try:
+                self.remove_course_from_dual_widget(course_key, dual_widget)
+            except Exception as e:
+                logger.error(f"Error converting dual to single: {e}")
+                to_remove.append((srow, scol))
+        
+        for start_tuple in to_remove:
+            if start_tuple in self.placed:
+                self.remove_placed_by_start(start_tuple)
     
     def remove_course_from_schedule(self, course_key):
         """Remove all instances of a course from the current schedule"""
         to_remove = []
+        to_convert = []
         
-        # Handle both single and dual courses
         for (srow, scol), info in list(self.placed.items()):
             if info.get('type') == 'dual':
-                # For dual courses, mark for complete removal
                 if course_key in info.get('courses', []):
-                    to_remove.append((srow, scol))
+                    dual_widget = info.get('widget')
+                    if dual_widget:
+                        other_course_data = dual_widget.get_other_course_data(course_key)
+                        other_course_key = other_course_data['course_key']
+                        
+                        has_other_sessions = False
+                        for (orow, ocol), oinfo in list(self.placed.items()):
+                            if (orow, ocol) != (srow, scol):
+                                if oinfo.get('type') == 'dual':
+                                    if other_course_key in oinfo.get('courses', []):
+                                        has_other_sessions = True
+                                        break
+                                elif oinfo.get('course') == other_course_key:
+                                    has_other_sessions = True
+                                    break
+                        
+                        if has_other_sessions:
+                            to_convert.append((srow, scol, dual_widget))
+                        else:
+                            to_remove.append((srow, scol))
             else:
-                # For single courses, check directly
                 if info.get('course') == course_key:
                     to_remove.append((srow, scol))
         
-        for start_tuple in to_remove:
-            self.remove_placed_by_start(start_tuple)
+        for srow, scol, dual_widget in to_convert:
+            try:
+                self.remove_course_from_dual_widget(course_key, dual_widget)
+                continue
+            except Exception as e:
+                logger.error(f"Error converting dual to single: {e}")
+                to_remove.append((srow, scol))
         
-        # Update stats panel after removing course
+        for start_tuple in to_remove:
+            if start_tuple in self.placed:
+                self.remove_placed_by_start(start_tuple)
+        
         print("🔄 Calling update_stats_panel from remove_course_from_schedule")
         self.update_stats_panel()
-        QtCore.QCoreApplication.processEvents()  # فورس UI update
+        QtCore.QCoreApplication.processEvents()
 
     def clear_course_highlights(self):
         """Restore original styling for all course widgets"""
@@ -3632,41 +3757,11 @@ class SchedulerWindow(QtWidgets.QMainWindow):
     
 
     def remove_course_silently(self, course_key):
-        """Remove course without user confirmation or notification"""
-        # Find all placements for this course
-        to_remove = []
+        """Remove all sessions of a course from schedule"""
+        from app.core.config import COURSES
         
-        # Handle both single and dual courses
-        for (srow, scol), info in list(self.placed.items()):
-            if info.get('type') == 'dual':
-                # For dual courses, check if the course is one of the two
-                if course_key in info.get('courses', []):
-                    # If removing one course from a dual cell, we need to convert it to single
-                    dual_widget = info.get('widget')
-                    if dual_widget and hasattr(dual_widget, 'remove_single_course'):
-                        # Try to convert the dual widget to single course widget
-                        try:
-                            dual_widget.remove_single_course(course_key)
-                            # The conversion was successful, so we don't need to remove this cell
-                            continue
-                        except Exception as e:
-
-                            pass
-                    # If conversion failed or not possible, mark for removal
-                    to_remove.append((srow, scol))
-            else:
-                # For single courses, check directly
-                if info.get('course') == course_key:
-                    to_remove.append((srow, scol))
-        
-        # Remove all sessions of this course
-        for start_tuple in to_remove:
-            self.remove_placed_by_start(start_tuple)
-            
-        # Update stats panel after removing course
-        print("🔄 Calling update_stats_panel from remove_course_silently")
-        self.update_stats_panel()
-        QtCore.QCoreApplication.processEvents()  # فورس UI update
+        # Use remove_course_from_schedule which handles dual widgets correctly
+        self.remove_course_from_schedule(course_key)
         
         self.update_status()
         self.update_detailed_info_if_open()
@@ -4529,6 +4624,8 @@ class SchedulerWindow(QtWidgets.QMainWindow):
 
     def save_current_combo(self):
         """Save the current combination of courses"""
+        from app.core.translator import translator
+        
         # collect currently placed course keys
         # Handle both single and dual courses correctly
         keys = []
@@ -4572,7 +4669,7 @@ class SchedulerWindow(QtWidgets.QMainWindow):
                 QtWidgets.QMessageBox.warning(
                     self,
                     translator.t("common.warning"),
-                    translator.t("messages.enter_name")
+                    "لطفاً نامی وارد کنید"
                 )
                 continue
                 
@@ -4585,8 +4682,8 @@ class SchedulerWindow(QtWidgets.QMainWindow):
                 msg.setInformativeText(translator.t("messages.duplicate_name_info"))
                 msg.setStandardButtons(QtWidgets.QMessageBox.Retry | QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.Cancel)
                 msg.setDefaultButton(QtWidgets.QMessageBox.Retry)
-                msg.button(QtWidgets.QMessageBox.Retry).setText(translator.t("messages.new_name"))
-                msg.button(QtWidgets.QMessageBox.Yes).setText(translator.t("messages.replace"))
+                msg.button(QtWidgets.QMessageBox.Retry).setText("نام جدید")
+                msg.button(QtWidgets.QMessageBox.Yes).setText("جایگزین")
                 msg.button(QtWidgets.QMessageBox.Cancel).setText(translator.t("common.cancel"))
                 
                 result = msg.exec_()
@@ -4619,11 +4716,10 @@ class SchedulerWindow(QtWidgets.QMainWindow):
                 self.load_saved_combos_ui()
                 
                 # Show confirmation with translation
-                from app.core.translator import translator
                 QtWidgets.QMessageBox.information(
                     self, 
-                    translator.t("messages.success.save_successful"), 
-                    translator.t("success.combination_saved", name=name, count=len(keys))
+                    translator.t("save.success_title"), 
+                    translator.t("save.success_message", name=name, count=len(keys))
                 )
             except Exception as e:
                 logger.error(f"Error saving combo: {e}")
@@ -4678,7 +4774,17 @@ class SchedulerWindow(QtWidgets.QMainWindow):
 
     def on_save_current_combo(self):
         """Handle save current combo button click"""
-        self.save_current_combo()
+        try:
+            logger.info("Save current combo button clicked")
+            self.save_current_combo()
+        except Exception as e:
+            logger.error(f"Error in on_save_current_combo: {e}")
+            import traceback
+            traceback.print_exc()
+            QtWidgets.QMessageBox.critical(
+                self, 'خطا', 
+                f'خطا در ذخیره ترکیب:\n{str(e)}'
+            )
 
     def on_delete_saved_combo(self):
         """Handle delete saved combo button click"""
