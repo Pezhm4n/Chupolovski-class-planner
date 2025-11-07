@@ -302,13 +302,13 @@ QWidget#course-cell {
 }
 
 /* Remove conflict indicators from schedule table cells */
-QWidget#course-cell QLabel {
-    visibility: hidden; /* Hide conflict indicators in schedule table */
-}
+/* Note: visibility is not a valid QSS property in Qt stylesheets */
+/* Conflict indicators are hidden via hide()/show() in code (see widgets.py) */
+/* No QSS rule needed - handled programmatically */
 
 /* Ensure course name label is visible */
 QWidget#course-cell QLabel#course-name-label {
-    visibility: visible;
+    opacity: 1; /* Ensure course name is visible */
     font-weight: 600;
     font-size: 12px;
     color: #2c3e50;
@@ -336,7 +336,7 @@ QLabel#course-name-label {
     margin: 0px;
     padding: 1px;
     font-family: 'IRANSans UI', 'Shabnam', 'Tahoma', sans-serif;
-    visibility: visible; /* Ensure course name is visible */
+    opacity: 1; /* Ensure course name is visible */
 }
 
 /* Professor Label Style */

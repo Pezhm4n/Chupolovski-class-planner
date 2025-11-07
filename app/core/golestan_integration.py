@@ -12,7 +12,6 @@ import json
 import logging
 from typing import Dict, List, Any
 
-# Import from core modules
 from .config import COURSES, get_golestan_credentials
 from .logger import setup_logging
 
@@ -20,10 +19,7 @@ logger = setup_logging()
 
 from ..scrapers.requests_scraper.fetch_data import get_courses
 
-# Global variable to store major information for courses
 COURSE_MAJORS = {}
-
-# ---------------------- Golestan Integration Functions ----------------------
 
 def fetch_golestan_courses(status='both', username=None, password=None):
     """
@@ -31,8 +27,8 @@ def fetch_golestan_courses(status='both', username=None, password=None):
     
     Args:
         status: 'available', 'unavailable', or 'both'
-        username: Golestan login username
-        password: Golestan login password
+        username: Golestan login username (required)
+        password: Golestan login password (required)
         
     Returns:
         dict: Courses in internal format
@@ -40,19 +36,18 @@ def fetch_golestan_courses(status='both', username=None, password=None):
     try:
         logger.info("Fetching courses from Golestan system...")
         
-        # If no credentials provided, try to get them from our secure system
-        if username is None or password is None:
-            username, password = get_golestan_credentials()
-            
-            # If still no credentials, raise an exception
-            if username is None or password is None:
-                raise ValueError("No Golestan credentials available")
+        if username is None or password is None or username.strip() == "" or password.strip() == "":
+            raise ValueError("Username and password are required to fetch from Golestan")
         
-        # Fetch data from Golestan
-        get_courses(status=status, username=username, password=password)
+        from app.data.courses_db import CourseDatabase
+        db = CourseDatabase()
         
-        # Load the fetched data
-        courses = load_golestan_data()
+        get_courses(status=status, username=username, password=password, db=db)
+        
+        courses = load_courses_from_database(db)
+        
+        if not courses or len(courses) == 0:
+            raise RuntimeError("No courses were fetched from Golestan. Please check your credentials and try again.")
         
         logger.info(f"Successfully fetched and processed {len(courses)} courses from Golestan")
         return courses
@@ -74,35 +69,24 @@ def load_courses_from_database(db):
     try:
         logger.info("Loading courses from database...")
         
-        # Get all courses from database in hierarchical format
         db_courses = db.get_all_courses(return_hierarchy=True)
         
-        # Convert to the format expected by the application
         all_courses = {}
         global COURSE_MAJORS
         COURSE_MAJORS = {}
         
         course_count = 0
         
-        # Process the hierarchical structure from database
         for faculty_name, departments in db_courses.items():
             for department_name, courses in departments.items():
-                # Create major identifier from faculty and department
                 major_identifier = f"{faculty_name} - {department_name}"
                 
                 for course in courses:
-                    # Generate a unique key for the course
                     course_key = generate_course_key_from_db(course)
-                    
-                    # Convert database format to internal format
                     converted_course = convert_db_course_format(course)
-                    
-                    # Add to all courses
+                    converted_course['major'] = major_identifier
                     all_courses[course_key] = converted_course
-                    
-                    # Store major information for this course
                     COURSE_MAJORS[course_key] = major_identifier
-                    
                     course_count += 1
         
         logger.info(f"Successfully loaded {course_count} courses from database")
@@ -119,37 +103,31 @@ def load_golestan_data() -> Dict[str, Any]:
     Returns:
         dict: Courses in internal format
     """
-    try:
-        # Get the app directory
-        app_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-        courses_data_dir = os.path.join(app_dir, 'data', 'courses_data')
-        
-        # Load available courses
-        available_courses_file = os.path.join(courses_data_dir, 'available_courses.json')
-        unavailable_courses_file = os.path.join(courses_data_dir, 'unavailable_courses.json')
-        
-        all_courses = {}
-        global COURSE_MAJORS
-        COURSE_MAJORS = {}
-        
-        available_count = 0
-        unavailable_count = 0
-        
-        # Process available courses
-        if os.path.exists(available_courses_file):
-            with open(available_courses_file, 'r', encoding='utf-8') as f:
-                available_data = json.load(f)
-            # Count available courses before processing
+        try:
+            app_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            courses_data_dir = os.path.join(app_dir, 'data', 'courses_data')
+            
+            available_courses_file = os.path.join(courses_data_dir, 'available_courses.json')
+            unavailable_courses_file = os.path.join(courses_data_dir, 'unavailable_courses.json')
+            
+            all_courses = {}
+            global COURSE_MAJORS
+            COURSE_MAJORS = {}
+            
+            available_count = 0
+            unavailable_count = 0
+            
+            if os.path.exists(available_courses_file):
+                with open(available_courses_file, 'r', encoding='utf-8') as f:
+                    available_data = json.load(f)
             for faculty_name, departments in available_data.items():
                 for department_name, courses in departments.items():
                     available_count += len(courses)
             process_golestan_faculty_data(available_data, all_courses, COURSE_MAJORS, is_available=True)
         
-        # Process unavailable courses
         if os.path.exists(unavailable_courses_file):
             with open(unavailable_courses_file, 'r', encoding='utf-8') as f:
                 unavailable_data = json.load(f)
-            # Count unavailable courses before processing
             for faculty_name, departments in unavailable_data.items():
                 for department_name, courses in departments.items():
                     unavailable_count += len(courses)
@@ -165,7 +143,6 @@ def load_golestan_data() -> Dict[str, Any]:
                         session['day'] = normalize_day_name(session['day'])
         
         logger.info(f"Loaded {len(all_courses)} total courses ({available_count} available + {unavailable_count} unavailable)")
-        # Only print in debug mode
         if os.environ.get('DEBUG'):
             print(f"Loaded {len(all_courses)} total courses ({available_count} available + {unavailable_count} unavailable)")
         return all_courses
@@ -189,20 +166,12 @@ def process_golestan_faculty_data(faculty_data: Dict, all_courses: Dict, course_
             faculty_name_clean = faculty_name.strip()
             for department_name, courses in departments.items():
                 department_name_clean = department_name.strip()
-                # Create major identifier from faculty and department
                 major_identifier = f"{faculty_name_clean} - {department_name_clean}"
                 
                 for course in courses:
-                    # Generate a unique key for the course
                     course_key = generate_course_key(course)
-                    
-                    # Convert Golestan format to internal format
                     converted_course = convert_golestan_course_format(course, is_available)
-                    
-                    # Add to all courses
                     all_courses[course_key] = converted_course
-                    
-                    # Store major information for this course
                     course_majors[course_key] = major_identifier
                     
     except Exception as e:
@@ -220,17 +189,13 @@ def generate_course_key_from_db(course: Dict) -> str:
         str: Unique course key
     """
     code = course.get('code', '')
-    # Create a safe key by replacing problematic characters
     safe_code = code.replace(' ', '_').replace('-', '_').replace('.', '_')
     
-    # If the code is empty, generate a unique key
     if not safe_code:
-        # Use name and instructor as fallback
         name = course.get('name', 'unknown')
         instructor = course.get('instructor', 'unknown')
         safe_code = f"{name}_{instructor}".replace(' ', '_').replace('-', '_').replace('.', '_')
     
-    # Ensure uniqueness
     base_key = safe_code
     counter = 1
     while base_key in COURSES:
@@ -282,10 +247,9 @@ def convert_db_course_format(course: Dict) -> Dict:
     try:
         # Extract location from first schedule session if exists
         schedule = course.get('schedule', [])
-        course_location = ''  # Default to empty
+        course_location = ''
         
         if schedule:
-            # Get location from first session that has one
             for session in schedule:
                 if session.get('location'):
                     course_location = session['location']
@@ -298,23 +262,20 @@ def convert_db_course_format(course: Dict) -> Dict:
             'instructor': course.get('instructor', 'اساتيد گروه آموزشي'),
             'schedule': schedule,
             'location': course_location,
-            'description': '',  # Database doesn't store this
+            'description': '',
             'exam_time': course.get('exam_time', ''),
-            # New fields from database
             'capacity': course.get('capacity', ''),
             'gender_restriction': course.get('gender', ''),
             'enrollment_conditions': course.get('enrollment_conditions', ''),
             'is_available': course.get('is_available', True)
         }
         
-        # Clean up instructor name
         converted['instructor'] = converted['instructor'].replace('<BR>', '').strip()
         
         return converted
         
     except Exception as e:
         logger.error(f"Error converting database course format: {e}")
-        # Return a basic conversion if there's an error
         return {
             'code': course.get('code', ''),
             'name': course.get('name', ''),
@@ -342,13 +303,10 @@ def convert_golestan_course_format(course: Dict, is_available: bool) -> Dict:
         dict: Course in internal format
     """
     try:
-        # Extract basic information
-        # Extract location from first schedule session if exists
         schedule = course.get('schedule', [])
-        course_location = course.get('location', '')  # Try course-level first
+        course_location = course.get('location', '')
         
         if not course_location and schedule:
-            # Fallback to first session's location
             course_location = schedule[0].get('location', '')
         
         converted = {
@@ -357,27 +315,22 @@ def convert_golestan_course_format(course: Dict, is_available: bool) -> Dict:
             'credits': int(course.get('credits', 0)),
             'instructor': course.get('instructor', 'اساتيد گروه آموزشي'),
             'schedule': schedule,
-            'location': course_location,  # ← Now properly populated from schedule
+            'location': course_location,
             'description': course.get('description', ''),
             'exam_time': course.get('exam_time', ''),
-            # New fields from Golestan scraper
             'capacity': course.get('capacity', ''),
             'gender_restriction': course.get('gender', ''),
             'enrollment_conditions': course.get('enrollment_conditions', ''),
             'is_available': is_available
         }
         
-        # Clean up instructor name
         converted['instructor'] = converted['instructor'].replace('<BR>', '').strip()
-        
-        # Clean up description
         converted['description'] = converted['description'].replace('<BR>', '')
         
         return converted
         
     except Exception as e:
         logger.error(f"Error converting course format: {e}")
-        # Return a basic conversion if there's an error
         return {
             'code': course.get('code', ''),
             'name': course.get('name', ''),
@@ -398,29 +351,20 @@ def update_courses_from_golestan(username=None, password=None):
     Fetch latest courses from Golestan and update the application's course data
     
     Args:
-        username: Golestan login username
-        password: Golestan login password
+        username: Golestan login username (required)
+        password: Golestan login password (required)
     """
     try:
         logger.info("Updating courses from Golestan...")
         
-        # If no credentials provided, try to get them from our secure system
-        if username is None or password is None:
-            username, password = get_golestan_credentials()
-            
-            # If still no credentials, log and return without error
-            if username is None or password is None:
-                logger.info("No Golestan credentials available, skipping auto-fetch")
-                return
+        if username is None or password is None or username.strip() == "" or password.strip() == "":
+            raise ValueError("Username and password are required to fetch from Golestan")
         
-        # Fetch courses from Golestan
         golestan_courses = fetch_golestan_courses(username=username, password=password)
         
-        # Update the global COURSES dictionary
         COURSES.clear()
         COURSES.update(golestan_courses)
         
-        # NOTE: No longer saving to courses_data.json - data is saved in Golestan files
         logger.info(f"Successfully updated {len(golestan_courses)} courses from Golestan")
         
     except Exception as e:

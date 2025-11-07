@@ -10,9 +10,18 @@ import os
 
 from PyQt5 import QtWidgets, QtCore, uic, QtGui
 
-# Import from core modules
-from ..core.config import COURSES, BASE_DIR
-from ..core.logger import setup_logging
+# Import from core modules - handle both relative and absolute imports
+try:
+    from app.core.config import COURSES, BASE_DIR, get_day_label
+    from app.core.logger import setup_logging
+    from app.core.language_manager import language_manager
+    from app.core.translator import translator
+except ImportError:
+    # Fallback to relative imports for package execution
+    from ..core.config import COURSES, BASE_DIR, get_day_label
+    from ..core.logger import setup_logging
+    from ..core.language_manager import language_manager
+    from ..core.translator import translator
 
 logger = setup_logging()
 
@@ -34,53 +43,193 @@ class ExamScheduleWindow(QtWidgets.QMainWindow):
         try:
             uic.loadUi(str(exam_ui_file), self)
         except FileNotFoundError:
-            QtWidgets.QMessageBox.critical(self, "خطا", f"فایل UI یافت نشد: {exam_ui_file}")
+            QtWidgets.QMessageBox.critical(
+                self,
+                translator.t("common.error"),
+                self._t("ui_not_found", path=exam_ui_file)
+            )
             return
         except Exception as e:
-            QtWidgets.QMessageBox.critical(self, "خطا", f"خطا در بارگذاری UI: {str(e)}")
+            QtWidgets.QMessageBox.critical(
+                self,
+                translator.t("common.error"),
+                self._t("ui_load_error", error=str(e))
+            )
             return
 
         # Connect signals
         self.connect_signals()
 
-        # Install event filter for fullscreen functionality
-        self.centralwidget.installEventFilter(self)
+        # Set window flags to prevent fullscreen and always show window controls
+        # Remove any existing fullscreen-related flags and ensure window controls are always visible
+        flags = (
+            QtCore.Qt.Window |
+            QtCore.Qt.WindowCloseButtonHint |
+            QtCore.Qt.WindowMinimizeButtonHint |
+            QtCore.Qt.WindowMaximizeButtonHint
+        )
+        # Explicitly remove fullscreen button hint
+        flags &= ~QtCore.Qt.WindowFullscreenButtonHint
+        # Ensure it's not a frameless window (which can hide controls)
+        flags &= ~QtCore.Qt.FramelessWindowHint
+        
+        self.setWindowFlags(flags)
+        
+        # Prevent widgets from being movable
+        self._lock_widget_positions()
+        
+        # Override resizeEvent to prevent fullscreen mode
+        self._original_resizeEvent = self.resizeEvent
+        self.resizeEvent = self._custom_resize_event
 
-        # Also install event filter on the main window
-        self.installEventFilter(self)
-
-        # Update content
+        self._language_connected = False
+        self._connect_language_signal()
+        self._apply_translations()
         self.update_content()
+    
+    def _lock_widget_positions(self):
+        """Lock all widget positions to prevent movement"""
+        # Lock toolbar
+        if hasattr(self, 'toolBar'):
+            self.toolBar.setMovable(False)
+            self.toolBar.setFloatable(False)
+        
+        # Lock central widget and its children
+        if hasattr(self, 'centralwidget'):
+            self._lock_widget(self.centralwidget)
+    
+    def _lock_widget(self, widget):
+        """Recursively lock a widget and its children"""
+        if isinstance(widget, QtWidgets.QDockWidget):
+            widget.setFeatures(QtWidgets.QDockWidget.NoDockWidgetFeatures)
+        elif isinstance(widget, QtWidgets.QToolBar):
+            widget.setMovable(False)
+            widget.setFloatable(False)
+        
+        # Lock all child widgets
+        for child in widget.findChildren(QtWidgets.QWidget):
+            if isinstance(child, QtWidgets.QDockWidget):
+                child.setFeatures(QtWidgets.QDockWidget.NoDockWidgetFeatures)
+            elif isinstance(child, QtWidgets.QToolBar):
+                child.setMovable(False)
+                child.setFloatable(False)
+    
+    def _custom_resize_event(self, event):
+        """Override resize event to prevent entering fullscreen mode"""
+        # If window is being resized to fullscreen size, constrain it
+        screen = QtWidgets.QApplication.desktop().screenGeometry()
+        if event.size().width() >= screen.width() and event.size().height() >= screen.height():
+            # Don't allow fullscreen - keep a small margin
+            max_width = screen.width() - 50
+            max_height = screen.height() - 50
+            if event.size().width() > max_width or event.size().height() > max_height:
+                self.resize(min(event.size().width(), max_width), 
+                           min(event.size().height(), max_height))
+                return
+        
+        # Call original resize event
+        if hasattr(self, '_original_resizeEvent'):
+            self._original_resizeEvent(event)
+    
+    def changeEvent(self, event):
+        """Override change event to prevent fullscreen state changes"""
+        if event.type() == QtCore.QEvent.WindowStateChange:
+            # Check if window is trying to enter fullscreen
+            if self.windowState() & QtCore.Qt.WindowFullScreen:
+                # Force exit from fullscreen
+                self.setWindowState(self.windowState() & ~QtCore.Qt.WindowFullScreen)
+                # Restore previous geometry if available
+                if hasattr(self, 'windowed_geometry') and self.windowed_geometry:
+                    self.setGeometry(self.windowed_geometry)
+                return
+        
+        super().changeEvent(event)
 
-    def eventFilter(self, obj, event):
-        """Event filter to handle mouse clicks for fullscreen toggle"""
-        if event.type() == QtCore.QEvent.MouseButtonPress:
-            # Check if the click is on the central widget or its children
-            if (obj == self.centralwidget or
-                    (isinstance(obj, QtWidgets.QWidget) and
-                     self.centralwidget.isAncestorOf(obj))):
-                self.toggle_fullscreen()
-                return True
-        return super().eventFilter(obj, event)
-
-    def toggle_fullscreen(self):
-        """Toggle between fullscreen and windowed mode"""
-        if self.is_fullscreen:
-            # Exit fullscreen
-            self.showNormal()
-            if self.windowed_geometry:
-                self.setGeometry(self.windowed_geometry)
-            self.is_fullscreen = False
-        else:
-            # Enter fullscreen
-            self.windowed_geometry = self.geometry()
-            self.showFullScreen()
-            self.is_fullscreen = True
+    def closeEvent(self, event):
+        self._disconnect_language_signal()
+        super().closeEvent(event)
 
     def connect_signals(self):
         """Connect UI signals to their respective slots"""
         # Connect export action
         self.action_export.triggered.connect(self.export_exam_schedule)
+
+    # ------------------------------------------------------------------
+    # Translation helpers
+    # ------------------------------------------------------------------
+
+    def _connect_language_signal(self):
+        if not getattr(self, "_language_connected", False):
+            language_manager.language_changed.connect(self._on_language_changed)
+            self._language_connected = True
+
+    def _disconnect_language_signal(self):
+        if getattr(self, "_language_connected", False):
+            try:
+                language_manager.language_changed.disconnect(self._on_language_changed)
+            except (TypeError, RuntimeError):
+                pass
+            self._language_connected = False
+
+    def _on_language_changed(self, _lang):
+        self._apply_translations()
+        self.update_content()
+
+    def _t(self, key, **kwargs):
+        return translator.t(f"exam_window.{key}", **kwargs)
+
+    def _current_language(self):
+        return language_manager.get_current_language()
+
+    def _apply_translations(self):
+        language_manager.apply_layout_direction(self)
+        direction = language_manager.get_layout_direction()
+        if hasattr(self, 'centralwidget'):
+            self.centralwidget.setLayoutDirection(direction)
+
+        if hasattr(self, 'title_label'):
+            self.title_label.setText(self._t("title"))
+        if hasattr(self, 'info_label'):
+            self.info_label.setText(self._t("subtitle"))
+        if hasattr(self, 'stats_label') and not self.exam_table.rowCount():
+            self.stats_label.setText(self._t("stats_placeholder"))
+        if hasattr(self, 'explanation_label'):
+            legend_text = "\n".join([
+                self._t("legend_header"),
+                self._t("legend_even"),
+                self._t("legend_odd"),
+                self._t("legend_all"),
+            ])
+            self.explanation_label.setText(legend_text)
+
+        if hasattr(self, 'action_export'):
+            self.action_export.setText(self._t("export_title"))
+        if hasattr(self, 'toolBar'):
+            self.toolBar.setWindowTitle(self._t("export_title"))
+
+        headers = [
+            self._t("table_columns.name"),
+            self._t("table_columns.code"),
+            self._t("table_columns.instructor"),
+            self._t("table_columns.class_time"),
+            self._t("table_columns.exam_time"),
+            self._t("table_columns.credits"),
+            self._t("table_columns.location"),
+        ]
+        if self.exam_table.columnCount() == len(headers):
+            self.exam_table.setHorizontalHeaderLabels(headers)
+
+    def _format_parity(self, parity_value):
+        lang = self._current_language()
+        if parity_value == 'ز':
+            symbol = 'E' if lang != 'fa' else 'ز'
+            return symbol, translator.t("parity.even")
+        if parity_value == 'ف':
+            symbol = 'O' if lang != 'fa' else 'ف'
+            return symbol, translator.t("parity.odd")
+        symbol = ''
+        text = translator.t("parity.none") if parity_value else ''
+        return symbol, text
 
     def update_content(self):
         """Update exam schedule content"""
@@ -89,7 +238,7 @@ class ExamScheduleWindow(QtWidgets.QMainWindow):
     def format_class_schedule(self, schedule):
         """Format class schedule information for display"""
         if not schedule:
-            return "نامشخص"
+            return self._t("stats_placeholder")
 
         formatted_sessions = []
         for session in schedule:
@@ -98,21 +247,27 @@ class ExamScheduleWindow(QtWidgets.QMainWindow):
             end = session.get('end', '')
             parity = session.get('parity', '')
 
-            # Add parity indicator if exists
-            parity_indicator = ""
-            if parity == 'ز':
-                parity_indicator = "(ز)"
-            elif parity == 'ف':
-                parity_indicator = "(ف)"
+            day_label = get_day_label(day)
+            symbol, parity_text = self._format_parity(parity)
+            parity_parts = []
+            if parity_text and parity_text != translator.t("parity.none"):
+                parity_parts.append(parity_text)
+            if symbol:
+                parity_parts.append(symbol)
 
-            formatted_sessions.append(f"{day}{parity_indicator}\n{start} - {end}")
+            parity_display = f" ({' / '.join(parity_parts)})" if parity_parts else ""
+            formatted_sessions.append(f"{day_label}{parity_display}\n{start} - {end}")
 
         return "\n".join(formatted_sessions)
 
     def format_exam_time(self, exam_time):
         """Format exam time information for display"""
-        if not exam_time or exam_time == 'اعلام نشده':
-            return "اعلام نشده"
+        if not exam_time or exam_time in ('اعلام نشده', translator.t("common.no_exam_time")):
+            return translator.t("common.no_exam_time")
+
+        # For non-Persian locales, return raw value (data uses Jalali format)
+        if self._current_language() != 'fa':
+            return exam_time
 
         # Assuming exam_time is in format like "1404/07/08 08:00-10:00"
         # We want to format it as:
@@ -278,46 +433,44 @@ class ExamScheduleWindow(QtWidgets.QMainWindow):
         # Calculate and display statistics
         if hasattr(self, 'stats_label'):
             if placed_courses:
-                # Calculate total units
                 total_units = 0
                 days_used = set()
+                instructors = set()
                 total_sessions = len(self.parent_window.placed) if hasattr(self.parent_window, 'placed') else 0
 
                 for course_key in placed_courses:
                     course = COURSES.get(course_key, {})
                     total_units += course.get('credits', 0)
-                    # Get days from schedule
+                    instructors.add(course.get('instructor', ''))
                     for session in course.get('schedule', []):
-                        days_used.add(session.get('day', ''))
+                        day_name = session.get('day', '')
+                        if day_name:
+                            days_used.add(get_day_label(day_name))
 
-                # Create statistics text
-                stats_text = f"📊 آمار برنامه: دروس: {len(placed_courses)} | جلسات: {total_sessions} | واحدها: {total_units} | روزهای حضور: {len(days_used)} روز"
+                day_labels = sorted([d for d in days_used if d])
+                stats_text = self._t(
+                    "stats_summary",
+                    courses=len(placed_courses),
+                    sessions=total_sessions,
+                    credits=total_units,
+                    days=len(day_labels)
+                )
 
-                if days_used:
-                    days_list = ', '.join(sorted([day for day in days_used if day]))
-                    stats_text += f" ({days_list})"
+                if day_labels:
+                    stats_text += f" ({', '.join(day_labels)})"
 
                 self.stats_label.setText(stats_text)
-                # Update stats label styling to match new design
-                self.stats_label.setStyleSheet(
-                    "background-color: #E1BEE7;"
-                    "color: #333;"
-                    "padding: 15px;"
-                    "border-radius: 8px;"
-                    "font-weight: normal;"
-                    "text-align: center;"
-                )
             else:
-                self.stats_label.setText("📊 هیچ درسی انتخاب نشده است")
-                # Update stats label styling to match new design
-                self.stats_label.setStyleSheet(
-                    "background-color: #E1BEE7;"
-                    "color: #333;"
-                    "padding: 15px;"
-                    "border-radius: 8px;"
-                    "font-weight: normal;"
-                    "text-align: center;"
-                )
+                self.stats_label.setText(self._t("stats_empty"))
+
+            self.stats_label.setStyleSheet(
+                "background-color: #E1BEE7;"
+                "color: #333;"
+                "padding: 15px;"
+                "border-radius: 8px;"
+                "font-weight: normal;"
+                "text-align: center;"
+            )
 
     '''def export_exam_schedule(self):
         """Export the exam schedule to various formats"""
@@ -358,25 +511,25 @@ class ExamScheduleWindow(QtWidgets.QMainWindow):
         """Export the exam schedule to various formats"""
         if self.exam_table.rowCount() == 0:
             QtWidgets.QMessageBox.information(
-                self, 'هیچ داده‌ای',
-                'هیچ درسی برای صدور برنامه امتحانات انتخاب نشده است.\n'
-                'لطفا ابتدا در پنجره اصلی دروس مورد نظر را به جدول اضافه کنید.'
+                self,
+                self._t("no_courses_dialog_title"),
+                self._t("no_courses_dialog_text")
             )
             return
 
         # Ask user for export format
         msg = QtWidgets.QMessageBox()
-        msg.setWindowTitle('صدور برنامه امتحانات')
-        msg.setText('فرمت مورد نظر برای صدور را انتخاب کنید:')
+        msg.setWindowTitle(self._t("export_title"))
+        msg.setText(self._t("export_prompt"))
 
-        txt_btn = msg.addButton('فایل متنی (TXT)', QtWidgets.QMessageBox.ActionRole)
-        html_btn = msg.addButton('فایل HTML', QtWidgets.QMessageBox.ActionRole)
-        csv_btn = msg.addButton('فایل CSV', QtWidgets.QMessageBox.ActionRole)
+        txt_btn = msg.addButton(self._t("export_text_option"), QtWidgets.QMessageBox.ActionRole)
+        html_btn = msg.addButton(self._t("export_html_option"), QtWidgets.QMessageBox.ActionRole)
+        csv_btn = msg.addButton(self._t("export_csv_option"), QtWidgets.QMessageBox.ActionRole)
 
-        pdf_v_btn = msg.addButton('PDF عمودی (A4 Portrait)', QtWidgets.QMessageBox.ActionRole)
-        pdf_h_btn = msg.addButton('PDF افقی (A4 Landscape)', QtWidgets.QMessageBox.ActionRole)
+        pdf_v_btn = msg.addButton(self._t("export_pdf_portrait"), QtWidgets.QMessageBox.ActionRole)
+        pdf_h_btn = msg.addButton(self._t("export_pdf_landscape"), QtWidgets.QMessageBox.ActionRole)
 
-        cancel_btn = msg.addButton('لغو', QtWidgets.QMessageBox.RejectRole)
+        cancel_btn = msg.addButton(translator.t("common.cancel"), QtWidgets.QMessageBox.RejectRole)
 
         msg.exec_()
         clicked_button = msg.clickedButton()
@@ -397,7 +550,7 @@ class ExamScheduleWindow(QtWidgets.QMainWindow):
     def export_as_text(self):
         """Export exam schedule as plain text with comprehensive information"""
         filename, _ = QtWidgets.QFileDialog.getSaveFileName(
-            self, 'ذخیره برنامه امتحانات', 'exam_schedule.txt', 'Text Files (*.txt)'
+            self, self._t("export_title"), 'exam_schedule.txt', 'Text Files (*.txt)'
         )
         if not filename:
             return
@@ -483,15 +636,22 @@ class ExamScheduleWindow(QtWidgets.QMainWindow):
                 f.write('• فرد: دروس هفته‌های فرد (در جدول با علامت ف نشان داده شده)\n')
                 f.write('• همه هفته‌ها: دروسی که هر هفته تشکیل می‌شوند\n\n')
 
-            QtWidgets.QMessageBox.information(self, 'صدور موفق',
-                                              f'برنامه امتحانات در فایل زیر ذخیره شد:\n{filename}\n\nنکته: برای نمایش صحیح متن راست به چپ، فایل را با یک ویرایشگر متن که از UTF-8 و RTL پشتیبانی می‌کند باز کنید.')
+            QtWidgets.QMessageBox.information(
+                self,
+                self._t("export_success_title"),
+                self._t("export_success_text_note", path=filename)
+            )
         except Exception as e:
-            QtWidgets.QMessageBox.critical(self, 'خطا', f'خطا در ذخیره فایل:\n{str(e)}')
+            QtWidgets.QMessageBox.critical(
+                self,
+                self._t("export_error_title"),
+                self._t("export_error_text", error=str(e))
+            )
 
     def export_as_html(self):
         """Export exam schedule as HTML with improved styling and complete information"""
         filename, _ = QtWidgets.QFileDialog.getSaveFileName(
-            self, 'ذخیره برنامه امتحانات', 'exam_schedule.html', 'HTML Files (*.html)'
+            self, self._t("export_title"), 'exam_schedule.html', 'HTML Files (*.html)'
         )
         if not filename:
             return
@@ -695,14 +855,22 @@ class ExamScheduleWindow(QtWidgets.QMainWindow):
             with open(filename, 'w', encoding='utf-8') as f:
                 f.write(html_content)
 
-            QtWidgets.QMessageBox.information(self, 'صدور موفق', f'برنامه امتحانات در فایل زیر ذخیره شد:\n{filename}')
+            QtWidgets.QMessageBox.information(
+                self,
+                self._t("export_success_title"),
+                self._t("export_success_text", path=filename)
+            )
         except Exception as e:
-            QtWidgets.QMessageBox.critical(self, 'خطا', f'خطا در ذخیره فایل:\n{str(e)}')
+            QtWidgets.QMessageBox.critical(
+                self,
+                self._t("export_error_title"),
+                self._t("export_error_text", error=str(e))
+            )
 
     def export_as_csv(self):
         """Export exam schedule as CSV"""
         filename, _ = QtWidgets.QFileDialog.getSaveFileName(
-            self, 'ذخیره برنامه امتحانات', 'exam_schedule.csv', 'CSV Files (*.csv)'
+            self, self._t("export_title"), 'exam_schedule.csv', 'CSV Files (*.csv)'
         )
         if not filename:
             return
@@ -713,7 +881,15 @@ class ExamScheduleWindow(QtWidgets.QMainWindow):
                 writer = csv.writer(csvfile)
 
                 # Write header
-                writer.writerow(['نام درس', 'کد درس', 'استاد', 'زمان کلاس', 'زمان امتحان', 'واحد', 'محل برگزاری'])
+                writer.writerow([
+                    self._t("table_columns.name"),
+                    self._t("table_columns.code"),
+                    self._t("table_columns.instructor"),
+                    self._t("table_columns.class_time"),
+                    self._t("table_columns.exam_time"),
+                    self._t("table_columns.credits"),
+                    self._t("table_columns.location")
+                ])
 
                 # Write data
                 for row in range(self.exam_table.rowCount()):
@@ -726,16 +902,24 @@ class ExamScheduleWindow(QtWidgets.QMainWindow):
                     location = self.exam_table.item(row, 6).text() if self.exam_table.item(row, 6) else ''
                     writer.writerow([name, code, instructor, class_schedule, exam_time, credits, location])
 
-            QtWidgets.QMessageBox.information(self, 'صدور موفق', f'برنامه امتحانات در فایل زیر ذخیره شد:\n{filename}')
+            QtWidgets.QMessageBox.information(
+                self,
+                self._t("export_success_title"),
+                self._t("export_success_text", path=filename)
+            )
         except Exception as e:
-            QtWidgets.QMessageBox.critical(self, 'خطا', f'خطا در ذخیره فایل:\n{str(e)}')
+            QtWidgets.QMessageBox.critical(
+                self,
+                self._t("export_error_title"),
+                self._t("export_error_text", error=str(e))
+            )
 
     def export_as_pdf(self):
         """Export exam schedule as PDF (placeholder implementation)"""
         QtWidgets.QMessageBox.information(
-            self, 'قابلیت آزمایشی',
-            'صدور به فرمت PDF در این نسخه آزمایشی پشتیبانی نمی‌شود.\n'
-            'لطفا از فرمت‌های دیگر مانند TXT یا HTML استفاده کنید.'
+            self,
+            self._t("export_pdf_placeholder_title"),
+            self._t("export_pdf_placeholder_text")
         )
 
     def export_as_html_to_file(self, path):
@@ -860,7 +1044,11 @@ class ExamScheduleWindow(QtWidgets.QMainWindow):
 
         except Exception as e:
             from PyQt5 import QtWidgets
-            QtWidgets.QMessageBox.critical(self, 'خطا', f'خطا در ساخت فایل HTML برای PDF:\n{str(e)}')
+            QtWidgets.QMessageBox.critical(
+                self,
+                self._t("export_error_title"),
+                self._t("export_error_html_build", error=str(e))
+            )
 
     def export_as_pdf_vertical(self):
         """Export exam schedule as PDF compatible with all PyQt5 versions"""
@@ -870,7 +1058,7 @@ class ExamScheduleWindow(QtWidgets.QMainWindow):
 
         # مسیر ذخیره PDF
         filename, _ = QtWidgets.QFileDialog.getSaveFileName(
-            self, 'ذخیره برنامه امتحانات', 'exam_schedule.pdf', 'PDF Files (*.pdf)'
+            self, self._t("export_title"), 'exam_schedule.pdf', 'PDF Files (*.pdf)'
         )
         if not filename:
             return
@@ -888,9 +1076,17 @@ class ExamScheduleWindow(QtWidgets.QMainWindow):
                 try:
                     with open(filename, 'wb') as f:
                         f.write(pdf_bytes)
-                    QtWidgets.QMessageBox.information(self, 'صدور موفق', f'PDF ذخیره شد:\n{filename}')
+                    QtWidgets.QMessageBox.information(
+                        self,
+                        self._t("export_success_title"),
+                        self._t("export_success_pdf", path=filename)
+                    )
                 except Exception as e:
-                    QtWidgets.QMessageBox.critical(self, 'خطا', f'خطا در ذخیره PDF:\n{e}')
+                    QtWidgets.QMessageBox.critical(
+                        self,
+                        self._t("export_error_title"),
+                        self._t("export_error_text", error=str(e))
+                    )
                 finally:
                     if os.path.exists(temp_html.name):
                         os.unlink(temp_html.name)
@@ -900,20 +1096,28 @@ class ExamScheduleWindow(QtWidgets.QMainWindow):
                 if ok:
                     view.page().printToPdf(pdf_callback)
                 else:
-                    QtWidgets.QMessageBox.critical(self, 'خطا', 'بارگذاری HTML شکست خورد')
+                    QtWidgets.QMessageBox.critical(
+                        self,
+                        self._t("export_error_title"),
+                        self._t("export_error_pdf_load")
+                    )
                     if os.path.exists(temp_html.name):
                         os.unlink(temp_html.name)
 
             view.loadFinished.connect(on_load_finished)
 
         except Exception as e:
-            QtWidgets.QMessageBox.critical(self, 'خطا', f'خطا در تولید PDF:\n{str(e)}')
+            QtWidgets.QMessageBox.critical(
+                self,
+                self._t("export_error_title"),
+                self._t("export_error_pdf", error=str(e))
+            )
 
     def export_as_pdf_horizontal(self):
         """Export the exam schedule as PDF in landscape (horizontal) layout"""
         try:
             filename, _ = QtWidgets.QFileDialog.getSaveFileName(
-                self, 'ذخیره برنامه امتحانات (افقی)', 'exam_schedule_horizontal.pdf', 'PDF Files (*.pdf)'
+                self, self._t("export_title"), 'exam_schedule_horizontal.pdf', 'PDF Files (*.pdf)'
             )
             if not filename:
                 return
@@ -932,7 +1136,11 @@ class ExamScheduleWindow(QtWidgets.QMainWindow):
 
             def on_load_finished(ok):
                 if not ok:
-                    QtWidgets.QMessageBox.critical(self, 'خطا', 'خطا در بارگذاری HTML برای چاپ PDF.')
+                    QtWidgets.QMessageBox.critical(
+                        self,
+                        self._t("export_error_title"),
+                        self._t("export_error_pdf_load")
+                    )
                     return
 
                 layout = QPageLayout(
@@ -942,7 +1150,11 @@ class ExamScheduleWindow(QtWidgets.QMainWindow):
                 )
 
                 web.page().printToPdf(filename, layout)
-                QtWidgets.QMessageBox.information(self, 'صدور موفق', f'فایل PDF افقی ذخیره شد:\n{filename}')
+                QtWidgets.QMessageBox.information(
+                    self,
+                    self._t("export_success_title"),
+                    self._t("export_success_pdf_horizontal", path=filename)
+                )
 
                 # حذف فایل HTML موقت
                 try:
@@ -953,4 +1165,8 @@ class ExamScheduleWindow(QtWidgets.QMainWindow):
             web.loadFinished.connect(on_load_finished)
 
         except Exception as e:
-            QtWidgets.QMessageBox.critical(self, 'خطا', f'خطا در صدور PDF افقی:\n{str(e)}')
+            QtWidgets.QMessageBox.critical(
+                self,
+                self._t("export_error_title"),
+                self._t("export_error_pdf_horizontal", error=str(e))
+            )

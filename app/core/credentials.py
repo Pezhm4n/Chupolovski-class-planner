@@ -37,20 +37,15 @@ def load_local_credentials() -> Optional[Dict[str, str]]:
         if not LOCAL_CREDENTIALS_FILE.exists():
             return None
             
-        # Check file permissions
         check_file_permissions(LOCAL_CREDENTIALS_FILE)
         
         with open(LOCAL_CREDENTIALS_FILE, 'r', encoding='utf-8') as f:
             data = json.load(f)
             
-        # Validate required fields
         if 'student_number' not in data or 'password' not in data:
             return None
             
-        # Handle encrypted credentials (optional feature)
         if data.get('encrypted', False):
-            # TODO: Implement decryption when passphrase is available
-            # For now, return None to force re-entry
             return None
             
         return {
@@ -81,28 +76,22 @@ def save_local_credentials(student_number: str, password: str, remember: bool = 
         return True
         
     try:
-        # Create data directory if it doesn't exist
         LOCAL_CREDENTIALS_FILE.parent.mkdir(parents=True, exist_ok=True)
         
-        # Prepare credential data
-        # Note: Encryption is optional and disabled by default as per requirements
         data = {
             'student_number': student_number,
             'password': password,
-            'encrypted': False  # Default to plaintext with file permission hardening
+            'encrypted': False
         }
         
-        # Write credentials to file
         with open(LOCAL_CREDENTIALS_FILE, 'w', encoding='utf-8') as f:
             json.dump(data, f, ensure_ascii=False, indent=2)
         
-        # Apply file permission hardening
         harden_file_permissions(LOCAL_CREDENTIALS_FILE)
         
         return True
         
     except Exception as e:
-        # Log error but don't expose sensitive information
         from .logger import setup_logging
         logger = setup_logging()
         logger.error(f"Error saving local credentials: {type(e).__name__}")
@@ -120,7 +109,6 @@ def delete_local_credentials() -> bool:
             LOCAL_CREDENTIALS_FILE.unlink()
         return True
     except Exception as e:
-        # Log error
         from .logger import setup_logging
         logger = setup_logging()
         logger.error(f"Error deleting local credentials: {type(e).__name__}")
@@ -142,20 +130,16 @@ def harden_file_permissions(file_path: Path):
                 import win32security
                 import ntsecuritycon as con
                 
-                # Get current user SID
                 user_sid = win32security.LookupAccountName('', win32api.GetUserName())[0]
                 
-                # Set DACL to allow only owner access
                 sd = win32security.SECURITY_DESCRIPTOR()
                 sd.Initialize()
                 sd.SetSecurityDescriptorOwner(user_sid, False)
                 
-                # Create ACL allowing only owner full control
                 acl = win32security.ACL()
                 acl.AddAccessAllowedAce(win32security.ACL_REVISION, con.FILE_ALL_ACCESS, user_sid)
                 sd.SetSecurityDescriptorDacl(1, acl, 0)
                 
-                # Apply security descriptor
                 win32security.SetFileSecurity(str(file_path), win32security.DACL_SECURITY_INFORMATION, sd)
             except ImportError:
                 # If win32 modules are not available, just ensure the file exists
@@ -185,11 +169,8 @@ def check_file_permissions(file_path: Path) -> bool:
     """
     try:
         if platform.system() == 'Windows':
-            # Basic check on Windows
-            # More thorough ACL checking could be implemented
             return True
         else:
-            # On Unix-like systems, check if file mode is 0o600 or stricter
             file_stat = os.stat(file_path)
             mode = file_stat.st_mode
             # Check if only owner has read/write permissions
@@ -223,7 +204,6 @@ def encrypt_credentials(student_number: str, password: str, passphrase: str) -> 
         dict: Encrypted credentials data
     """
     if not CRYPTO_AVAILABLE:
-        # Fallback to plaintext if cryptography is not available
         return {
             'student_number': student_number,
             'password': password,
@@ -231,11 +211,9 @@ def encrypt_credentials(student_number: str, password: str, passphrase: str) -> 
         }
     
     try:
-        # Derive key from passphrase
         key = _derive_key_from_passphrase(passphrase)
         cipher_suite = Fernet(key)
         
-        # Encrypt credentials
         encrypted_student_number = cipher_suite.encrypt(student_number.encode()).decode()
         encrypted_password = cipher_suite.encrypt(password.encode()).decode()
         
@@ -246,7 +224,6 @@ def encrypt_credentials(student_number: str, password: str, passphrase: str) -> 
             'passphrase_required': True
         }
     except Exception:
-        # Fallback to plaintext on encryption failure
         return {
             'student_number': student_number,
             'password': password,
@@ -268,11 +245,9 @@ def decrypt_credentials(encrypted_data: Dict[str, str], passphrase: str) -> Opti
         return encrypted_data
     
     try:
-        # Derive key from passphrase
         key = _derive_key_from_passphrase(passphrase)
         cipher_suite = Fernet(key)
         
-        # Decrypt credentials
         student_number = cipher_suite.decrypt(encrypted_data['student_number'].encode()).decode()
         password = cipher_suite.decrypt(encrypted_data['password'].encode()).decode()
         
