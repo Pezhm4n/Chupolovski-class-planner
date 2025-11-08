@@ -85,6 +85,15 @@ class ExamScheduleWindow(QtWidgets.QMainWindow):
         self._language_connected = False
         self._connect_language_signal()
         self._apply_translations()
+        
+        # Enable copy functionality for table
+        self.exam_table.setContextMenuPolicy(QtCore.Qt.CustomContextMenu)
+        self.exam_table.customContextMenuRequested.connect(self._show_table_context_menu)
+        
+        # Enable keyboard shortcuts for copy (Ctrl+C)
+        copy_shortcut = QtWidgets.QShortcut(QtGui.QKeySequence.Copy, self.exam_table)
+        copy_shortcut.activated.connect(self._copy_selected_rows)
+        
         self.update_content()
     
     def _lock_widget_positions(self):
@@ -153,6 +162,62 @@ class ExamScheduleWindow(QtWidgets.QMainWindow):
         """Connect UI signals to their respective slots"""
         # Connect export action
         self.action_export.triggered.connect(self.export_exam_schedule)
+    
+    def _show_table_context_menu(self, position):
+        """Show context menu for table with copy option"""
+        from app.core.translator import translator
+        from app.core.language_manager import language_manager
+        
+        menu = QtWidgets.QMenu(self)
+        
+        copy_action = QtWidgets.QAction(translator.t("common.copy"), self)
+        copy_action.triggered.connect(self._copy_selected_rows)
+        menu.addAction(copy_action)
+        
+        current_lang = language_manager.get_current_language()
+        if current_lang == 'fa':
+            menu.setLayoutDirection(QtCore.Qt.RightToLeft)
+        else:
+            menu.setLayoutDirection(QtCore.Qt.LeftToRight)
+        
+        menu.exec_(self.exam_table.viewport().mapToGlobal(position))
+    
+    def _copy_selected_rows(self):
+        """Copy selected items (cells, rows, or columns) to clipboard"""
+        selected_items = self.exam_table.selectedItems()
+        if not selected_items:
+            return
+        
+        # Group items by row to maintain structure
+        rows_data = {}
+        for item in selected_items:
+            row = item.row()
+            col = item.column()
+            if row not in rows_data:
+                rows_data[row] = {}
+            rows_data[row][col] = item.text()
+        
+        # Build clipboard text maintaining row/column structure
+        if not rows_data:
+            return
+        
+        # Get all columns that have selected items
+        all_cols = set()
+        for row_data in rows_data.values():
+            all_cols.update(row_data.keys())
+        all_cols = sorted(all_cols)
+        
+        # Build text with proper spacing
+        clipboard_text = []
+        for row in sorted(rows_data.keys()):
+            row_data = rows_data[row]
+            row_text = []
+            for col in all_cols:
+                row_text.append(row_data.get(col, ''))
+            clipboard_text.append('\t'.join(row_text))
+        
+        clipboard = QtWidgets.QApplication.clipboard()
+        clipboard.setText('\n'.join(clipboard_text))
 
     # ------------------------------------------------------------------
     # Translation helpers
@@ -201,6 +266,11 @@ class ExamScheduleWindow(QtWidgets.QMainWindow):
                 self._t("legend_all"),
             ])
             self.explanation_label.setText(legend_text)
+            # Set layout direction based on current language
+            if self._current_language() == 'fa':
+                self.explanation_label.setLayoutDirection(QtCore.Qt.RightToLeft)
+            else:
+                self.explanation_label.setLayoutDirection(QtCore.Qt.LeftToRight)
 
         if hasattr(self, 'action_export'):
             self.action_export.setText(self._t("export_title"))
@@ -340,6 +410,11 @@ class ExamScheduleWindow(QtWidgets.QMainWindow):
 
         # Update table with improved styling
         self.exam_table.setRowCount(len(exam_data))
+        
+        # Make table non-editable but allow selection and copying
+        self.exam_table.setEditTriggers(QtWidgets.QAbstractItemView.NoEditTriggers)
+        self.exam_table.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectItems)
+        self.exam_table.setSelectionMode(QtWidgets.QAbstractItemView.ExtendedSelection)
 
         # Set column widths for better visual balance
         header = self.exam_table.horizontalHeader()
@@ -351,14 +426,17 @@ class ExamScheduleWindow(QtWidgets.QMainWindow):
         header.setSectionResizeMode(5, QtWidgets.QHeaderView.ResizeToContents)  # Credits
         header.setSectionResizeMode(6, QtWidgets.QHeaderView.ResizeToContents)  # Location
 
-        # Style the table header
+        # Style the table header to match main schedule table
         self.exam_table.horizontalHeader().setStyleSheet(
             "QHeaderView::section {"
-            "background-color: #9C27B0;"
-            "color: black;"
-            "font-weight: normal;"
-            "padding: 8px;"
-            "border: 1px solid #dcdcdc;"
+            "background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1, "
+            "stop: 0 #1976D2, stop: 1 #1565C0);"
+            "color: white;"
+            "font-weight: bold;"
+            "font-size: 14px;"
+            "padding: 10px;"
+            "border: none;"
+            "font-family: 'IRANSans UI', 'Shabnam', 'Tahoma', sans-serif;"
             "}"
         )
 
@@ -409,21 +487,27 @@ class ExamScheduleWindow(QtWidgets.QMainWindow):
         for row in range(self.exam_table.rowCount()):
             self.exam_table.setRowHeight(row, 60)
 
-        # Apply zebra striping and hover effects through styles
+        # Apply improved styling to match main schedule table
         self.exam_table.setStyleSheet(
             "QTableWidget {"
-            "background-color: #fff;"
-            "border: none;"
+            "background-color: white;"
+            "border: 1px solid #d5dbdb;"
+            "border-radius: 8px;"
+            "gridline-color: #ecf0f1;"
+            "font-size: 12px;"
+            "font-family: 'IRANSans UI', 'Shabnam', 'Tahoma', sans-serif;"
             "}"
             "QTableWidget::item {"
-            "border: 1px solid #dcdcdc;"
-            "padding: 8px;"
+            "border: none;"
+            "padding: 10px;"
+            "border-bottom: 1px solid #ecf0f1;"
             "}"
-            "QTableWidget::item:nth-child(even) {"
-            "background-color: #fff;"
+            "QTableWidget::item:alternate {"
+            "background-color: #f8f9fa;"
             "}"
-            "QTableWidget::item:nth-child(odd) {"
-            "background-color: #f9f9f9;"
+            "QTableWidget::item:selected {"
+            "background-color: #d6eaf8;"
+            "color: #2980b9;"
             "}"
             "QTableWidget::item:hover {"
             "background-color: #e3f2fd;"

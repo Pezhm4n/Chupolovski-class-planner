@@ -149,7 +149,6 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         self.course_addition_mutex = QMutex()
         
         self.dual_operation_mutex = QMutex()
-        self.overlays = {}
         self._init_start_time = time.time()
         self.detailed_info_window = None
         
@@ -360,7 +359,7 @@ class SchedulerWindow(QtWidgets.QMainWindow):
                     self.time_slots = time_slots
                     self.hour_positions = {}
                     
-                    for hour in range(7, 19):
+                    for hour in range(8, 20):
                         for i in range(len(time_slots) - 1):
                             start_time = time_slots[i]
                             h = int(start_time.split(':')[0])
@@ -381,20 +380,21 @@ class SchedulerWindow(QtWidgets.QMainWindow):
                     viewport_rect = self.viewport().rect()
                     
                     for hour, row_idx in self.hour_positions.items():
-                        if row_idx > 0:
+                        if row_idx == 0:
+                            y_pos_0 = self.sectionViewportPosition(0)
+                            row_height_0 = self.sectionSize(0)
+                            center_y = y_pos_0 + row_height_0
+                        else:
                             prev_row_idx = row_idx - 1
                             y_pos = self.sectionViewportPosition(prev_row_idx)
                             row_height = self.sectionSize(prev_row_idx)
                             center_y = y_pos + row_height
-                        else:
-                            y_pos = 0
-                            row_height = self.sectionSize(row_idx)
-                            center_y = row_height / 2
                         
                         text_y = center_y - 9
                         
                         if text_y >= viewport_rect.top() - 15 and text_y <= viewport_rect.bottom() + 15:
-                            text_rect = QtCore.QRect(0, int(text_y), self.width(), 18)
+                            header_width = self.width()
+                            text_rect = QtCore.QRect(0, int(text_y), header_width, 18)
                             painter.drawText(text_rect, QtCore.Qt.AlignCenter, str(hour))
             
             vertical_header = self.schedule_table.verticalHeader()
@@ -429,7 +429,7 @@ class SchedulerWindow(QtWidgets.QMainWindow):
             
         except Exception as e:
             logger.error(f"Failed to initialize schedule table: {e}")
-            QtWidgets.QMessageBox.critical(self, "خطا", f"امکان ایجاد جدول زمان‌بندی وجود ندارد: {str(e)}")
+            QtWidgets.QMessageBox.critical(self, translator.t("hardcoded_texts.error_generic"), f"{translator.t('hardcoded_texts.error_table_init')}: {str(e)}")
             sys.exit(1)
     
     def load_courses_from_database(self):
@@ -600,11 +600,11 @@ class SchedulerWindow(QtWidgets.QMainWindow):
                 placeholder_item.setForeground(QtGui.QColor(128, 128, 128))
 
                 if search_active:
-                    placeholder_text = "هیچ درسی با این جستجو یافت نشد" if current_lang == 'fa' else "No courses matched your search"
+                    placeholder_text = translator.t("hardcoded_texts.no_search_results")
                 elif not major_selected:
-                    placeholder_text = "لطفاً یک رشته انتخاب کنید" if current_lang == 'fa' else "Please select a major"
+                    placeholder_text = translator.t("hardcoded_texts.select_major_placeholder")
                 else:
-                    placeholder_text = "درسی برای این رشته یافت نشد" if current_lang == 'fa' else "No courses found for this major"
+                    placeholder_text = translator.t("hardcoded_texts.no_courses_for_major")
 
                 placeholder_item.setText(placeholder_text)
                 course_list_widget.addItem(placeholder_item)
@@ -709,9 +709,8 @@ class SchedulerWindow(QtWidgets.QMainWindow):
             default_option = translator.t("combobox.select_major")
             if not isinstance(default_option, str) or default_option.startswith("combobox."):
                 from app.core.language_manager import language_manager
+                default_option = translator.t("hardcoded_texts.select_major_placeholder")
                 if language_manager.get_current_language() == 'fa':
-                    default_option = "انتخاب رشته"
-                else:
                     default_option = "Select Major"
 
             self.comboBox.addItem(default_option)
@@ -786,7 +785,7 @@ class SchedulerWindow(QtWidgets.QMainWindow):
 
         except Exception as e:
             logger.error(f"Failed to load combo: {e}")
-            QtWidgets.QMessageBox.critical(self, "خطا", f"امکان بارگذاری ترکیب وجود ندارد: {str(e)}")
+            QtWidgets.QMessageBox.critical(self, translator.t("hardcoded_texts.error_generic"), f"{translator.t('hardcoded_texts.error_combo_load')}: {str(e)}")
             sys.exit(1)
 
     def clear_schedule(self):
@@ -806,7 +805,7 @@ class SchedulerWindow(QtWidgets.QMainWindow):
 
         except Exception as e:
             logger.error(f"Failed to clear schedule: {e}")
-            QtWidgets.QMessageBox.critical(self, "خطا", f"امکان پاک کردن جدول زمان‌بندی وجود ندارد: {str(e)}")
+            QtWidgets.QMessageBox.critical(self, translator.t("hardcoded_texts.error_generic"), f"{translator.t('hardcoded_texts.error_schedule_clear')}: {str(e)}")
             sys.exit(1)
 
     def place_course(self, course):
@@ -852,7 +851,7 @@ class SchedulerWindow(QtWidgets.QMainWindow):
 
         except Exception as e:
             logger.error(f"Failed to place course: {e}")
-            QtWidgets.QMessageBox.critical(self, "خطا", f"امکان قرار دادن درس وجود ندارد: {str(e)}")
+            QtWidgets.QMessageBox.critical(self, translator.t("hardcoded_texts.error_generic"), f"{translator.t('hardcoded_texts.error_course_place')}: {str(e)}")
             sys.exit(1)
 
     def on_cell_entered(self, row, col):
@@ -908,7 +907,7 @@ class SchedulerWindow(QtWidgets.QMainWindow):
 
         except Exception as e:
             logger.error(f"Failed to handle cell enter event: {e}")
-            QtWidgets.QMessageBox.critical(self, "خطا", f"امکان مدیریت ورود به سلول وجود ندارد: {str(e)}")
+            QtWidgets.QMessageBox.critical(self, translator.t("hardcoded_texts.error_generic"), f"{translator.t('hardcoded_texts.error_cell_enter')}: {str(e)}")
 
     def on_cell_exited(self, row, col):
         """Handle cell exit event"""
@@ -918,7 +917,7 @@ class SchedulerWindow(QtWidgets.QMainWindow):
 
         except Exception as e:
             logger.error(f"Failed to handle cell exit event: {e}")
-            QtWidgets.QMessageBox.critical(self, "خطا", f"امکان مدیریت خروج از سلول وجود ندارد: {str(e)}")
+            QtWidgets.QMessageBox.critical(self, translator.t("hardcoded_texts.error_generic"), f"{translator.t('hardcoded_texts.error_cell_exit')}: {str(e)}")
             sys.exit(1)
 
     def start_pulse_animation(self, row, col):
@@ -945,7 +944,7 @@ class SchedulerWindow(QtWidgets.QMainWindow):
 
         except Exception as e:
             logger.error(f"Failed to start pulse animation: {e}")
-            QtWidgets.QMessageBox.critical(self, "خطا", f"امکان شروع انیمیشن پولس وجود ندارد: {str(e)}")
+            QtWidgets.QMessageBox.critical(self, translator.t("hardcoded_texts.error_generic"), f"{translator.t('hardcoded_texts.error_pulse_start')}: {str(e)}")
             sys.exit(1)
 
     def stop_pulse_animation(self, row, col):
@@ -967,7 +966,7 @@ class SchedulerWindow(QtWidgets.QMainWindow):
 
         except Exception as e:
             logger.error(f"Failed to stop pulse animation: {e}")
-            QtWidgets.QMessageBox.critical(self, "خطا", f"امکان متوقف کردن انیمیشن پولس وجود ندارد: {str(e)}")
+            QtWidgets.QMessageBox.critical(self, translator.t("hardcoded_texts.error_generic"), f"{translator.t('hardcoded_texts.error_pulse_stop')}: {str(e)}")
             sys.exit(1)
 
     def pulse_cell(self, item):
@@ -987,7 +986,7 @@ class SchedulerWindow(QtWidgets.QMainWindow):
 
         except Exception as e:
             logger.error(f"Failed to pulse cell: {e}")
-            QtWidgets.QMessageBox.critical(self, "خطا", f"امکان انیمیشن پولس وجود ندارد: {str(e)}")
+            QtWidgets.QMessageBox.critical(self, translator.t("hardcoded_texts.error_generic"), f"{translator.t('hardcoded_texts.error_pulse')}: {str(e)}")
             sys.exit(1)
 
     def show_detailed_info_window(self, course_key):
@@ -1003,7 +1002,7 @@ class SchedulerWindow(QtWidgets.QMainWindow):
 
         except Exception as e:
             logger.error(f"Failed to show detailed info window: {e}")
-            QtWidgets.QMessageBox.critical(self, "خطا", f"امکان نمایش پنجره اطلاعات دقیق وجود ندارد: {str(e)}")
+            QtWidgets.QMessageBox.critical(self, translator.t("hardcoded_texts.error_generic"), f"{translator.t('hardcoded_texts.error_info_window')}: {str(e)}")
             sys.exit(1)
 
     def show_exam_schedule_window(self):
@@ -1015,7 +1014,7 @@ class SchedulerWindow(QtWidgets.QMainWindow):
 
         except Exception as e:
             logger.error(f"Failed to show exam schedule window: {e}")
-            QtWidgets.QMessageBox.critical(self, "خطا", f"امکان نمایش پنجره زمان‌بندی امتحانات وجود ندارد: {str(e)}")
+            QtWidgets.QMessageBox.critical(self, translator.t("hardcoded_texts.error_generic"), f"{translator.t('hardcoded_texts.error_exam_window')}: {str(e)}")
             sys.exit(1)
 
 
@@ -1039,7 +1038,7 @@ class SchedulerWindow(QtWidgets.QMainWindow):
 
         except Exception as e:
             logger.error(f"Failed to handle resize event: {e}")
-            QtWidgets.QMessageBox.critical(self, "خطا", f"امکان مدیریت تغییر اندازه وجود ندارد: {str(e)}")
+            QtWidgets.QMessageBox.critical(self, translator.t("hardcoded_texts.error_generic"), f"{translator.t('hardcoded_texts.error_resize')}: {str(e)}")
             sys.exit(1)
 
 
@@ -1056,7 +1055,7 @@ class SchedulerWindow(QtWidgets.QMainWindow):
 
         except Exception as e:
             logger.error(f"Failed to clear search box: {e}")
-            QtWidgets.QMessageBox.critical(self, "خطا", f"امکان پاک کردن جستجو وجود ندارد: {str(e)}")
+            QtWidgets.QMessageBox.critical(self, translator.t("hardcoded_texts.error_generic"), f"{translator.t('hardcoded_texts.error_search_clear')}: {str(e)}")
             sys.exit(1)
 
 
@@ -1088,7 +1087,7 @@ class SchedulerWindow(QtWidgets.QMainWindow):
                     from app.core.config import COURSES
                     course_key = course['code']
                     course['key'] = course_key
-                    course['major'] = 'دروس اضافه‌شده توسط کاربر'  # Ensure correct category
+                    course['major'] = translator.t("hardcoded_texts.user_added_courses")  # Ensure correct category
                     COURSES[course_key] = course
                     
                     # Save user data and user-added courses
@@ -1115,7 +1114,7 @@ class SchedulerWindow(QtWidgets.QMainWindow):
 
         except Exception as e:
             logger.error(f"Failed to add course: {e}")
-            QtWidgets.QMessageBox.critical(self, "خطا", f"امکان اضافه کردن درس وجود ندارد: {str(e)}")
+            QtWidgets.QMessageBox.critical(self, translator.t("hardcoded_texts.error_generic"), f"{translator.t('hardcoded_texts.error_course_add')}: {str(e)}")
             sys.exit(1)
 
     def edit_course(self):
@@ -1149,7 +1148,7 @@ class SchedulerWindow(QtWidgets.QMainWindow):
 
         except Exception as e:
             logger.error(f"Failed to edit course: {e}")
-            QtWidgets.QMessageBox.critical(self, "خطا", f"امکان ویرایش درس وجود ندارد: {str(e)}")
+            QtWidgets.QMessageBox.critical(self, translator.t("hardcoded_texts.error_generic"), f"{translator.t('hardcoded_texts.error_course_edit')}: {str(e)}")
             sys.exit(1)
 
     def remove_course(self):
@@ -1172,7 +1171,7 @@ class SchedulerWindow(QtWidgets.QMainWindow):
 
         except Exception as e:
             logger.error(f"Failed to remove course: {e}")
-            QtWidgets.QMessageBox.critical(self, "خطا", f"امکان حذف درس وجود ندارد: {str(e)}")
+            QtWidgets.QMessageBox.critical(self, translator.t("hardcoded_texts.error_generic"), f"{translator.t('hardcoded_texts.error_course_delete')}: {str(e)}")
             sys.exit(1)
 
     def generate_combinations(self):
@@ -1189,7 +1188,7 @@ class SchedulerWindow(QtWidgets.QMainWindow):
 
         except Exception as e:
             logger.error(f"Failed to generate combinations: {e}")
-            QtWidgets.QMessageBox.critical(self, "خطا", f"امکان ایجاد تمام ترکیبات وجود ندارد: {str(e)}")
+            QtWidgets.QMessageBox.critical(self, translator.t("hardcoded_texts.error_generic"), f"{translator.t('hardcoded_texts.error_combinations')}: {str(e)}")
             sys.exit(1)
 
     def generate_greedy_schedule(self):
@@ -1204,7 +1203,7 @@ class SchedulerWindow(QtWidgets.QMainWindow):
 
         except Exception as e:
             logger.error(f"Failed to generate greedy schedule: {e}")
-            QtWidgets.QMessageBox.critical(self, "خطا", f"امکان ایجاد برنامه زمانی متعادل وجود ندارد: {str(e)}")
+            QtWidgets.QMessageBox.critical(self, translator.t("hardcoded_texts.error_generic"), f"{translator.t('hardcoded_texts.error_greedy_schedule')}: {str(e)}")
             sys.exit(1)
 
     def generate_alternative_schedule(self):
@@ -1221,7 +1220,7 @@ class SchedulerWindow(QtWidgets.QMainWindow):
 
         except Exception as e:
             logger.error(f"Failed to generate alternative schedule: {e}")
-            QtWidgets.QMessageBox.critical(self, "خطا", f"امکان ایجاد برنامه زمانی جایگزین وجود ندارد: {str(e)}")
+            QtWidgets.QMessageBox.critical(self, translator.t("hardcoded_texts.error_generic"), f"{translator.t('hardcoded_texts.error_alternative_schedule')}: {str(e)}")
             sys.exit(1)
 
     def show_detailed_info(self):
@@ -1238,7 +1237,7 @@ class SchedulerWindow(QtWidgets.QMainWindow):
 
         except Exception as e:
             logger.error(f"Failed to show detailed info: {e}")
-            QtWidgets.QMessageBox.critical(self, "خطا", f"امکان نمایش اطلاعات دقیق وجود ندارد: {str(e)}")
+            QtWidgets.QMessageBox.critical(self, translator.t("hardcoded_texts.error_generic"), f"{translator.t('hardcoded_texts.error_info_display')}: {str(e)}")
             sys.exit(1)
 
     def show_exam_schedule(self):
@@ -1249,7 +1248,7 @@ class SchedulerWindow(QtWidgets.QMainWindow):
 
         except Exception as e:
             logger.error(f"Failed to show exam schedule: {e}")
-            QtWidgets.QMessageBox.critical(self, "خطا", f"امکان نمایش برنامه زمانی امتحانات وجود ندارد: {str(e)}")
+            QtWidgets.QMessageBox.critical(self, translator.t("hardcoded_texts.error_generic"), f"{translator.t('hardcoded_texts.error_exam_display')}: {str(e)}")
             sys.exit(1)
 
     def show_student_profile(self):
@@ -1263,8 +1262,8 @@ class SchedulerWindow(QtWidgets.QMainWindow):
             logger.error(f"Error showing student profile: {e}")
             QtWidgets.QMessageBox.critical(
                 self,
-                "خطا",
-                f"خطا در نمایش پروفایل دانشجو: {str(e)}"
+                translator.t("hardcoded_texts.error_generic"),
+                f"{translator.t('hardcoded_texts.error_profile_display')}: {str(e)}"
             )
 
     def create_menu_bar(self):
@@ -1554,7 +1553,19 @@ class SchedulerWindow(QtWidgets.QMainWindow):
                 return
 
             # Check if there are courses in the schedule
-            has_courses = hasattr(self, 'placed') and self.placed
+            # Also check the table directly to ensure we catch all cases
+            has_courses = False
+            if hasattr(self, 'placed') and self.placed:
+                has_courses = True
+            elif hasattr(self, 'schedule_table'):
+                # Check if table has any widgets (courses)
+                for row in range(self.schedule_table.rowCount()):
+                    for col in range(self.schedule_table.columnCount()):
+                        if self.schedule_table.cellWidget(row, col):
+                            has_courses = True
+                            break
+                    if has_courses:
+                        break
             
             if has_courses:
                 # Ask for confirmation before changing language
@@ -1575,6 +1586,14 @@ class SchedulerWindow(QtWidgets.QMainWindow):
                 reply = msg_box.exec_()
                 
                 if reply != QtWidgets.QMessageBox.Yes:
+                    # Restore radio button state to previous language
+                    if hasattr(self, 'persian_action') and hasattr(self, 'english_action'):
+                        if current_lang == 'fa':
+                            self.persian_action.setChecked(True)
+                            self.english_action.setChecked(False)
+                        else:
+                            self.persian_action.setChecked(False)
+                            self.english_action.setChecked(True)
                     return
             
             # Save current courses before language change
@@ -1754,7 +1773,7 @@ class SchedulerWindow(QtWidgets.QMainWindow):
 
         except Exception as e:
             logger.error(f"Failed to save user data: {e}")
-            QtWidgets.QMessageBox.critical(self, "خطا", f"امکان ذخیره داده‌های کاربر وجود ندارد: {str(e)}")
+            QtWidgets.QMessageBox.critical(self, translator.t("hardcoded_texts.error_generic"), f"{translator.t('hardcoded_texts.error_user_data_save')}: {str(e)}")
             sys.exit(1)
 
     def load_user_data(self):
@@ -1787,7 +1806,7 @@ class SchedulerWindow(QtWidgets.QMainWindow):
 
         except Exception as e:
             logger.error(f"Failed to load user data: {e}")
-            QtWidgets.QMessageBox.critical(self, "خطا", f"امکان بارگذاری داده‌های کاربر وجود ندارد: {str(e)}")
+            QtWidgets.QMessageBox.critical(self, translator.t("hardcoded_texts.error_generic"), f"{translator.t('hardcoded_texts.error_user_data_load')}: {str(e)}")
             sys.exit(1)
 
     def debug_stats_widget(self):
@@ -1826,7 +1845,7 @@ class SchedulerWindow(QtWidgets.QMainWindow):
 
         except Exception as e:
             logger.error(f"Failed to debug stats widget: {e}")
-            QtWidgets.QMessageBox.critical(self, "خطا", f"امکان اجرای تست بر روی ویجت آمار وجود ندارد: {str(e)}")
+            QtWidgets.QMessageBox.critical(self, translator.t("hardcoded_texts.error_generic"), f"{translator.t('hardcoded_texts.error_stats_test')}: {str(e)}")
             sys.exit(1)
 
     def get_course_priority(self, course_key):
@@ -2332,7 +2351,8 @@ class SchedulerWindow(QtWidgets.QMainWindow):
                 self.course_addition_queue.append((key, True))  # True for ask_on_conflict
                 if self.course_addition_timer.isActive():
                     self.course_addition_timer.stop()
-                self.course_addition_timer.start(50)  # 50ms debounce
+                # Use reasonable debounce - processing will handle synchronization
+                self.course_addition_timer.start(100)  # 100ms debounce for responsive UI
                 
                 # Update course info panel
                 if hasattr(self, 'course_info_label'):
@@ -2351,14 +2371,14 @@ class SchedulerWindow(QtWidgets.QMainWindow):
             else:
                 logger.warning(f"Course item clicked but no key found in UserRole data")
                 QtWidgets.QMessageBox.warning(
-                    self, 'خطا', 
-                    'خطا در تشخیص درس انتخابی. لطفا دوباره تلاش کنید.'
+                    self, translator.t("hardcoded_texts.error_generic"), 
+                    translator.t("hardcoded_texts.error_course_select")
                 )
         except Exception as e:
             logger.error(f"Error in on_course_clicked: {e}")
             QtWidgets.QMessageBox.critical(
-                self, 'خطای سیستمی', 
-                f'خطای غیرمنتظره در هنگام انتخاب درس:\n{str(e)}'
+                self, translator.t("hardcoded_texts.system_error"), 
+                f"{translator.t('hardcoded_texts.error_course_select_unexpected')}:\n{str(e)}"
             )
     
     def create_combination_card(self, index, combo):
@@ -2382,7 +2402,7 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         title_layout = QtWidgets.QVBoxLayout(title_section)
         title_layout.setContentsMargins(0, 0, 0, 0)
         
-        title_label = QtWidgets.QLabel(f'ترکیب {index + 1}')
+        title_label = QtWidgets.QLabel(f"{translator.t('hardcoded_texts.combination')} {index + 1}")
         title_label.setStyleSheet("font-size: 18px; font-weight: bold; color: #2c3e50;")
         
         # Stats badges
@@ -2466,7 +2486,7 @@ class SchedulerWindow(QtWidgets.QMainWindow):
                 course = COURSES[course_key]
                 total_credits += course.get('credits', 0)
                 item = QtWidgets.QListWidgetItem(
-                    f"{course['name']} — {course['code']} — {course.get('instructor', 'نامشخص')}"
+                    f"{course['name']} — {course['code']} — {course.get('instructor', translator.t('hardcoded_texts.unknown'))}"
                 )
                 course_list.addItem(item)
         
@@ -2805,7 +2825,7 @@ class SchedulerWindow(QtWidgets.QMainWindow):
                     continue
 
                 if existing_start == start_row and existing_end == start_row + span:
-                    from .simple_dual_widget import check_odd_even_compatibility
+                    from .dual_course_utils import check_odd_even_compatibility
                     if check_odd_even_compatibility(new_session, existing_sess):
                         self._highlight_existing_widget_for_preview(base_widget, mode='compatible', new_session=new_session)
                     else:
@@ -2900,29 +2920,38 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         self.course_addition_queue.append((course_key, ask_on_conflict))
         if self.course_addition_timer.isActive():
             self.course_addition_timer.stop()
-        self.course_addition_timer.start(150)  # 150ms debounce (increased for better stability with dual courses)
+        self.course_addition_timer.start(50)  # 50ms debounce for responsive UI
 
     def _process_course_addition_queue(self):
         """
         Process queued course additions with proper synchronization.
         This version processes courses one by one to properly handle dual course creation.
+        Removes duplicate entries to improve performance and prevent conflicts.
         """
         logger.info("overlay_processing_start: Starting to process course addition queue")
         locker = QMutexLocker(self.course_addition_mutex)
         try:
+            # Remove duplicate entries - keep only the last occurrence of each course
+            # This prevents processing the same course multiple times
+            seen_courses = {}
+            unique_queue = []
+            for item in self.course_addition_queue:
+                course_key, ask_on_conflict = item
+                # Keep the last occurrence (latest ask_on_conflict value)
+                seen_courses[course_key] = item
+            unique_queue = list(seen_courses.values())
+            self.course_addition_queue.clear()
+            
             # Process courses one by one to handle dual course creation correctly
-            while self.course_addition_queue:
-                course_key, ask_on_conflict = self.course_addition_queue.popleft()
+            for course_key, ask_on_conflict in unique_queue:
                 logger.info(f"overlay_processing_item: Processing course {course_key}")
+                
                 # Process course addition with dual operation locking
                 dual_locker = QMutexLocker(self.dual_operation_mutex)
                 try:
                     self._add_course_internal(course_key, ask_on_conflict)
                 finally:
                     del dual_locker
-                
-                # Process events to ensure UI updates
-                QtWidgets.QApplication.processEvents()
             
             self.update_user_data()
             logger.info("overlay_processing_complete: Course addition queue processing complete")
@@ -2955,7 +2984,8 @@ class SchedulerWindow(QtWidgets.QMainWindow):
             return
         
         # Import the SIMPLE dual course widget creator and parity compatibility checker
-        from .simple_dual_widget import create_simple_dual_widget as create_dual_course_widget, check_odd_even_compatibility
+        from .simple_dual_widget import create_simple_dual_widget as create_dual_course_widget
+        from .dual_course_utils import check_odd_even_compatibility
         
         # Get translated day names
         from app.core.config import get_days
@@ -2984,10 +3014,142 @@ class SchedulerWindow(QtWidgets.QMainWindow):
             placements.append((srow, col, span, sess))
 
         # Check for conflicts with proper weekly_type (parity) handling
+        # FIRST: Check the actual table cells directly to catch widgets that aren't in self.placed yet
         conflicts = []
         compatible_slots = {}  # Track odd/even compatible slots
         
+        # Check actual table cells first (for race conditions when user clicks fast)
         for (srow, col, span, sess) in placements:
+            # Check if there's already a widget in this cell
+            existing_widget = self.schedule_table.cellWidget(srow, col)
+            
+            if existing_widget:
+                # Try to extract course information from the widget
+                existing_course_key = None
+                existing_course = {}
+                existing_sess = None
+                
+                # Check if it's a dual widget
+                from .simple_dual_widget import SimpleDualCourseWidget
+                if isinstance(existing_widget, SimpleDualCourseWidget):
+                    # It's already a dual widget - check if this course is already in it
+                    odd_data = existing_widget.odd_data
+                    even_data = existing_widget.even_data
+                    
+                    # If this course is already in the dual widget, skip this placement (already added)
+                    if odd_data.get('course_key') == course_key or even_data.get('course_key') == course_key:
+                        # This course is already in the dual widget - skip conflict check for this slot
+                        continue
+                    
+                    # Check parity compatibility with new session
+                    sess_parity = sess.get('parity', '') or ''
+                    odd_parity = odd_data.get('session', {}).get('parity', '') or ''
+                    even_parity = even_data.get('session', {}).get('parity', '') or ''
+                    
+                    # Dual widget is already full (has both odd and even), so this is a conflict
+                    # Get both course names from dual widget
+                    odd_course_name = odd_data.get('course', {}).get('name', '')
+                    even_course_name = even_data.get('course', {}).get('name', '')
+                    # Use the first non-empty name, or combine both if available
+                    if odd_course_name and even_course_name:
+                        conflict_name = f"{odd_course_name} / {even_course_name}"
+                    elif odd_course_name:
+                        conflict_name = odd_course_name
+                    elif even_course_name:
+                        conflict_name = even_course_name
+                    else:
+                        conflict_name = translator.t('messages.unknown')
+                    
+                    conflicts.append(((srow, col), (srow, col), 'dual_widget', conflict_name))
+                    continue
+                else:
+                    # It's a single course widget - try to get course key from widget
+                    # Check if widget has course_key attribute
+                    if hasattr(existing_widget, 'course_key'):
+                        existing_course_key = existing_widget.course_key
+                        
+                        # IMPORTANT: If it's the same course, skip conflict check (already added)
+                        if existing_course_key == course_key:
+                            # This is the same course - it's already added, skip this placement
+                            continue
+                        
+                        existing_course = COURSES.get(existing_course_key, {})
+                        
+                        # Find matching session
+                        for existing_sess_check in existing_course.get('schedule', []):
+                            if existing_sess_check['day'] == sess['day']:
+                                try:
+                                    existing_start = EXTENDED_TIME_SLOTS.index(existing_sess_check['start'])
+                                    existing_end = EXTENDED_TIME_SLOTS.index(existing_sess_check['end'])
+                                    if existing_start == srow and existing_end == srow + span:
+                                        existing_sess = existing_sess_check
+                                        break
+                                except (ValueError, KeyError):
+                                    pass
+                        
+                        if existing_course:
+                            # Make sure we have a valid course name
+                            existing_course_name = existing_course.get('name', '').strip()
+                            if not existing_course_name:
+                                # Try to get name from widget if available
+                                if hasattr(existing_widget, 'course_info'):
+                                    existing_course_name = existing_widget.course_info.get('name', '')
+                                if not existing_course_name:
+                                    existing_course_name = translator.t('messages.unknown')
+                            
+                            if existing_sess:
+                                # Check parity compatibility
+                                sess_parity = sess.get('parity', '') or ''
+                                existing_parity = existing_sess.get('parity', '') or ''
+                                
+                                is_compatible = (
+                                    (sess_parity == 'ز' and existing_parity == 'ف') or
+                                    (sess_parity == 'ف' and existing_parity == 'ز')
+                                )
+                                
+                                if is_compatible:
+                                    # Store for dual creation - but we'll handle it directly from widget
+                                    # Get info from self.placed if available, otherwise create it
+                                    existing_info = self.placed.get((srow, col), {
+                                        'course': existing_course_key,
+                                        'rows': span,
+                                        'type': 'single',
+                                        'color': getattr(existing_widget, 'bg_color', COLOR_MAP[0])
+                                    })
+                                    
+                                    compatible_slots[(srow, col)] = {
+                                        'existing': existing_info,
+                                        'existing_session': existing_sess,
+                                        'new_session': sess,
+                                        'span': span,
+                                        'existing_course_key': existing_course_key,
+                                        'existing_widget': existing_widget
+                                    }
+                                    logger.info(f"Found compatible slot from table widget: course {course_key} (parity: {sess_parity}) with course {existing_course_key} (parity: {existing_parity}) at ({srow}, {col})")
+                                    continue
+                                else:
+                                    # Not compatible - it's a conflict
+                                    conflicts.append(((srow, col), (srow, col), existing_course_key, existing_course_name))
+                                    continue
+                            else:
+                                # No matching session found but widget exists - it's still a conflict
+                                conflicts.append(((srow, col), (srow, col), existing_course_key, existing_course_name))
+                                continue
+                        elif existing_course_key:
+                            # Course key exists but course not found in COURSES - might be a custom course
+                            # Try to get name from widget
+                            existing_course_name = translator.t('messages.unknown')
+                            if hasattr(existing_widget, 'course_info'):
+                                existing_course_name = existing_widget.course_info.get('name', existing_course_name)
+                            conflicts.append(((srow, col), (srow, col), existing_course_key, existing_course_name))
+                            continue
+        
+        # SECOND: Check self.placed for courses that are already registered
+        for (srow, col, span, sess) in placements:
+            # Skip if we already found this slot in the table check above
+            if (srow, col) in compatible_slots:
+                continue
+                
             for (prow, pcol), info in list(self.placed.items()):
                 if pcol != col:
                     continue
@@ -3030,9 +3192,9 @@ class SchedulerWindow(QtWidgets.QMainWindow):
                         existing_course = COURSES.get(existing_course_key, {})
                     
                     if not existing_course:
-                        # If we can't find the course, treat as conflict to be safe
-                        conflicts.append(((srow, col), (prow_start, pcol), existing_course_key or 'unknown', 
-                                        translator.t('messages.unknown')))
+                        # If we can't find the course, skip this conflict check
+                        # It might be a custom course or a course that was removed
+                        logger.warning(f"Course {existing_course_key} not found in COURSES dictionary, skipping conflict check")
                         continue
                     
                     # Find the conflicting session
@@ -3047,9 +3209,8 @@ class SchedulerWindow(QtWidgets.QMainWindow):
                             existing_end = EXTENDED_TIME_SLOTS.index(existing_sess['end'])
                         except (ValueError, KeyError) as e:
                             logger.warning(f"Error getting time slot indices: {e}")
-                            # If we can't get time indices, treat as conflict
-                            conflicts.append(((srow, col), (prow_start, pcol), existing_course_key, 
-                                            existing_course.get('name', translator.t('messages.unknown'))))
+                            # If we can't get time indices, skip this conflict check
+                            # It might be a data inconsistency issue
                             found_matching_session = True
                             break
                         
@@ -3082,23 +3243,40 @@ class SchedulerWindow(QtWidgets.QMainWindow):
                             # If compatible, store for dual placement
                             if is_compatible:
                                 # Only store if slot is not already in compatible_slots
+                                # Also check if the existing course is the same as the new course
+                                # to avoid creating dual with itself
                                 if (srow, col) not in compatible_slots:
-                                    compatible_slots[(srow, col)] = {
-                                        'existing': info,
-                                        'existing_session': existing_sess,
-                                        'new_session': sess,
-                                        'span': span
-                                    }
+                                    # Make sure we're not trying to create dual with the same course
+                                    if existing_course_key != course_key:
+                                        compatible_slots[(srow, col)] = {
+                                            'existing': info,
+                                            'existing_session': existing_sess,
+                                            'new_session': sess,
+                                            'span': span,
+                                            'existing_course_key': existing_course_key
+                                        }
+                                        logger.info(f"Found compatible slot for dual widget: course {course_key} (parity: {sess_parity}) with course {existing_course_key} (parity: {existing_parity}) at ({srow}, {col})")
                             else:
                                 # If not compatible, it's a real conflict
-                                conflicts.append(((srow, col), (prow_start, pcol), existing_course_key, 
-                                                existing_course.get('name', translator.t('messages.unknown'))))
+                                existing_course_name = existing_course.get('name', '').strip()
+                                if not existing_course_name:
+                                    existing_course_name = translator.t('messages.unknown')
+                                conflicts.append(((srow, col), (prow_start, pcol), existing_course_key, existing_course_name))
                             break
                     
-                    # If no matching session found but times overlap, it's still a conflict
+                    # If no matching session found but times overlap, check if it's really a conflict
+                    # Only add conflict if we actually found a time overlap but no matching session
                     if not found_matching_session:
-                        conflicts.append(((srow, col), (prow_start, pcol), existing_course_key, 
-                                        existing_course.get('name', translator.t('messages.unknown'))))
+                        # Make sure we have a valid course name
+                        existing_course_name = existing_course.get('name', '').strip()
+                        if not existing_course_name:
+                            existing_course_name = translator.t('messages.unknown')
+                        # Only add conflict if course name is valid (not unknown)
+                        if existing_course_name and existing_course_name != translator.t('messages.unknown'):
+                            conflicts.append(((srow, col), (prow_start, pcol), existing_course_key, existing_course_name))
+                        else:
+                            # Skip this conflict if we can't identify the course
+                            logger.warning(f"Skipping conflict with unknown course at ({srow}, {col}): {existing_course_key}")
         
         # Add conflict indicator to course info if there are conflicts
         has_conflicts = len(conflicts) > 0
@@ -3109,19 +3287,52 @@ class SchedulerWindow(QtWidgets.QMainWindow):
             current_priority = self.get_course_priority(course_key)
             
             # Check if any conflicting courses have higher priority
+            # Use a set to avoid duplicate course names
             higher_priority_conflicts = []
-            conflict_details = []
+            conflict_names_set = set()  # Use set to avoid duplicates
+            conflict_course_keys_set = set()  # Track course keys to avoid duplicates
+            conflict_details_list = []  # List to maintain order
+            
             for conf in conflicts:
                 (_, _), (_, _), conflict_course_key, conflict_name = conf
+                
+                # Skip if we've already processed this course key (avoid duplicates)
+                if conflict_course_key in conflict_course_keys_set:
+                    continue
+                
+                # Skip if conflict_name is empty or "unknown" and we can't identify the course
+                if not conflict_name or conflict_name == translator.t('messages.unknown'):
+                    # Try to get course name from COURSES
+                    conflict_course = COURSES.get(conflict_course_key, {})
+                    if conflict_course:
+                        conflict_name = conflict_course.get('name', translator.t('messages.unknown'))
+                    # If still unknown, skip this conflict
+                    if not conflict_name or conflict_name == translator.t('messages.unknown'):
+                        logger.warning(f"Skipping conflict with unknown course: {conflict_course_key}")
+                        continue
+                
+                conflict_course_keys_set.add(conflict_course_key)
                 conflict_priority = self.get_course_priority(conflict_course_key)
                 
                 # If conflicting course has higher priority (lower number), it should stay
                 if conflict_priority < current_priority:
                     higher_priority_conflicts.append((conflict_course_key, conflict_name, conflict_priority))
-                conflict_details.append(conflict_name)
+                
+                # Only add to list if not already added (avoid duplicate names)
+                if conflict_name not in conflict_names_set:
+                    conflict_names_set.add(conflict_name)
+                    conflict_details_list.append(conflict_name)
+            
+            conflict_details = conflict_details_list
+            
+            # If all conflicts were skipped (all were unknown), allow course addition
+            if not conflict_details and len(conflicts) > 0:
+                logger.info(f"All conflicts were skipped (unknown courses), allowing course {course_key} to be added")
+                # Continue to add the course - no conflicts to show
+                has_conflicts = False
             
             # If there are higher priority conflicts, show warning and don't add course
-            if higher_priority_conflicts:
+            if higher_priority_conflicts and conflict_details:
                 conflict_list = '\n'.join([f"• {name}" for name in conflict_details])
                 warning_msg = QtWidgets.QMessageBox()
                 warning_msg.setIcon(QtWidgets.QMessageBox.Warning)
@@ -3144,61 +3355,57 @@ class SchedulerWindow(QtWidgets.QMainWindow):
                 return
             
             # If no higher priority conflicts, proceed with normal conflict resolution
-            conflict_list = '\n'.join([f"• {name}" for name in conflict_details])
-            
-            msg = QtWidgets.QMessageBox()
-            msg.setIcon(QtWidgets.QMessageBox.Warning)
-            msg.setWindowTitle(translator.t("messages.conflict_title"))
-            msg.setText(translator.t("messages.conflict_message", course_name=course["name"]))
-            msg.setDetailedText(f'{translator.t("messages.conflict_details")}\n{conflict_list}')
-            msg.setInformativeText(translator.t("messages.conflict_question"))
-            msg.setStandardButtons(QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No | QtWidgets.QMessageBox.Cancel)
-            msg.setDefaultButton(QtWidgets.QMessageBox.No)
-            
-            # Translate button texts
-            msg.button(QtWidgets.QMessageBox.Yes).setText(translator.t("messages.button_yes"))
-            msg.button(QtWidgets.QMessageBox.No).setText(translator.t("messages.button_no"))
-            msg.button(QtWidgets.QMessageBox.Cancel).setText(translator.t("messages.button_cancel"))
-            
-            # Set layout direction
-            from app.core.language_manager import language_manager
-            current_lang = language_manager.get_current_language()
-            if current_lang == 'fa':
-                msg.setLayoutDirection(QtCore.Qt.RightToLeft)
+            # Only show dialog if we have valid conflict details
+            if not conflict_details:
+                # No valid conflicts - allow course addition without showing dialog
+                logger.info(f"No valid conflicts found (all were skipped), allowing course {course_key} to be added")
+                has_conflicts = False
             else:
-                msg.setLayoutDirection(QtCore.Qt.LeftToRight)
-            
-            res = msg.exec_()
-            if res == QtWidgets.QMessageBox.Cancel:
-                return
-            elif res != QtWidgets.QMessageBox.Yes:
-                # Show warning instead of adding conflicting course
-                warning_msg = QtWidgets.QMessageBox()
-                warning_msg.setIcon(QtWidgets.QMessageBox.Warning)
-                warning_msg.setWindowTitle(translator.t("messages.conflict_priority_title"))
-                warning_msg.setText(translator.t("messages.conflict_not_added", course_name=course["name"]))
-                warning_msg.setDetailedText(conflict_list)
+                # Show conflict resolution dialog only if we have valid conflicts
+                conflict_list = '\n'.join([f"• {name}" for name in conflict_details])
+                
+                msg = QtWidgets.QMessageBox()
+                msg.setIcon(QtWidgets.QMessageBox.Warning)
+                msg.setWindowTitle(translator.t("messages.conflict_title"))
+                msg.setText(translator.t("messages.conflict_message", course_name=course["name"]))
+                msg.setDetailedText(f'{translator.t("messages.conflict_details")}\n{conflict_list}')
+                msg.setInformativeText(translator.t("messages.conflict_question"))
+                msg.setStandardButtons(QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No | QtWidgets.QMessageBox.Cancel)
+                msg.setDefaultButton(QtWidgets.QMessageBox.No)
+                
+                # Translate button texts
+                msg.button(QtWidgets.QMessageBox.Yes).setText(translator.t("messages.button_yes"))
+                msg.button(QtWidgets.QMessageBox.No).setText(translator.t("messages.button_no"))
+                msg.button(QtWidgets.QMessageBox.Cancel).setText(translator.t("messages.button_cancel"))
                 
                 # Set layout direction
                 from app.core.language_manager import language_manager
                 current_lang = language_manager.get_current_language()
                 if current_lang == 'fa':
-                    warning_msg.setLayoutDirection(QtCore.Qt.RightToLeft)
+                    msg.setLayoutDirection(QtCore.Qt.RightToLeft)
                 else:
-                    warning_msg.setLayoutDirection(QtCore.Qt.LeftToRight)
+                    msg.setLayoutDirection(QtCore.Qt.LeftToRight)
                 
-                warning_msg.exec_()
-                return
-            
-            # Remove conflicting courses if user confirmed
-            conflicting_courses = set()
-            for conf in conflicts:
-                (_, _), (rstart, rcol), rcourse, _ = conf
-                conflicting_courses.add(rcourse)
-            
-            # Remove entire conflicting courses
-            for conflicting_course_key in conflicting_courses:
-                self.remove_course_from_schedule(conflicting_course_key)
+                res = msg.exec_()
+                if res == QtWidgets.QMessageBox.Cancel:
+                    return
+                elif res == QtWidgets.QMessageBox.No:
+                    # User chose not to add the course - don't show another message, just return
+                    return
+                # If Yes, continue to add the course (removing conflicting courses)
+                
+                # Remove conflicting courses if user confirmed
+                # Only remove valid course keys (not 'dual_widget' or 'unknown')
+                conflicting_courses = set()
+                for conf in conflicts:
+                    (_, _), (rstart, rcol), rcourse, _ = conf
+                    # Only add valid course keys
+                    if rcourse and rcourse != 'dual_widget' and rcourse != 'unknown':
+                        conflicting_courses.add(rcourse)
+                
+                # Remove entire conflicting courses
+                for conflicting_course_key in conflicting_courses:
+                    self.remove_course_from_schedule(conflicting_course_key)
         elif conflicts and not ask_on_conflict:
             # If we're not asking about conflicts (e.g., applying presets), still mark as conflicting
             has_conflicts = True
@@ -3260,9 +3467,38 @@ class SchedulerWindow(QtWidgets.QMainWindow):
                     }
                 
                 # Check if we already have a dual widget for this slot
+                # ALWAYS check the table directly first (for race conditions when user clicks fast)
                 existing_dual_widget = None
-                if (srow, col) in self.placed and self.placed[(srow, col)].get('type') == 'dual':
-                    existing_dual_widget = self.placed[(srow, col)].get('widget')
+                existing_single_info = None
+                
+                # First, check the actual table widget (most reliable for race conditions)
+                existing_widget_from_table = self.schedule_table.cellWidget(srow, col)
+                if existing_widget_from_table:
+                    from .simple_dual_widget import SimpleDualCourseWidget
+                    if isinstance(existing_widget_from_table, SimpleDualCourseWidget):
+                        existing_dual_widget = existing_widget_from_table
+                        logger.info(f"Found existing dual widget in table at ({srow}, {col})")
+                    else:
+                        # It's a single widget - we already have info from compatible_slots
+                        existing_single_info = existing_info
+                        logger.info(f"Found existing single widget in table at ({srow}, {col}) that needs to be converted to dual")
+                # Fallback to self.placed if table check didn't find widget
+                elif (srow, col) in self.placed:
+                    if self.placed[(srow, col)].get('type') == 'dual':
+                        existing_dual_widget = self.placed[(srow, col)].get('widget')
+                    elif self.placed[(srow, col)].get('type') != 'dual':
+                        # There's a single course widget that needs to be converted
+                        existing_single_info = self.placed[(srow, col)]
+                        logger.info(f"Found existing single course in placed dict at ({srow}, {col}) that needs to be converted to dual")
+                # If we have widget from compatible_slots check, use that
+                elif compat_info.get('existing_widget'):
+                    existing_widget_from_slot = compat_info.get('existing_widget')
+                    from .simple_dual_widget import SimpleDualCourseWidget
+                    if isinstance(existing_widget_from_slot, SimpleDualCourseWidget):
+                        existing_dual_widget = existing_widget_from_slot
+                    else:
+                        existing_single_info = existing_info
+                        logger.info(f"Found existing single widget from slot info at ({srow}, {col}) that needs to be converted to dual")
                 
                 if existing_dual_widget:
                     # Update existing dual widget instead of creating a new one
@@ -3289,10 +3525,6 @@ class SchedulerWindow(QtWidgets.QMainWindow):
                         traceback.print_exc()
                         continue
                     
-                    if slot_key not in self.overlays:
-                        self.overlays[slot_key] = {}
-                    self.overlays[slot_key]['dual'] = dual_widget
-                    
                     self.placed[(srow, col)] = {
                         'courses': [odd_data['course_key'], even_data['course_key']],
                         'rows': span,
@@ -3300,9 +3532,16 @@ class SchedulerWindow(QtWidgets.QMainWindow):
                         'type': 'dual'
                     }
                 else:
-                    logger.info(f"overlay_creating_dual: Creating new dual widget for slot {slot_key}")
+                    # Create new dual widget (either from scratch or converting from single)
+                    if existing_single_info:
+                        logger.info(f"overlay_converting_to_dual: Converting single widget to dual for slot {slot_key}")
+                    else:
+                        logger.info(f"overlay_creating_dual: Creating new dual widget for slot {slot_key}")
+                    
+                    # Remove existing widget (single or dual)
                     self.schedule_table.removeCellWidget(srow, col)
                     
+                    # Remove from placed dictionary
                     existing_start_tuple = None
                     for start_tuple, info in list(self.placed.items()):
                         if start_tuple == (srow, col):
@@ -3312,6 +3551,52 @@ class SchedulerWindow(QtWidgets.QMainWindow):
                     if existing_start_tuple:
                         del self.placed[existing_start_tuple]
                     
+                    # Ensure we have the correct course data for the existing course
+                    # If we're converting from single, we need to get the session data
+                    if existing_single_info and existing_single_info.get('course'):
+                        existing_course_key_from_info = existing_single_info.get('course')
+                        existing_course_from_info = COURSES.get(existing_course_key_from_info, {})
+                        
+                        # Find the matching session for the existing course
+                        for existing_sess_check in existing_course_from_info.get('schedule', []):
+                            if existing_sess_check['day'] == existing_sess['day']:
+                                try:
+                                    existing_start_check = EXTENDED_TIME_SLOTS.index(existing_sess_check['start'])
+                                    existing_end_check = EXTENDED_TIME_SLOTS.index(existing_sess_check['end'])
+                                    if existing_start_check == srow and existing_end_check == srow + span:
+                                        existing_sess = existing_sess_check
+                                        break
+                                except (ValueError, KeyError):
+                                    pass
+                        
+                        # Update odd_data and even_data with correct existing course info
+                        if existing_sess.get('parity') == 'ف':  # Existing is odd
+                            odd_data = {
+                                'course': existing_course_from_info,
+                                'course_key': existing_course_key_from_info,
+                                'session': existing_sess,
+                                'color': existing_single_info.get('color', COLOR_MAP[0])
+                            }
+                            even_data = {
+                                'course': course,
+                                'course_key': course_key,
+                                'session': new_sess,
+                                'color': bg
+                            }
+                        else:  # Existing is even or fixed
+                            odd_data = {
+                                'course': course,
+                                'course_key': course_key,
+                                'session': new_sess,
+                                'color': bg
+                            }
+                            even_data = {
+                                'course': existing_course_from_info,
+                                'course_key': existing_course_key_from_info,
+                                'session': existing_sess,
+                                'color': existing_single_info.get('color', COLOR_MAP[0])
+                            }
+                    
                     try:
                         dual_widget = create_dual_course_widget(odd_data, even_data, self)
                         self.schedule_table.setCellWidget(srow, col, dual_widget)
@@ -3320,10 +3605,6 @@ class SchedulerWindow(QtWidgets.QMainWindow):
                         import traceback
                         traceback.print_exc()
                         continue
-                    
-                    if slot_key not in self.overlays:
-                        self.overlays[slot_key] = {}
-                    self.overlays[slot_key]['dual'] = dual_widget
                     
                     self.placed[(srow, col)] = {
                         'courses': [odd_data['course_key'], even_data['course_key']],
@@ -3373,7 +3654,7 @@ class SchedulerWindow(QtWidgets.QMainWindow):
                 course_name_label.setObjectName('course-name-label')
                 
                 # Professor Name
-                professor_label = QtWidgets.QLabel(course.get('instructor', 'نامشخص'))
+                professor_label = QtWidgets.QLabel(course.get('instructor', translator.t('hardcoded_texts.unknown')))
                 professor_label.setAlignment(QtCore.Qt.AlignmentFlag.AlignCenter)
                 professor_label.setWordWrap(True)
                 professor_label.setObjectName('professor-label')
@@ -3441,10 +3722,6 @@ class SchedulerWindow(QtWidgets.QMainWindow):
                 self.schedule_table.setCellWidget(srow, col, cell_widget)
                 if span > 1:
                     self.schedule_table.setSpan(srow, col, span, 1)
-                
-                if slot_key not in self.overlays:
-                    self.overlays[slot_key] = {}
-                self.overlays[slot_key]['single'] = cell_widget
                 
                 self.placed[(srow, col)] = {
                     'course': course_key, 
@@ -3749,8 +4026,8 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         # Enhanced feedback message with modern styling
         msg = QtWidgets.QMessageBox(self)
         msg.setIcon(QtWidgets.QMessageBox.Information)
-        msg.setWindowTitle('کپی شد')
-        msg.setText(f'کد درس "{text}" به کلیپبورد کپی شد.')
+        msg.setWindowTitle(translator.t("hardcoded_texts.copied"))
+        msg.setText(translator.t("clipboard.message", code=text))
         msg.setStandardButtons(QtWidgets.QMessageBox.Ok)
         # Styling is now handled by QSS file
         msg.exec_()
@@ -3812,10 +4089,10 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         
         # Show confirmation
         from app.core.config import COURSES
-        course_name = COURSES.get(course_key, {}).get('name', 'نامشخص')
+        course_name = COURSES.get(course_key, {}).get('name', translator.t('hardcoded_texts.unknown'))
         QtWidgets.QMessageBox.information(
-            self, 'حذف شد', 
-            f'تمام جلسات درس "{course_name}" با موفقیت حذف شدند.'
+            self, translator.t("hardcoded_texts.deleted"), 
+            translator.t("success.sessions_removed", course_name=course_name)
         )
 
     def clear_preview(self):
@@ -3853,8 +4130,8 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         selected_items = self.course_list.selectedItems()
         if not selected_items:
             QtWidgets.QMessageBox.information(
-                self, 'انتخاب درس', 
-                'لطفا ابتدا درسی را از لیست انتخاب کنید.'
+                self, translator.t("hardcoded_texts.select_course_dialog_title"), 
+                translator.t("hardcoded_texts.select_course_first")
             )
             return
             
@@ -3866,8 +4143,8 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         """Open dialog to edit a specific course by course key"""
         if not course_key or course_key not in COURSES:
             QtWidgets.QMessageBox.warning(
-                self, 'خطا', 
-                'درس انتخابی یافت نشد.'
+                self, translator.t("hardcoded_texts.error_generic"), 
+                translator.t("hardcoded_texts.course_not_found")
             )
             return
             
@@ -3876,8 +4153,8 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         # Check if it's a built-in course
         if not self.is_editable_course(course_key):
             QtWidgets.QMessageBox.warning(
-                self, 'غیر قابل ویرایش', 
-                'دروس پیش‌فرض قابل ویرایش نیستند. فقط دروس سفارشی را می‌توان ویرایش کرد.'
+                self, translator.t("common.warning"), 
+                translator.t("hardcoded_texts.course_not_editable")
             )
             return
             
@@ -3911,8 +4188,8 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         self.update_status()
         
         QtWidgets.QMessageBox.information(
-            self, 'ویرایر شد', 
-            f'درس "{updated_course["name"]}" با موفقیت ویرایش شد.'
+            self, translator.t("hardcoded_texts.course_edited"), 
+            translator.t("success.course_edited", course_name=updated_course["name"])
         )
         
     def show_course_details(self, course_key):
@@ -3987,11 +4264,9 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         details_dialog.exec_()
 
     def _translate_parity(self, parity_value):
-        if parity_value == 'ز':
-            return translator.t("parity.even")
-        if parity_value == 'ف':
-            return translator.t("parity.odd")
-        return ""
+        """Translate parity value to localized string"""
+        from .dual_course_utils import translate_parity
+        return translate_parity(parity_value)
         
     def highlight_course_sessions(self, course_keys):
         """Highlight one or multiple course sessions with smooth border animation"""
@@ -4376,10 +4651,10 @@ class SchedulerWindow(QtWidgets.QMainWindow):
                 rank_label.setStyleSheet("font-weight: bold; color: #1976D2; font-size: 14px;")
                 rank_label.setFixedWidth(30)
                 
-                stats_label = QtWidgets.QLabel(f'روزها: {combo["days"]} | فاصله: {combo["empty"]:.1f}h | امتیاز: {combo["score"]:.1f}')
+                stats_label = QtWidgets.QLabel(translator.t("hardcoded_texts.days_distance_score", days=combo["days"], empty=combo["empty"], score=combo["score"]))
                 stats_label.setStyleSheet("color: #7f8c8d;")
                 
-                apply_btn = QtWidgets.QPushButton('اعمال')
+                apply_btn = QtWidgets.QPushButton(translator.t("hardcoded_texts.apply"))
                 apply_btn.setObjectName("success_btn")
                 apply_btn.setFixedWidth(80)
                 apply_btn.clicked.connect(lambda checked, c=combo: self.apply_optimal_combo(c, dialog))
@@ -4425,7 +4700,7 @@ class SchedulerWindow(QtWidgets.QMainWindow):
             results_list.setItemWidget(list_item, item_widget)
         
         # Close button
-        close_btn = QtWidgets.QPushButton('بستن')
+        close_btn = QtWidgets.QPushButton(translator.t("hardcoded_texts.close"))
         close_btn.clicked.connect(dialog.close)
         layout.addWidget(close_btn)
         
@@ -4669,7 +4944,7 @@ class SchedulerWindow(QtWidgets.QMainWindow):
                 QtWidgets.QMessageBox.warning(
                     self,
                     translator.t("common.warning"),
-                    "لطفاً نامی وارد کنید"
+                    translator.t("hardcoded_texts.enter_name")
                 )
                 continue
                 
@@ -4682,8 +4957,8 @@ class SchedulerWindow(QtWidgets.QMainWindow):
                 msg.setInformativeText(translator.t("messages.duplicate_name_info"))
                 msg.setStandardButtons(QtWidgets.QMessageBox.Retry | QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.Cancel)
                 msg.setDefaultButton(QtWidgets.QMessageBox.Retry)
-                msg.button(QtWidgets.QMessageBox.Retry).setText("نام جدید")
-                msg.button(QtWidgets.QMessageBox.Yes).setText("جایگزین")
+                msg.button(QtWidgets.QMessageBox.Retry).setText(translator.t("messages.new_name"))
+                msg.button(QtWidgets.QMessageBox.Yes).setText(translator.t("messages.replace"))
                 msg.button(QtWidgets.QMessageBox.Cancel).setText(translator.t("common.cancel"))
                 
                 result = msg.exec_()
@@ -4724,8 +4999,8 @@ class SchedulerWindow(QtWidgets.QMainWindow):
             except Exception as e:
                 logger.error(f"Error saving combo: {e}")
                 QtWidgets.QMessageBox.critical(
-                    self, 'خطا', 
-                    f'خطا در ذخیره ترکیب:\n{str(e)}'
+                    self, translator.t("hardcoded_texts.error_generic"), 
+                    f"{translator.t('save.error')}:\n{str(e)}"
                 )
             
             return
@@ -4889,8 +5164,8 @@ class SchedulerWindow(QtWidgets.QMainWindow):
             
         except Exception as e:
             QtWidgets.QMessageBox.critical(
-                self, 'خطا', 
-                f'خطا در تولید ترکیبات:\n{str(e)}'
+                self, translator.t("hardcoded_texts.error_generic"), 
+                f"{translator.t('messages.generate_combos_error')}:\n{str(e)}"
             )
             print(f"Error in generate_optimal_schedule_from_auto_list: {e}")
         finally:
@@ -4939,10 +5214,10 @@ class SchedulerWindow(QtWidgets.QMainWindow):
                 rank_label.setStyleSheet("font-weight: bold; color: #1976D2; font-size: 14px;")
                 rank_label.setFixedWidth(30)
                 
-                stats_label = QtWidgets.QLabel(f'روزها: {combo["days"]} | فاصله: {combo["empty"]:.1f}h | امتیاز: {combo["score"]:.1f}')
+                stats_label = QtWidgets.QLabel(translator.t("hardcoded_texts.days_distance_score", days=combo["days"], empty=combo["empty"], score=combo["score"]))
                 stats_label.setStyleSheet("color: #7f8c8d;")
                 
-                apply_btn = QtWidgets.QPushButton('اعمال')
+                apply_btn = QtWidgets.QPushButton(translator.t("hardcoded_texts.apply"))
                 apply_btn.setObjectName("success_btn")
                 apply_btn.setFixedWidth(80)
                 apply_btn.clicked.connect(lambda checked, c=combo: self.apply_optimal_combo(c, dialog))
@@ -4988,7 +5263,7 @@ class SchedulerWindow(QtWidgets.QMainWindow):
             results_list.setItemWidget(list_item, item_widget)
         
         # Close button
-        close_btn = QtWidgets.QPushButton('بستن')
+        close_btn = QtWidgets.QPushButton(translator.t("hardcoded_texts.close"))
         close_btn.clicked.connect(dialog.close)
         layout.addWidget(close_btn)
         
@@ -5275,11 +5550,11 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         # If an item is right-clicked, show delete option
         if item:
             # Delete action
-            delete_action = menu.addAction("حذف از لیست")
+            delete_action = menu.addAction(translator.t("hardcoded_texts.remove_from_list"))
         
         # Always show clear all option if there are items in the list
         if self.auto_select_list.count() > 0:
-            clear_all_action = menu.addAction("پاک کردن همه")
+            clear_all_action = menu.addAction(translator.t("hardcoded_texts.clear_all_title"))
         
         action = menu.exec_(self.auto_select_list.mapToGlobal(position))
         
@@ -5289,8 +5564,8 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         elif 'clear_all_action' in locals() and action == clear_all_action:
             # Confirm clear all
             reply = QtWidgets.QMessageBox.question(
-                self, 'پاک کردن همه', 
-                f'آیا مطمئن هستید که می‌خواهید همه {self.auto_select_list.count()} درس را از لیست حذف کنید؟',
+                self, translator.t("hardcoded_texts.clear_all_title"), 
+                translator.t("hardcoded_texts.clear_all_confirm", count=self.auto_select_list.count()),
                 QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
                 QtWidgets.QMessageBox.No
             )
@@ -5321,8 +5596,8 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         """Delete a saved combination by name"""
         # Confirm deletion
         reply = QtWidgets.QMessageBox.question(
-            self, 'حذف ترکیب', 
-            f'آیا مطمئن هستید که می‌خواهید ترکیب "{combo_name}" را حذف کنید؟',
+            self, translator.t("hardcoded_texts.delete_combo_title"), 
+            translator.t("hardcoded_texts.delete_combo_confirm", combo_name=combo_name),
             QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
             QtWidgets.QMessageBox.No
         )
@@ -5341,8 +5616,8 @@ class SchedulerWindow(QtWidgets.QMainWindow):
             self.load_saved_combos_ui()
             
             QtWidgets.QMessageBox.information(
-                self, 'حذف شد', 
-                f'ترکیب "{combo_name}" با موفقیت حذف شد.'
+                self, translator.t("hardcoded_texts.deleted"), 
+                translator.t("success.combination_deleted", combo_name=combo_name)
             )
 
     def is_editable_course(self, course_key):
@@ -5475,7 +5750,7 @@ class SchedulerWindow(QtWidgets.QMainWindow):
                     course = COURSES.get(course_key)
                     if course:
                         position = self.auto_select_list.count() + 1
-                        new_item = QtWidgets.QListWidgetItem(f"({position}) {course['name']} - {course.get('instructor', 'نامشخص')}")
+                        new_item = QtWidgets.QListWidgetItem(f"({position}) {course['name']} - {course.get('instructor', translator.t('hardcoded_texts.unknown'))}")
                         new_item.setData(QtCore.Qt.ItemDataRole.UserRole, course_key)
                         # Set position as priority (first item = priority 1)
                         new_item.setData(QtCore.Qt.ItemDataRole.UserRole + 1, position)
@@ -5726,6 +6001,57 @@ class SchedulerWindow(QtWidgets.QMainWindow):
                 translator.t("messages.credentials_delete_error")
             )
 
+    def _handle_golestan_error(self, error):
+        """
+        Handle Golestan errors and display appropriate user-friendly messages.
+        
+        Args:
+            error: Exception object or error message string
+            
+        Returns:
+            tuple: (title, message) for error dialog
+        """
+        error_msg = str(error) if isinstance(error, Exception) else error
+        
+        # Check for specific error types
+        if "SSL_ERROR:" in error_msg:
+            return (
+                translator.t("common.error"),
+                translator.t("messages.ssl_error")
+            )
+        elif "CONNECTION_ERROR:" in error_msg:
+            return (
+                translator.t("common.error"),
+                translator.t("messages.connection_error")
+            )
+        elif "TIMEOUT_ERROR:" in error_msg:
+            return (
+                translator.t("common.error"),
+                translator.t("messages.timeout_error")
+            )
+        elif "CAPTCHA_FAILED:" in error_msg or "Authentication failed" in error_msg:
+            # Remove any technical details about CAPTCHA
+            return (
+                translator.t("common.warning"),
+                translator.t("messages.captcha_failed")
+            )
+        elif "No courses were fetched" in error_msg or "No courses" in error_msg:
+            return (
+                translator.t("common.warning"),
+                translator.t("messages.no_courses_error")
+            )
+        elif "check your username and password" in error_msg.lower() or "invalid" in error_msg.lower() and "credentials" in error_msg.lower():
+            return (
+                translator.t("common.warning"),
+                translator.t("messages.invalid_credentials")
+            )
+        else:
+            # Unknown error - show generic user-friendly message without technical details
+            return (
+                translator.t("common.error"),
+                translator.t("messages.unknown_error")
+            )
+
     def fetch_from_golestan(self):
         """Fetch courses from Golestan system automatically with non-blocking loading"""
         try:
@@ -5805,21 +6131,13 @@ class SchedulerWindow(QtWidgets.QMainWindow):
                     if isinstance(result, Exception):
                         # Error occurred
                         logger.error(f"Error fetching from Golestan: {result}")
-                        error_msg = str(result)
+                        error_title, error_message = self._handle_golestan_error(result)
                         
-                        # Check if it's an authentication failure after multiple attempts
-                        if "Authentication failed after multiple attempts" in error_msg or "check your username and password" in error_msg.lower():
-                            QtWidgets.QMessageBox.warning(
-                                self,
-                                translator.t("common.warning"),
-                                translator.t("messages.invalid_credentials")
-                            )
+                        # Determine message box type based on title
+                        if error_title == translator.t("common.warning"):
+                            QtWidgets.QMessageBox.warning(self, error_title, error_message)
                         else:
-                            QtWidgets.QMessageBox.critical(
-                                self, 
-                                translator.t("common.error"),
-                                translator.t("messages.golestan_fetch_error", error=error_msg)
-                            )
+                            QtWidgets.QMessageBox.critical(self, error_title, error_message)
                     else:
                         # Success - load from database (which now contains fresh data from Golestan)
                         course_count = 0
@@ -5853,10 +6171,11 @@ class SchedulerWindow(QtWidgets.QMainWindow):
             if hasattr(self, 'credentials_dialog_open'):
                 self.credentials_dialog_open = False
             logger.error(f"Error fetching from Golestan: {e}")
-            QtWidgets.QMessageBox.critical(
-                self, 'خطا', 
-                f'خطا در دریافت اطلاعات از گلستان:\n{str(e)}'
-            )
+            error_title, error_message = self._handle_golestan_error(e)
+            if error_title == translator.t("common.warning"):
+                QtWidgets.QMessageBox.warning(self, error_title, error_message)
+            else:
+                QtWidgets.QMessageBox.critical(self, error_title, error_message)
 
     def manual_fetch_from_golestan(self):
         """Fetch courses from Golestan system with manual credentials and non-blocking loading"""
@@ -5913,21 +6232,13 @@ class SchedulerWindow(QtWidgets.QMainWindow):
                 loading_dialog.close()
                 if isinstance(result, Exception):
                     logger.error(f"Error fetching from Golestan: {result}")
-                    error_msg = str(result)
+                    error_title, error_message = self._handle_golestan_error(result)
                     
-                    # Check if it's an authentication failure after multiple attempts
-                    if "Authentication failed after multiple attempts" in error_msg or "check your username and password" in error_msg.lower():
-                        QtWidgets.QMessageBox.warning(
-                            self,
-                            translator.t("common.warning"),
-                            translator.t("messages.invalid_credentials")
-                        )
+                    # Determine message box type based on title
+                    if error_title == translator.t("common.warning"):
+                        QtWidgets.QMessageBox.warning(self, error_title, error_message)
                     else:
-                        QtWidgets.QMessageBox.critical(
-                            self, 
-                            translator.t("common.error"),
-                            translator.t("messages.golestan_fetch_error", error=error_msg)
-                        )
+                        QtWidgets.QMessageBox.critical(self, error_title, error_message)
                 else:
                     # Success - load from database (which now contains fresh data from Golestan)
                     course_count = 0
@@ -6192,7 +6503,7 @@ class SchedulerWindow(QtWidgets.QMainWindow):
                     self.update_detailed_info_if_open()
         except Exception as e:
             logger.error(f"Failed to load latest backup: {e}")
-            QtWidgets.QMessageBox.critical(self, "خطا", f"امکان بارگذاری آخرین پشتیبان وجود ندارد: {str(e)}")
+            QtWidgets.QMessageBox.critical(self, translator.t("hardcoded_texts.error_generic"), f"{translator.t('hardcoded_texts.error_backup_load')}: {str(e)}")
             sys.exit(1)
                     
     def load_latest_backup(self):
@@ -6455,44 +6766,14 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         return None
 
     def _courses_are_compatible(self, odd_course, even_course, new_course):
-        """
-        Check if new course is compatible with existing dual courses.
-        """
-        if not all([odd_course, even_course, new_course]):
-            return False
-            
-        # Check if new course shares time slot with existing dual
-        new_schedule = new_course.get('schedule', [])
-        odd_schedule = odd_course.get('schedule', [])
-        # Implementation of compatibility check
-        return self._schedules_overlap(odd_schedule, new_schedule)
+        """Check if new course is compatible with existing dual courses"""
+        from .dual_course_utils import courses_are_compatible
+        return courses_are_compatible(odd_course, even_course, new_course)
 
     def _schedules_overlap(self, schedule1, schedule2):
-        """
-        Check if two schedules have overlapping time slots.
-        """
-        for sess1 in schedule1:
-            for sess2 in schedule2:
-                if (sess1.get('day') == sess2.get('day') and
-                    sess1.get('start') == sess2.get('start') and
-                    sess1.get('end') == sess2.get('end')):
-                    return True
-        return False
-
-    def _update_existing_dual(self, existing_dual, course_key, course):
-        """
-        Update existing dual instead of creating new one.
-        """
-        # Implementation would go here
-        pass
-
-    def _add_course_or_create_dual(self, course_key, course, ask_on_conflict=True):
-        """
-        Add course as single or create new dual based on compatibility.
-        This is called when no existing compatible dual is found.
-        """
-        # Implementation would go here
-        pass
+        """Check if two schedules have overlapping time slots"""
+        from .dual_course_utils import schedules_overlap
+        return schedules_overlap(schedule1, schedule2)
 
     def keyPressEvent(self, event):
         """Handle key press events for the main window"""

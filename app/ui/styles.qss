@@ -267,7 +267,6 @@ QFrame#combination_card {
     border-radius: 15px;
     margin: 12px;
     padding: 15px;
-    box-shadow: 0 4px 8px rgba(0,0,0,0.1);
 }
 
 QFrame#combination_card:hover {
@@ -586,7 +585,6 @@ QFrame#combination_card {
     border-radius: 15px;
     margin: 12px;
     padding: 15px;
-    box-shadow: 0 4px 8px rgba(0,0,0,0.1);
 }
 
 QFrame#combination_card:hover {
@@ -677,26 +675,55 @@ QPushButton#dialog_close:hover {
 
 /* Enhanced Dual Course Widget Styles */
 
-/* Base dual course cell styling */
+/* Base dual course cell styling - match single course cell style */
 QWidget#dual-course-cell {
     background: transparent;
     border: none !important;
-    border-radius: 8px;
-    min-height: 80px;
-    min-width: 120px;
+    border-radius: 6px !important;
+    padding: 2px !important;
+    margin: 1px !important;
+    min-height: 60px;
+    min-width: 90px;
 }
 
-/* Hover state for dual course cells */
+/* Hover state for dual course cells - no border */
 QWidget#dual-course-cell:hover {
     border: none !important;
-    background: rgba(52, 152, 219, 0.05);
+    background: transparent;
 }
 
-/* Highlighted state (red border for course session highlighting) */
+/* Highlighted state - no border */
 QWidget#dual-course-cell[highlighted="true"] {
     border: none !important;
-    border-radius: 8px;
-    background: rgba(231, 76, 60, 0.1);
+    border-radius: 6px;
+    background: transparent;
+}
+
+/* Dual course cell sections - no border, no shadow */
+QWidget#dual-course-cell QFrame {
+    border: none !important;
+    outline: none !important;
+}
+
+/* Dual course cell labels - no border, transparent background, simple text */
+QWidget#dual-course-cell QLabel {
+    border: none !important;
+    outline: none !important;
+    background: transparent !important;
+    padding: 0px !important;
+    margin: 0px !important;
+}
+
+QWidget#dual-course-cell QLabel:hover {
+    border: none !important;
+    outline: none !important;
+    background: transparent !important;
+}
+
+/* Dual course cell sections can have border on hover (around session) */
+QWidget#dual-course-cell QFrame:hover {
+    border: 2px solid #e74c3c !important;
+    border-radius: 4px;
 }
 
 /* Expanded overlay styling */

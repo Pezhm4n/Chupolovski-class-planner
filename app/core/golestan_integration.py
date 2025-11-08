@@ -259,7 +259,7 @@ def convert_db_course_format(course: Dict) -> Dict:
             'code': course.get('code', ''),
             'name': course.get('name', ''),
             'credits': int(course.get('credits', 0)),
-            'instructor': course.get('instructor', 'اساتيد گروه آموزشي'),
+            'instructor': course.get('instructor', 'Faculty Group Instructors'),
             'schedule': schedule,
             'location': course_location,
             'description': '',
@@ -280,7 +280,7 @@ def convert_db_course_format(course: Dict) -> Dict:
             'code': course.get('code', ''),
             'name': course.get('name', ''),
             'credits': 0,
-            'instructor': 'اساتيد گروه آموزشي',
+            'instructor': 'Faculty Group Instructors',
             'schedule': [],
             'location': '',
             'description': '',
@@ -313,7 +313,7 @@ def convert_golestan_course_format(course: Dict, is_available: bool) -> Dict:
             'code': course.get('code', ''),
             'name': course.get('name', ''),
             'credits': int(course.get('credits', 0)),
-            'instructor': course.get('instructor', 'اساتيد گروه آموزشي'),
+            'instructor': course.get('instructor', 'Faculty Group Instructors'),
             'schedule': schedule,
             'location': course_location,
             'description': course.get('description', ''),
@@ -335,7 +335,7 @@ def convert_golestan_course_format(course: Dict, is_available: bool) -> Dict:
             'code': course.get('code', ''),
             'name': course.get('name', ''),
             'credits': 0,
-            'instructor': 'اساتيد گروه آموزشي',
+            'instructor': 'Faculty Group Instructors',
             'schedule': [],
             'location': '',
             'description': '',
@@ -382,7 +382,8 @@ def get_course_major(course_key: str) -> str:
         str: The major identifier for the course
     """
     global COURSE_MAJORS
-    return COURSE_MAJORS.get(course_key, "رشته نامشخص")
+    from app.core.translator import translator
+    return COURSE_MAJORS.get(course_key, translator.t("messages.unknown_major"))
 
 # Example usage
 if __name__ == "__main__":

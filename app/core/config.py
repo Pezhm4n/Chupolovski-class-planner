@@ -217,7 +217,8 @@ def load_user_added_courses():
                 for course in user_courses:
                     course_key = course.get('code', f"user_{len(COURSES)}")
                     course['key'] = course_key
-                    course['major'] = 'دروس اضافه‌شده توسط کاربر'
+                    from app.core.translator import translator
+                    course['major'] = translator.t("hardcoded_texts.user_added_courses")
                     COURSES[course_key] = course
                     
                 logger.info(f"Successfully loaded {len(user_courses)} user-added courses")
