@@ -58,6 +58,48 @@ class GolestanSession:
         match = re.search(pattern, text, re.DOTALL)
         return match.group(1) if match else None
 
+    def _safe_request(self, method, url, **kwargs):
+        """
+        Perform HTTP request with error handling.
+        
+        Args:
+            method: 'get' or 'post'
+            url: Request URL
+            **kwargs: Additional arguments for requests.get/post
+            
+        Returns:
+            Response object
+            
+        Raises:
+            RuntimeError: With appropriate error prefix (SSL_ERROR, CONNECTION_ERROR, etc.)
+        """
+        if 'timeout' not in kwargs:
+            kwargs['timeout'] = 30
+        
+        try:
+            if method.lower() == 'get':
+                return self.session.get(url, headers=self.headers, **kwargs)
+            elif method.lower() == 'post':
+                return self.session.post(url, headers=self.headers, **kwargs)
+            else:
+                raise ValueError(f"Unsupported HTTP method: {method}")
+        except requests.exceptions.SSLError as e:
+            # Check if it's an SSL verification error (likely VPN/proxy issue)
+            error_str = str(e).lower()
+            if 'certificate' in error_str or 'ssl' in error_str or 'verify' in error_str:
+                raise RuntimeError("SSL_ERROR: VPN or proxy detected. Please disable VPN/proxy and try again.")
+            raise RuntimeError("SSL_ERROR: " + str(e))
+        except requests.exceptions.ConnectionError as e:
+            # Check if it's a connection error that might be due to SSL/VPN
+            error_str = str(e).lower()
+            if 'ssl' in error_str or 'certificate' in error_str:
+                raise RuntimeError("SSL_ERROR: VPN or proxy detected. Please disable VPN/proxy and try again.")
+            raise RuntimeError("CONNECTION_ERROR: " + str(e))
+        except requests.exceptions.Timeout as e:
+            raise RuntimeError("TIMEOUT_ERROR: " + str(e))
+        except Exception as e:
+            raise RuntimeError("UNKNOWN_ERROR: " + str(e))
+
     def authenticate(self, username=None, password=None, max_attempts=5):
         """
         Authenticate with Golestan system.
@@ -83,7 +125,7 @@ class GolestanSession:
 
         # Get session ID
         url = "https://golestan.ikiu.ac.ir/_templates/unvarm/unvarm.aspx?typ=1"
-        response = self.session.get(url, headers=self.headers)
+        response = self._safe_request('get', url)
         self.session_id = self.session.cookies.get("ASP.NET_SessionId")
 
         cookie_tuples = [
@@ -95,7 +137,7 @@ class GolestanSession:
 
         # Get login page
         get_url = 'https://golestan.ikiu.ac.ir/Forms/AuthenticateUser/AuthUser.aspx?fid=0;1&tck=&&&lastm=20240303092318'
-        get_resp = self.session.get(get_url, headers=self.headers)
+        get_resp = self._safe_request('get', get_url)
         aspnet_fields = self._extract_aspnet_fields(get_resp.text)
 
         # Step 4: Initial POST
@@ -109,7 +151,7 @@ class GolestanSession:
         }
 
         post_url = 'https://golestan.ikiu.ac.ir/Forms/AuthenticateUser/AuthUser.aspx?fid=0%3b1&tck=&&&lastm=20240303092318'
-        post_resp = self.session.post(post_url, data=payload, headers=self.headers)
+        post_resp = self._safe_request('post', post_url, data=payload)
         aspnet_fields = self._extract_aspnet_fields(post_resp.text)
 
         # Captcha solving loop
@@ -118,7 +160,7 @@ class GolestanSession:
 
             # Get captcha
             captcha_url = f"https://golestan.ikiu.ac.ir/Forms/AuthenticateUser/captcha.aspx?{random()}"
-            resp = self.session.get(captcha_url, headers=self.headers, stream=True)
+            resp = self._safe_request('get', captcha_url, stream=True)
 
             if resp.status_code == 200:
                 print("✅ Captcha image received. Running recognition...")
@@ -136,7 +178,7 @@ class GolestanSession:
                 'Frm_Type': '', 'Frm_No': '', 'TicketTextBox': ''
             }
 
-            resp_post = self.session.post(post_url, data=payload, headers=self.headers)
+            resp_post = self._safe_request('post', post_url, data=payload)
 
             # Check if login successful
             self.lt = self.session.cookies.get("lt")
@@ -155,8 +197,8 @@ class GolestanSession:
         else:
             print("🚫 All authentication attempts failed")
             # If we've tried max_attempts times and still failed, 
-            # it's likely due to incorrect username/password
-            raise RuntimeError("Authentication failed after multiple attempts. Please check your username and password.")
+            # it's likely due to incorrect username/password or captcha issues
+            raise RuntimeError("CAPTCHA_FAILED: Authentication failed. Please check your username and password.")
 
         cookie_tuples = [
             ("ASP.NET_SessionId", self.session_id),
@@ -168,7 +210,7 @@ class GolestanSession:
 
         rnd = random()
         get_url = f'https://golestan.ikiu.ac.ir/Forms/F0213_PROCESS_SYSMENU/F0213_01_PROCESS_SYSMENU_Dat.aspx?r={rnd}&fid=0;11130&b=&l=&tck={self.tck}&&lastm=20240303092316'
-        get_resp = self.session.get(get_url, headers=self.headers)
+        get_resp = self._safe_request('get', get_url)
         aspnet_fields = self._extract_aspnet_fields(get_resp.text)
         ticket = aspnet_fields['ticket']
 
@@ -190,7 +232,7 @@ class GolestanSession:
         }
 
         post_url = f'https://golestan.ikiu.ac.ir/Forms/F0213_PROCESS_SYSMENU/F0213_01_PROCESS_SYSMENU_Dat.aspx?r={rnd}&fid=0%3b11130&b=&l=&tck={self.tck}&&lastm=20240303092316'
-        post_resp = self.session.post(post_url, headers=self.headers, data=payload)
+        post_resp = self._safe_request('post', post_url, data=payload)
         aspnet_fields = self._extract_aspnet_fields(post_resp.text)
         self.tck = aspnet_fields['ticket']
 
@@ -217,7 +259,7 @@ class GolestanSession:
 
         rnd = random()
         get_url = f'https://golestan.ikiu.ac.ir/Forms/F0202_PROCESS_REP_FILTER/F0202_01_PROCESS_REP_FILTER_DAT.ASPX?r={rnd}&fid=1;102&b=10&l=1&tck={self.tck}&&lastm=20230828062456'
-        get_resp = self.session.get(get_url, headers=self.headers)
+        get_resp = self._safe_request('get', get_url)
         aspnet_fields = self._extract_aspnet_fields(get_resp.text)
         ticket = aspnet_fields['ticket']
         self.ctck = self.session.cookies.get('ctck')
@@ -244,7 +286,7 @@ class GolestanSession:
         }
 
         post_url = f'https://golestan.ikiu.ac.ir/Forms/F0202_PROCESS_REP_FILTER/F0202_01_PROCESS_REP_FILTER_DAT.ASPX?r={rnd}&fid=1%3b102&b=10&l=1&tck={self.tck}&&lastm=20230828062456'
-        post_resp = self.session.post(post_url, headers=self.headers, data=payload)
+        post_resp = self._safe_request('post', post_url, data=payload)
 
         aspnet_fields = self._extract_aspnet_fields(post_resp.text)
         self.report_ticket = aspnet_fields['ticket']
@@ -284,7 +326,7 @@ class GolestanSession:
             }
 
             post_url = f'https://golestan.ikiu.ac.ir/Forms/F0202_PROCESS_REP_FILTER/F0202_01_PROCESS_REP_FILTER_DAT.ASPX?r={rnd}&fid=1%3b102&b=10&l=1&tck={self.tck}&&lastm=20230828062456'
-            post_resp = self.session.post(post_url, headers=self.headers, data=payload)
+            post_resp = self._safe_request('post', post_url, data=payload)
 
             xml_string = self._extract_xmldat(post_resp.text)
             if xml_string:
@@ -321,7 +363,7 @@ class GolestanSession:
             }
 
             post_url = f'https://golestan.ikiu.ac.ir/Forms/F0202_PROCESS_REP_FILTER/F0202_01_PROCESS_REP_FILTER_DAT.ASPX?r={rnd}&fid=1%3b102&b=10&l=1&tck={self.tck}&&lastm=20230828062456'
-            post_resp = self.session.post(post_url, headers=self.headers, data=payload)
+            post_resp = self._safe_request('post', post_url, data=payload)
 
             xml_string = self._extract_xmldat(post_resp.text)
             if xml_string:
@@ -345,7 +387,7 @@ class GolestanSession:
 
         self.rnd = random()
         get_url = f"https://golestan.ikiu.ac.ir/Forms/F1802_PROCESS_MNG_STDJAMEHMON/F1802_01_PROCESS_MNG_STDJAMEHMON_Dat.aspx?r={self.rnd}&fid=0;12310&b=10&l=1&tck={self.tck}&&lastm=20250906103728"
-        get_resp = self.session.get(get_url, headers=self.headers)
+        get_resp = self._safe_request('get', get_url)
         aspnet_fields = self._extract_aspnet_fields(get_resp.text)
         ticket = aspnet_fields['ticket']
 
@@ -368,7 +410,7 @@ class GolestanSession:
         }
 
         post_url = f"https://golestan.ikiu.ac.ir/Forms/F1802_PROCESS_MNG_STDJAMEHMON/F1802_01_PROCESS_MNG_STDJAMEHMON_Dat.aspx?r={self.rnd}&fid=0%3b12310&b=10&l=1&tck={self.tck}&&lastm=20250906103728"
-        post_resp = self.session.post(post_url, headers=self.headers, data=payload)
+        post_resp = self._safe_request('post', post_url, data=payload)
         aspnet_fields = self._extract_aspnet_fields(post_resp.text)
         ticket = aspnet_fields['ticket']
 
@@ -382,7 +424,7 @@ class GolestanSession:
         }
 
         post_url = f"https://golestan.ikiu.ac.ir/Forms/F1802_PROCESS_MNG_STDJAMEHMON/F1802_01_PROCESS_MNG_STDJAMEHMON_Dat.aspx?r={self.rnd}&fid=0%3b12310&b=10&l=1&tck={self.tck}&&lastm=20250906103728"
-        post_resp = self.session.post(post_url, headers=self.headers, data=payload)
+        post_resp = self._safe_request('post', post_url, data=payload)
         aspnet_fields = self._extract_aspnet_fields(post_resp.text)
 
         # Parse student info
@@ -416,7 +458,7 @@ class GolestanSession:
         }
 
         semester_url = f"https://golestan.ikiu.ac.ir/Forms/F1802_PROCESS_MNG_STDJAMEHMON/F1802_01_PROCESS_MNG_STDJAMEHMON_Dat.aspx?r={self.rnd}&fid=0%3b12310&b=10&l=1&tck={self.tck}&&lastm=20250906103728"
-        resp = self.session.post(semester_url, headers=self.headers, data=payload)
+        resp = self._safe_request('post', semester_url, data=payload)
         next_results = self._extract_aspnet_fields(resp.text)
 
         # Parse the response to extract semester and course data

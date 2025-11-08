@@ -486,9 +486,9 @@ class AnimatedCourseWidget(QtWidgets.QFrame):
         else:
             self.original_style = original_style or ""
         
-        # Set frame style for visible borders
-        self.setFrameStyle(QtWidgets.QFrame.Box | QtWidgets.QFrame.Raised)
-        self.setLineWidth(2)
+        # Set frame style - no borders
+        self.setFrameStyle(QtWidgets.QFrame.NoFrame)
+        self.setLineWidth(0)
         # Only apply inline style if provided (for background color)
         if self.original_style:
             self.setStyleSheet(self.original_style)

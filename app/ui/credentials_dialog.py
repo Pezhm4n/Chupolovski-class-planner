@@ -15,6 +15,7 @@ from PyQt5.QtCore import Qt
 from app.core.credentials import save_local_credentials
 from app.core.translator import translator
 from app.core.language_manager import language_manager
+from app.core.credential_validator import validate_student_number, validate_password
 
 class GolestanCredentialsDialog(QDialog):
     """Dialog for entering Golestan credentials securely."""
@@ -161,6 +162,20 @@ class GolestanCredentialsDialog(QDialog):
             }
         """)
         student_container.addWidget(self.student_input)
+        
+        # Error label for student number
+        self.student_error_label = QLabel()
+        self.student_error_label.setStyleSheet("""
+            color: #e74c3c;
+            font-size: 11px;
+            padding: 0px;
+            margin: 0px;
+            min-height: 16px;
+        """)
+        self.student_error_label.setWordWrap(True)
+        self.student_error_label.hide()
+        student_container.addWidget(self.student_error_label)
+        
         layout.addLayout(student_container)
         
         layout.addSpacing(12)
@@ -201,6 +216,20 @@ class GolestanCredentialsDialog(QDialog):
             }
         """)
         password_container.addWidget(self.password_input)
+        
+        # Error label for password
+        self.password_error_label = QLabel()
+        self.password_error_label.setStyleSheet("""
+            color: #e74c3c;
+            font-size: 11px;
+            padding: 0px;
+            margin: 0px;
+            min-height: 16px;
+        """)
+        self.password_error_label.setWordWrap(True)
+        self.password_error_label.hide()
+        password_container.addWidget(self.password_error_label)
+        
         layout.addLayout(password_container)
         
         layout.addSpacing(12)
@@ -333,10 +362,10 @@ class GolestanCredentialsDialog(QDialog):
         self.ok_button.setDefault(True)
         self.ok_button.setMinimumHeight(38)
         self.ok_button.setMinimumWidth(100)
+        self.ok_button.setEnabled(False)  # Initially disabled until validation passes
         self.ok_button.setStyleSheet("""
             QPushButton {
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                    stop:0 #3498db, stop:1 #2980b9);
+                background-color: #bdc3c7;
                 color: white;
                 border: none;
                 border-radius: 6px;
@@ -345,12 +374,7 @@ class GolestanCredentialsDialog(QDialog):
                 font-weight: bold;
             }
             QPushButton:hover {
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                    stop:0 #2980b9, stop:1 #1f618d);
-            }
-            QPushButton:pressed {
-                background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                    stop:0 #1f618d, stop:1 #154360);
+                background-color: #95a5a6;
             }
         """)
         
@@ -365,6 +389,10 @@ class GolestanCredentialsDialog(QDialog):
         self.ok_button.clicked.connect(self.validate_and_accept)
         self.student_input.returnPressed.connect(self.focus_password)
         self.password_input.returnPressed.connect(self.validate_and_accept)
+        
+        # Connect real-time validation
+        self.student_input.textChanged.connect(self.validate_student_number_realtime)
+        self.password_input.textChanged.connect(self.validate_password_realtime)
         
         # Apply translations to UI elements
         self._update_ui_texts()
@@ -395,27 +423,164 @@ class GolestanCredentialsDialog(QDialog):
     def focus_password(self):
         """Focus on password input when Enter is pressed in student number field."""
         self.password_input.setFocus()
+    
+    def validate_student_number_realtime(self, text):
+        """Validate student number in real-time as user types."""
+        student_number = text.strip()
+        
+        # Don't show error if field is empty (user is still typing)
+        if not student_number:
+            self.student_error_label.hide()
+            self._update_input_style(self.student_input, is_valid=True)
+            self._update_ok_button_state()
+            return
+        
+        is_valid, error_message = validate_student_number(student_number)
+        
+        if is_valid:
+            self.student_error_label.hide()
+            self._update_input_style(self.student_input, is_valid=True)
+        else:
+            self.student_error_label.setText(error_message)
+            self.student_error_label.show()
+            self._update_input_style(self.student_input, is_valid=False)
+        
+        self._update_ok_button_state()
+    
+    def validate_password_realtime(self, text):
+        """Validate password in real-time as user types."""
+        password = text
+        
+        # Don't show error if field is empty (user is still typing)
+        if not password:
+            self.password_error_label.hide()
+            self._update_input_style(self.password_input, is_valid=True)
+            self._update_ok_button_state()
+            return
+        
+        is_valid, error_message = validate_password(password)
+        
+        if is_valid:
+            self.password_error_label.hide()
+            self._update_input_style(self.password_input, is_valid=True)
+        else:
+            self.password_error_label.setText(error_message)
+            self.password_error_label.show()
+            self._update_input_style(self.password_input, is_valid=False)
+        
+        self._update_ok_button_state()
+    
+    def _update_input_style(self, input_widget, is_valid):
+        """Update input widget style based on validation state."""
+        if is_valid:
+            input_widget.setStyleSheet("""
+                QLineEdit {
+                    font-size: 13px;
+                    padding: 10px 14px;
+                    border: 2px solid #e1e8ed;
+                    border-radius: 6px;
+                    background-color: white;
+                    color: #2c3e50;
+                }
+                QLineEdit:focus {
+                    border: 2px solid #3498db;
+                    background-color: #fefefe;
+                }
+                QLineEdit:hover {
+                    border: 2px solid #bdc3c7;
+                }
+            """)
+        else:
+            input_widget.setStyleSheet("""
+                QLineEdit {
+                    font-size: 13px;
+                    padding: 10px 14px;
+                    border: 2px solid #e74c3c;
+                    border-radius: 6px;
+                    background-color: #fff5f5;
+                    color: #2c3e50;
+                }
+                QLineEdit:focus {
+                    border: 2px solid #e74c3c;
+                    background-color: #fff5f5;
+                }
+                QLineEdit:hover {
+                    border: 2px solid #c0392b;
+                }
+            """)
+    
+    def _update_ok_button_state(self):
+        """Enable/disable OK button based on validation state."""
+        student_number = self.student_input.text().strip()
+        password = self.password_input.text()
+        
+        student_valid, _ = validate_student_number(student_number)
+        password_valid, _ = validate_password(password)
+        
+        self.ok_button.setEnabled(student_valid and password_valid)
+        
+        if not (student_valid and password_valid):
+            self.ok_button.setStyleSheet("""
+                QPushButton {
+                    background-color: #bdc3c7;
+                    color: white;
+                    border: none;
+                    border-radius: 6px;
+                    padding: 8px 20px;
+                    font-size: 12px;
+                    font-weight: bold;
+                }
+                QPushButton:hover {
+                    background-color: #95a5a6;
+                }
+            """)
+        else:
+            self.ok_button.setStyleSheet("""
+                QPushButton {
+                    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                        stop:0 #3498db, stop:1 #2980b9);
+                    color: white;
+                    border: none;
+                    border-radius: 6px;
+                    padding: 8px 20px;
+                    font-size: 12px;
+                    font-weight: bold;
+                }
+                QPushButton:hover {
+                    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                        stop:0 #2980b9, stop:1 #1f618d);
+                }
+                QPushButton:pressed {
+                    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
+                        stop:0 #1f618d, stop:1 #154360);
+                }
+            """)
         
     def validate_and_accept(self):
         """Validate inputs and accept dialog if valid."""
         student_number = self.student_input.text().strip()
         password = self.password_input.text()
         
-        # Validate student number
-        if not student_number:
-            QMessageBox.warning(self, self._t("error_title"), self._t("error_student_number_empty"))
-            self.student_input.setFocus()
-            return
-            
-        # Check if student number is numeric and at least 5 digits
-        if not re.match(r'^\d{5,}$', student_number):
-            QMessageBox.warning(self, self._t("error_title"), self._t("error_student_number_invalid"))
+        # Validate using the same validators as real-time validation
+        student_valid, student_error = validate_student_number(student_number)
+        password_valid, password_error = validate_password(password)
+        
+        if not student_valid:
+            # Show error in label if not already visible
+            if not self.student_error_label.isVisible():
+                self.student_error_label.setText(student_error)
+                self.student_error_label.show()
+                self._update_input_style(self.student_input, is_valid=False)
             self.student_input.setFocus()
             self.student_input.selectAll()
             return
             
-        if not password:
-            QMessageBox.warning(self, self._t("error_title"), self._t("error_password_empty"))
+        if not password_valid:
+            # Show error in label if not already visible
+            if not self.password_error_label.isVisible():
+                self.password_error_label.setText(password_error)
+                self.password_error_label.show()
+                self._update_input_style(self.password_input, is_valid=False)
             self.password_input.setFocus()
             return
             
