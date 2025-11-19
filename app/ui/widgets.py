@@ -31,6 +31,14 @@ class CourseListWidget(QtWidgets.QWidget):
         self.setContextMenuPolicy(QtCore.Qt.CustomContextMenu)
         self.customContextMenuRequested.connect(self.show_context_menu)
         
+        # Timer for delayed hover display (300ms delay for faster response)
+        self.hover_timer = QtCore.QTimer(self)
+        self.hover_timer.setSingleShot(True)
+        self.hover_timer.timeout.connect(self._show_additional_info)
+        
+        # Floating tooltip widget (not in layout)
+        self.floating_tooltip = None
+        
         # Main course info layout
         main_layout = QtWidgets.QHBoxLayout()
         main_layout.setSpacing(6)
@@ -51,8 +59,9 @@ class CourseListWidget(QtWidgets.QWidget):
         self.conflict_indicator.setStyleSheet("color: #e74c3c; font-weight: bold; font-size: 16px;")
         self.conflict_indicator.hide()
         self.conflict_indicator.setParent(self)
-        self.conflict_indicator.setGeometry(self.width() - 25, 2, 16, 16)  # Position at top-right
-        self.conflict_indicator.setToolTip("این درس با دروس انتخابی شما تداخل دارد")
+        # Position will be set based on language in update_conflict_indicator_position
+        # Initialize with default position, will be updated on first show/resize
+        self.conflict_indicator.setGeometry(2, 2, 16, 16)
         
         # Button container with improved spacing
         button_layout = QtWidgets.QHBoxLayout()
@@ -78,18 +87,76 @@ class CourseListWidget(QtWidgets.QWidget):
             
         main_layout.addLayout(button_layout)
         layout.addLayout(main_layout)
-        
-        # Additional course information from Golestan data
-        self.additional_info_widget = self.create_additional_info_widget()
-        self.additional_info_widget.hide()
-        layout.addWidget(self.additional_info_widget)
             
     def create_additional_info_widget(self):
         """Create widget to display additional Golestan course information"""
-        widget = QtWidgets.QWidget()
+        from app.core.config import get_days
+        from app.core.translator import translator
+        
+        # Use QFrame instead of QWidget for better visibility with border
+        widget = QtWidgets.QFrame()
+        widget.setFrameStyle(QtWidgets.QFrame.Box)
+        widget.setStyleSheet("""
+            QFrame {
+                background-color: #f8f9fa;
+                border: 1px solid #dee2e6;
+                border-radius: 4px;
+                padding: 5px;
+            }
+        """)
         layout = QtWidgets.QVBoxLayout(widget)
         layout.setContentsMargins(10, 5, 10, 5)
-        layout.setSpacing(2)
+        layout.setSpacing(4)
+        
+        # Credits/Units information
+        credits = self.course_info.get('credits', '')
+        if credits:
+            credits_label = QtWidgets.QLabel(f"واحد: {credits}")
+            credits_label.setStyleSheet("font-size: 11px; color: #2c3e50; font-weight: bold;")
+            layout.addWidget(credits_label)
+        
+        # Schedule information
+        schedule = self.course_info.get('schedule', [])
+        if schedule:
+            DAYS = get_days()
+            schedule_texts = []
+            for sess in schedule:
+                day = sess.get('day', '')
+                start = sess.get('start', '')
+                end = sess.get('end', '')
+                parity = sess.get('parity', '')
+                location = sess.get('location', '')
+                
+                if day and start and end:
+                    parity_text = ''
+                    if parity == 'ز':
+                        parity_text = ' (زوج)'
+                    elif parity == 'ف':
+                        parity_text = ' (فرد)'
+                    
+                    loc_text = f" - {location}" if location else ""
+                    schedule_texts.append(f"{day}: {start}-{end}{parity_text}{loc_text}")
+            
+            if schedule_texts:
+                schedule_label = QtWidgets.QLabel("زمان کلاس:\n" + "\n".join(schedule_texts))
+                schedule_label.setStyleSheet("font-size: 11px; color: #34495e;")
+                schedule_label.setWordWrap(True)
+                layout.addWidget(schedule_label)
+        
+        # Exam time information
+        exam_time = self.course_info.get('exam_time', '')
+        if exam_time and exam_time != translator.t("common.no_exam_time") and exam_time != 'اعلام نشده':
+            exam_label = QtWidgets.QLabel(f"زمان امتحان: {exam_time}")
+            exam_label.setStyleSheet("font-size: 11px; color: #e67e22; font-weight: bold;")
+            exam_label.setWordWrap(True)
+            layout.addWidget(exam_label)
+        
+        # Location information (general)
+        location = self.course_info.get('location', '')
+        if location and not any(location in sess.get('location', '') for sess in schedule if schedule):
+            location_label = QtWidgets.QLabel(f"مکان: {location}")
+            location_label.setStyleSheet("font-size: 11px; color: #555;")
+            layout.addWidget(location_label)
         
         # Capacity information
         capacity = self.course_info.get('capacity', '')
@@ -98,19 +165,12 @@ class CourseListWidget(QtWidgets.QWidget):
             capacity_label.setStyleSheet("font-size: 11px; color: #555;")
             layout.addWidget(capacity_label)
         
-        # Gender restriction information
+        # Gender information
         gender_restriction = self.course_info.get('gender_restriction', '')
         if gender_restriction and gender_restriction != 'مختلط':
-            gender_label = QtWidgets.QLabel(f"محدودیت جنسیتی: {gender_restriction}")
+            gender_label = QtWidgets.QLabel(f"جنسیت: {gender_restriction}")
             gender_label.setStyleSheet("font-size: 11px; color: #555;")
             layout.addWidget(gender_label)
-        
-        # Location information
-        location = self.course_info.get('location', '')
-        if location:
-            location_label = QtWidgets.QLabel(f"مکان: {location}")
-            location_label.setStyleSheet("font-size: 11px; color: #555;")
-            layout.addWidget(location_label)
         
         # Enrollment conditions
         enrollment_conditions = self.course_info.get('enrollment_conditions', '')
@@ -128,6 +188,227 @@ class CourseListWidget(QtWidgets.QWidget):
             layout.addWidget(status_label)
         
         return widget
+    
+    def _show_additional_info(self):
+        """Show floating tooltip widget after delay"""
+        try:
+            # Hide any existing tooltip first
+            self._hide_floating_tooltip()
+            
+            # Get main window for positioning
+            main_window = self.get_main_window()
+            if not main_window:
+                return
+            
+            # Get the list widget
+            list_widget = self.parent_list
+            if not list_widget:
+                return
+            
+            # Find this widget's item in the list
+            item = None
+            for i in range(list_widget.count()):
+                if list_widget.itemWidget(list_widget.item(i)) == self:
+                    item = list_widget.item(i)
+                    break
+            
+            if not item:
+                return
+            
+            # Create floating tooltip widget first to get its size
+            self.floating_tooltip = self.create_floating_tooltip()
+            
+            # Get widget position in global coordinates
+            global_pos = self.mapToGlobal(QtCore.QPoint(0, 0))
+            
+            # Position tooltip to the right of the widget (for RTL) or left (for LTR)
+            from app.core.language_manager import language_manager
+            current_lang = language_manager.get_current_language()
+            
+            if current_lang == 'en':
+                # For LTR: show tooltip to the left of the widget
+                tooltip_x = global_pos.x() - self.floating_tooltip.width() - 10
+            else:
+                # For RTL: show tooltip to the right of the widget
+                tooltip_x = global_pos.x() + self.width() + 10
+            
+            tooltip_y = global_pos.y()
+            
+            # Ensure tooltip stays within screen bounds
+            screen = QtWidgets.QApplication.desktop().screenGeometry()
+            if tooltip_x + self.floating_tooltip.width() > screen.width():
+                # If tooltip would go off right edge, show it to the left instead
+                tooltip_x = global_pos.x() - self.floating_tooltip.width() - 10
+            if tooltip_x < 0:
+                # If tooltip would go off left edge, show it to the right instead
+                tooltip_x = global_pos.x() + self.width() + 10
+                # Still check if it fits
+                if tooltip_x + self.floating_tooltip.width() > screen.width():
+                    tooltip_x = screen.width() - self.floating_tooltip.width() - 10
+            
+            # Ensure tooltip doesn't go below screen
+            if tooltip_y + self.floating_tooltip.height() > screen.height():
+                tooltip_y = screen.height() - self.floating_tooltip.height() - 10
+            
+            self.floating_tooltip.move(tooltip_x, tooltip_y)
+            self.floating_tooltip.show()
+            self.floating_tooltip.raise_()
+            
+            logger.debug(f"Floating tooltip shown for course: {self.course_key}")
+        except Exception as e:
+            logger.warning(f"Error showing floating tooltip: {e}")
+            import traceback
+            traceback.print_exc()
+    
+    def _hide_floating_tooltip(self):
+        """Hide floating tooltip if it exists"""
+        if self.floating_tooltip:
+            try:
+                self.floating_tooltip.hide()
+                self.floating_tooltip.deleteLater()
+                self.floating_tooltip = None
+            except Exception as e:
+                logger.warning(f"Error hiding floating tooltip: {e}")
+    
+    def create_floating_tooltip(self):
+        """Create a floating tooltip widget with course information"""
+        from app.core.config import get_days
+        from app.core.translator import translator
+        from app.core.language_manager import language_manager
+        
+        # Create a frameless, floating window
+        tooltip = QtWidgets.QWidget()
+        tooltip.setWindowFlags(
+            QtCore.Qt.ToolTip | 
+            QtCore.Qt.FramelessWindowHint | 
+            QtCore.Qt.WindowStaysOnTopHint
+        )
+        tooltip.setAttribute(QtCore.Qt.WA_ShowWithoutActivating)
+        
+        # Set styling
+        tooltip.setStyleSheet("""
+            QWidget {
+                background-color: #ffffff;
+                border: 1px solid #dee2e6;
+                border-radius: 6px;
+                padding: 8px;
+            }
+        """)
+        
+        layout = QtWidgets.QVBoxLayout(tooltip)
+        layout.setContentsMargins(10, 8, 10, 8)
+        layout.setSpacing(4)
+        
+        # Credits/Units information
+        credits = self.course_info.get('credits', '')
+        if credits:
+            credits_label = QtWidgets.QLabel(f"واحد: {credits}")
+            credits_label.setStyleSheet("font-size: 11px; color: #2c3e50; font-weight: bold;")
+            layout.addWidget(credits_label)
+        
+        # Schedule information
+        schedule = self.course_info.get('schedule', [])
+        if schedule:
+            DAYS = get_days()
+            schedule_texts = []
+            for sess in schedule:
+                day = sess.get('day', '')
+                start = sess.get('start', '')
+                end = sess.get('end', '')
+                parity = sess.get('parity', '')
+                location = sess.get('location', '')
+                
+                if day and start and end:
+                    parity_text = ''
+                    if parity == 'ز':
+                        parity_text = ' (زوج)'
+                    elif parity == 'ف':
+                        parity_text = ' (فرد)'
+                    
+                    loc_text = f" - {location}" if location else ""
+                    schedule_texts.append(f"{day}: {start}-{end}{parity_text}{loc_text}")
+            
+            if schedule_texts:
+                schedule_label = QtWidgets.QLabel("زمان کلاس:\n" + "\n".join(schedule_texts))
+                schedule_label.setStyleSheet("font-size: 11px; color: #34495e;")
+                schedule_label.setWordWrap(True)
+                layout.addWidget(schedule_label)
+        
+        # Exam time information
+        exam_time = self.course_info.get('exam_time', '')
+        if exam_time and exam_time != translator.t("common.no_exam_time") and exam_time != 'اعلام نشده':
+            exam_label = QtWidgets.QLabel(f"زمان امتحان: {exam_time}")
+            exam_label.setStyleSheet("font-size: 11px; color: #e67e22; font-weight: bold;")
+            exam_label.setWordWrap(True)
+            layout.addWidget(exam_label)
+        
+        # Location information (general)
+        location = self.course_info.get('location', '')
+        if location and not any(location in sess.get('location', '') for sess in schedule if schedule):
+            location_label = QtWidgets.QLabel(f"مکان: {location}")
+            location_label.setStyleSheet("font-size: 11px; color: #555;")
+            layout.addWidget(location_label)
+        
+        # Capacity information
+        capacity = self.course_info.get('capacity', '')
+        if capacity:
+            capacity_label = QtWidgets.QLabel(f"ظرفیت: {capacity}")
+            capacity_label.setStyleSheet("font-size: 11px; color: #555;")
+            layout.addWidget(capacity_label)
+        
+        # Gender information
+        gender_restriction = self.course_info.get('gender_restriction', '')
+        if gender_restriction and gender_restriction != 'مختلط':
+            gender_label = QtWidgets.QLabel(f"جنسیت: {gender_restriction}")
+            gender_label.setStyleSheet("font-size: 11px; color: #555;")
+            layout.addWidget(gender_label)
+        
+        # Enrollment conditions
+        enrollment_conditions = self.course_info.get('enrollment_conditions', '')
+        if enrollment_conditions:
+            conditions_label = QtWidgets.QLabel(f"شرایط اخذ: {enrollment_conditions}")
+            conditions_label.setStyleSheet("font-size: 11px; color: #555;")
+            conditions_label.setWordWrap(True)
+            layout.addWidget(conditions_label)
+        
+        # Availability status
+        is_available = self.course_info.get('is_available', True)
+        if not is_available:
+            status_label = QtWidgets.QLabel("وضعیت: پر شده")
+            status_label.setStyleSheet("font-size: 11px; color: #e74c3c; font-weight: bold;")
+            layout.addWidget(status_label)
+        
+        # Adjust size to content
+        tooltip.adjustSize()
+        
+        # Set maximum width to prevent tooltip from being too wide
+        tooltip.setMaximumWidth(350)
+        
+        return tooltip
+    
+    def _update_conflict_indicator_position(self):
+        """Update conflict indicator position based on current language"""
+        from app.core.language_manager import language_manager
+        from app.core.translator import translator
+        
+        current_lang = language_manager.get_current_language()
+        
+        # Get widget width, use minimum if not yet laid out
+        widget_width = self.width()
+        if widget_width <= 0:
+            widget_width = 200  # Default minimum width
+        
+        # Position: left for English (LTR), right for Persian (RTL)
+        if current_lang == 'en':
+            x_pos = 2  # Left side for LTR
+        else:
+            x_pos = max(2, widget_width - 25)  # Right side for RTL, ensure it's not negative
+        
+        self.conflict_indicator.setGeometry(x_pos, 2, 16, 16)
+        
+        # Update tooltip with translated text
+        tooltip_text = translator.t("messages.conflict_tooltip", default="This course conflicts with your selected courses")
+        self.conflict_indicator.setToolTip(tooltip_text)
         
     def is_custom_course(self):
         """Check if this course should show delete button (user-added courses can be deleted)"""
@@ -334,7 +615,7 @@ class CourseListWidget(QtWidgets.QWidget):
         
         # Update conflict indicator position on mouse move
         if self.conflict_indicator.isVisible():
-            self.conflict_indicator.setGeometry(self.width() - 25, 2, 16, 16)
+            self._update_conflict_indicator_position()
         
         # Call parent implementation
         super().mouseMoveEvent(event)
@@ -429,15 +710,15 @@ class CourseListWidget(QtWidgets.QWidget):
             if has_conflict:
                 break
         
-        # Update indicator visibility
+        # Update indicator visibility and position
         if has_conflict:
+            self._update_conflict_indicator_position()
             self.conflict_indicator.show()
-            self.conflict_indicator.setToolTip("این درس با دروس انتخابی شما تداخل دارد")
         else:
             self.conflict_indicator.hide()
     
     def enterEvent(self, event):
-        """Show additional information when mouse enters the widget with safety wrapper"""
+        """Show additional information when mouse enters the widget with 1 second delay"""
         logger.debug("overlay_hover_enter: Course list widget hover enter")
         try:
             # Safety check for parent
@@ -445,8 +726,14 @@ class CourseListWidget(QtWidgets.QWidget):
                 logger.warning("overlay_hover_parent_missing: Parent list not available during hover enter")
                 super().enterEvent(event)
                 return
-                
-            self.additional_info_widget.show()
+            
+            # Start timer for 300ms delay before showing additional info (faster response)
+            if hasattr(self, 'hover_timer'):
+                # Stop any existing timer first
+                self.hover_timer.stop()
+                # Start new timer
+                self.hover_timer.start(300)  # 300ms delay for faster response
+                logger.debug(f"Hover timer started for course: {self.course_key}")
         except Exception as e:
             logger.warning(f"overlay_hover_enter_error: Error in enterEvent for CourseListWidgetItem: {e}")
         super().enterEvent(event)
@@ -460,8 +747,11 @@ class CourseListWidget(QtWidgets.QWidget):
                 logger.warning("overlay_hover_parent_missing: Parent list not available during hover leave")
                 super().leaveEvent(event)
                 return
-                
-            self.additional_info_widget.hide()
+            
+            # Stop timer and hide floating tooltip
+            if hasattr(self, 'hover_timer'):
+                self.hover_timer.stop()
+            self._hide_floating_tooltip()
             main_window = self.get_main_window()
             if main_window:
                 main_window.clear_preview()
@@ -471,6 +761,12 @@ class CourseListWidget(QtWidgets.QWidget):
         except Exception as e:
             logger.warning(f"overlay_hover_leave_error: Error in leaveEvent for CourseListWidgetItem: {e}")
         super().leaveEvent(event)
+    
+    def resizeEvent(self, event):
+        """Update conflict indicator position when widget is resized"""
+        super().resizeEvent(event)
+        if hasattr(self, 'conflict_indicator') and self.conflict_indicator.isVisible():
+            self._update_conflict_indicator_position()
 
 class AnimatedCourseWidget(QtWidgets.QFrame):
     """Course cell widget with smooth hover effects"""

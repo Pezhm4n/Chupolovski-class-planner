@@ -445,6 +445,7 @@
     "context_menu_add_to_auto": "اضافه به لیست برنامه‌ریزی خودکار",
     "conflict_reason": "دلیل: تداخل زمانی با",
     "conflict_with_course": "تداخل با درس",
+    "conflict_tooltip": "این درس با دروس انتخابی شما تداخل دارد",
     "conflict_title": "تداخل زمان‌بندی دروس",
     "conflict_message": "درس \"{course_name}\" با دروس زیر تداخل دارد:",
     "conflict_details": "دروس متداخل:",
@@ -483,6 +484,16 @@
     "course_info": "اطلاعات درس",
     "stats": "آمار",
     "notifications": "اعلان‌ها"
+  },
+  "exam_conflicts": {
+    "title": "⚠️ اختلال در برنامه امتحانات",
+    "no_conflicts": "هیچ اختلالی در برنامه امتحانات وجود ندارد.",
+    "conflicts_found": "⚠️ {count} اختلال در برنامه امتحانات یافت شد:",
+    "conflict_item": "• {courses} در تاریخ {date} ساعت {time}",
+    "conflict_details": "دروس: {courses}",
+    "conflict_time": "تاریخ و ساعت: {date} {time}",
+    "date": "تاریخ",
+    "time": "ساعت"
   },
   "buttons": {
     "add": "افزودن",
@@ -648,5 +659,26 @@
     "no_courses_for_major": "درسی برای این رشته یافت نشد",
     "system_error": "خطای سیستمی",
     "enter_name": "لطفاً نامی وارد کنید"
+  },
+  "filters": {
+    "title": "فیلترهای جستجو",
+    "time_range": "بازه زمانی",
+    "from": "از",
+    "to": "تا",
+    "hour": "ساعت",
+    "enable_time": "فعال",
+    "general_courses_only": "فقط دروس عمومی",
+    "general_courses_tooltip": "نمایش فقط دروس عمومی مانند اندیشه اسلامی، تربیت بدنی و...",
+    "gender": "جنسیت",
+    "gender_all": "همه",
+    "gender_male": "مرد",
+    "gender_female": "زن",
+    "gender_mixed": "مختلط",
+    "apply": "اعمال",
+    "clear": "پاک کردن",
+    "cancel": "لغو",
+    "search_all_courses": "جستجو در تمام دروس",
+    "searching": "جستجو",
+    "searching_all_courses": "در حال جستجو در تمام دروس..."
   }
 }

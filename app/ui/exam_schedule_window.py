@@ -330,6 +330,144 @@ class ExamScheduleWindow(QtWidgets.QMainWindow):
 
         return "\n".join(formatted_sessions)
 
+    def check_exam_conflicts(self):
+        """
+        Check for exam time conflicts (courses with same exam date and time)
+        Returns a list of conflict groups, each containing courses with the same exam time
+        """
+        try:
+            if not self.parent_window:
+                return []
+            
+            # Get all placed courses from the main window
+            placed_courses = set()
+            if hasattr(self.parent_window, 'placed'):
+                for info in self.parent_window.placed.values():
+                    if info.get('type') == 'dual':
+                        placed_courses.update(info.get('courses', []))
+                    else:
+                        placed_courses.add(info.get('course'))
+            
+            if not placed_courses:
+                return []
+            
+            # Group courses by exam time
+            exam_time_groups = {}
+            no_exam_time = translator.t("common.no_exam_time")
+            
+            for course_key in placed_courses:
+                course = COURSES.get(course_key)
+                if not course:
+                    continue
+                
+                exam_time = course.get('exam_time', '')
+                # Skip courses without exam time
+                if not exam_time or exam_time == no_exam_time or exam_time == 'اعلام نشده':
+                    continue
+                
+                # Normalize exam time for comparison (extract date and time)
+                normalized_time = self._normalize_exam_time(exam_time)
+                if not normalized_time:
+                    continue
+                
+                if normalized_time not in exam_time_groups:
+                    exam_time_groups[normalized_time] = []
+                exam_time_groups[normalized_time].append({
+                    'key': course_key,
+                    'name': course.get('name', course_key),
+                    'code': course.get('code', ''),
+                    'exam_time': exam_time
+                })
+            
+            # Find conflicts (groups with more than one course)
+            conflicts = []
+            for normalized_time, courses in exam_time_groups.items():
+                if len(courses) > 1:
+                    conflicts.append({
+                        'time': normalized_time,
+                        'courses': courses,
+                        'raw_exam_time': courses[0]['exam_time']
+                    })
+            
+            return conflicts
+            
+        except Exception as e:
+            logger.error(f"Error checking exam conflicts: {e}")
+            return []
+    
+    def _normalize_exam_time(self, exam_time):
+        """
+        Normalize exam time string to a comparable format
+        Extracts date and time from formats like:
+        - "1404/07/08 08:00-10:00"
+        - "1404/07/08 - 08:00-10:00"
+        Returns (date, time_range) tuple or None if invalid
+        """
+        try:
+            import re
+            pattern = r'(\d{4}/\d{2}/\d{2})\s*-?\s*(\d{2}:\d{2}-\d{2}:\d{2})'
+            match = re.search(pattern, exam_time)
+            if match:
+                date = match.group(1)
+                time_range = match.group(2)
+                return (date, time_range)
+            return None
+        except Exception as e:
+            logger.error(f"Error normalizing exam time '{exam_time}': {e}")
+            return None
+    
+    def format_exam_conflict_message(self, conflicts):
+        """
+        Format exam conflicts into a user-friendly message
+        """
+        try:
+            if not conflicts:
+                return translator.t("exam_conflicts.no_conflicts")
+            
+            lines = [translator.t("exam_conflicts.conflicts_found", count=len(conflicts))]
+            
+            for conflict in conflicts:
+                courses = conflict['courses']
+                course_names = [c['name'] for c in courses]
+                courses_str = "، ".join(course_names)
+                
+                # Extract date and time from raw exam time for display
+                raw_time = conflict['raw_exam_time']
+                date_time = self._extract_date_time_for_display(raw_time)
+                
+                if date_time:
+                    date, time = date_time
+                    lines.append(translator.t("exam_conflicts.conflict_item", 
+                                             courses=courses_str, 
+                                             date=date, 
+                                             time=time))
+                else:
+                    lines.append(f"• {courses_str}: {raw_time}")
+            
+            return "\n".join(lines)
+            
+        except Exception as e:
+            logger.error(f"Error formatting exam conflict message: {e}")
+            return ""
+    
+    def _extract_date_time_for_display(self, exam_time):
+        """
+        Extract date and time from exam_time string for display
+        Returns (date, time) tuple or None
+        """
+        try:
+            import re
+            pattern = r'(\d{4}/\d{2}/\d{2})\s*-?\s*(\d{2}:\d{2}-\d{2}:\d{2})'
+            match = re.search(pattern, exam_time)
+            if match:
+                date = match.group(1)
+                time = match.group(2)
+                return (date, time)
+            return None
+        except Exception as e:
+            logger.error(f"Error extracting date/time from '{exam_time}': {e}")
+            return None
+
     def format_exam_time(self, exam_time):
         """Format exam time information for display"""
         if not exam_time or exam_time in ('اعلام نشده', translator.t("common.no_exam_time")):
@@ -542,19 +680,38 @@ class ExamScheduleWindow(QtWidgets.QMainWindow):
 
                 if day_labels:
                     stats_text += f" ({', '.join(day_labels)})"
+                
+                # Check for exam conflicts and add to stats
+                conflicts = self.check_exam_conflicts()
+                if conflicts:
+                    conflict_message = self.format_exam_conflict_message(conflicts)
+                    stats_text += f"\n\n{conflict_message}"
 
                 self.stats_label.setText(stats_text)
             else:
                 self.stats_label.setText(self._t("stats_empty"))
 
-            self.stats_label.setStyleSheet(
-                "background-color: #E1BEE7;"
-                "color: #333;"
-                "padding: 15px;"
-                "border-radius: 8px;"
-                "font-weight: normal;"
-                "text-align: center;"
-            )
+            # Set style - red if conflicts exist, otherwise default
+            conflicts = self.check_exam_conflicts() if placed_courses else []
+            if conflicts:
+                self.stats_label.setStyleSheet(
+                    "background-color: #FFEBEE;"
+                    "color: #C62828;"
+                    "padding: 15px;"
+                    "border-radius: 8px;"
+                    "font-weight: bold;"
+                    "text-align: center;"
+                    "border: 2px solid #E53935;"
+                )
+            else:
+                self.stats_label.setStyleSheet(
+                    "background-color: #E1BEE7;"
+                    "color: #333;"
+                    "padding: 15px;"
+                    "border-radius: 8px;"
+                    "font-weight: normal;"
+                    "text-align: center;"
+                )
 
     '''def export_exam_schedule(self):
         """Export the exam schedule to various formats"""

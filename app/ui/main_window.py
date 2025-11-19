@@ -154,6 +154,15 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         
         self.connect_signals()
         self.create_search_clear_button()
+        self.create_filter_button()
+        
+        # Initialize filter state
+        self.active_filters = {
+            'time_from': None,
+            'time_to': None,
+            'general_courses_only': False,
+            'gender': None
+        }
         self.load_and_apply_styles()
         self.create_menu_bar()
         self.update_translations()
@@ -555,10 +564,31 @@ class SchedulerWindow(QtWidgets.QMainWindow):
                 if not COURSES:
                     self.load_courses_from_database()
             
+            # Check if COURSES is still empty after loading
+            if not COURSES:
+                course_list_widget.clear()
+                placeholder_item = QtWidgets.QListWidgetItem()
+                placeholder_item.setFlags(QtCore.Qt.ItemFlag.NoItemFlags)
+                placeholder_item.setForeground(QtGui.QColor(128, 128, 128))
+                placeholder_item.setText(translator.t("hardcoded_texts.select_major_placeholder"))
+                course_list_widget.addItem(placeholder_item)
+                logger.warning("COURSES dictionary is empty - cannot populate course list")
+                return
+            
             search_active = bool(filter_text and filter_text.strip())
 
             filtered_courses = {}
             major_selected = hasattr(self, 'current_major_filter') and self.current_major_filter and self.current_major_filter.strip() != ""
+            
+            # Check if any filters are active (time, general courses, gender)
+            filters = getattr(self, 'active_filters', {})
+            has_active_filters = (
+                (filters.get('time_from') is not None) or
+                filters.get('general_courses_only', False) or
+                filters.get('gender') is not None
+            )
+            
+            # First, filter by major if selected
             if major_selected:
                 filtered_courses = {
                     key: course for key, course in COURSES.items()
@@ -567,25 +597,39 @@ class SchedulerWindow(QtWidgets.QMainWindow):
                 logger.info(f"Filtered to {len(filtered_courses)} courses for major: '{self.current_major_filter}'")
                 is_filtered = True
             else:
-                if search_active:
+                # If no major selected, start with all courses if searching OR if filters are active
+                if search_active or has_active_filters:
                     filtered_courses = dict(COURSES)
-                    logger.info("Global search activated without major filter")
+                    logger.info("Global search/filter activated without major filter")
                     is_filtered = True
                 else:
                     filtered_courses = {}
-                    logger.info("No major selected and no search text - showing placeholder")
+                    logger.info("No major selected and no search text or filters - showing placeholder")
                     is_filtered = True
 
-            if search_active and filtered_courses:
+            # Then, apply search filter if search is active (optimized search)
+            if search_active:
                 filter_text_lower = filter_text.strip().lower()
-                filtered_courses = {
-                    key: course for key, course in filtered_courses.items()
-                    if filter_text_lower in course.get('name', '').lower() or
-                       filter_text_lower in course.get('code', '').lower() or
-                       filter_text_lower in course.get('instructor', '').lower()
-                }
-                logger.info(f"Search filtered to {len(filtered_courses)} courses for: '{filter_text}'")
+                search_terms = filter_text_lower.split()  # Split into terms for better matching
+                
+                # Optimized search: pre-compute lowercased values and use set operations
+                if filtered_courses:
+                    filtered_courses = {
+                        key: course for key, course in filtered_courses.items()
+                        if self._course_matches_search(course, search_terms)
+                    }
+                    logger.info(f"Search filtered to {len(filtered_courses)} courses for: '{filter_text}'")
+                else:
+                    # If no courses to search in (e.g., no major selected), search all courses
+                    filtered_courses = {
+                        key: course for key, course in COURSES.items()
+                        if self._course_matches_search(course, search_terms)
+                    }
+                    logger.info(f"Global search found {len(filtered_courses)} courses for: '{filter_text}'")
                 is_filtered = True
+            
+            # Apply additional filters (time, general courses, gender)
+            filtered_courses = self._apply_additional_filters(filtered_courses)
             
             course_list_widget.clear()
             
@@ -613,8 +657,15 @@ class SchedulerWindow(QtWidgets.QMainWindow):
                 logger.info(f"Course list populated with {len(filtered_courses)} courses (filtered: {is_filtered})")
                 return
             
+            # Limit results to prevent UI lag (show max 500 results)
+            max_results = 500
+            courses_to_show = dict(list(filtered_courses.items())[:max_results])
+            
+            if len(filtered_courses) > max_results:
+                logger.info(f"Filtered courses: {len(filtered_courses)}, showing first {max_results}")
+            
             # Add courses to list using CourseListWidget for hover preview and conflict indicators
-            for course_key, course in filtered_courses.items():
+            for course_key, course in courses_to_show.items():
                 try:
                     # Create item with course key
                     item = QtWidgets.QListWidgetItem()
@@ -635,12 +686,155 @@ class SchedulerWindow(QtWidgets.QMainWindow):
                     item.setData(QtCore.Qt.ItemDataRole.UserRole, course_key)
                     course_list_widget.addItem(item)
             
-            logger.info(f"Populated course list with {len(filtered_courses)} courses (filtered: {is_filtered})")
+            logger.info(f"Populated course list with {len(courses_to_show)} courses (filtered: {is_filtered})")
             
         except Exception as e:
             logger.error(f"Failed to populate course list: {e}")
             import traceback
             traceback.print_exc()
+    
+    def _course_matches_search(self, course, search_terms):
+        """Optimized search matching - checks if all search terms match"""
+        # Pre-compute lowercased values once (performance optimization)
+        name_lower = course.get('name', '').lower()
+        code_lower = course.get('code', '').lower()
+        instructor_lower = course.get('instructor', '').lower()
+        
+        # Check if all search terms match (AND logic)
+        for term in search_terms:
+            if (term not in name_lower and 
+                term not in code_lower and 
+                term not in instructor_lower):
+                return False
+        return True
+    
+    def _apply_additional_filters(self, courses):
+        """Apply time, general courses, and gender filters"""
+        from .filter_dialog import GENERAL_COURSES
+        
+        filtered = courses
+        filters = getattr(self, 'active_filters', {})
+        
+        # Time filter
+        time_from = filters.get('time_from')
+        time_to = filters.get('time_to')
+        if time_from is not None and time_to is not None:
+            filtered = {
+                key: course for key, course in filtered.items()
+                if self._matches_time_filter(course, time_from, time_to)
+            }
+        
+        # General courses filter
+        if filters.get('general_courses_only', False):
+            filtered = {
+                key: course for key, course in filtered.items()
+                if self._is_general_course(course, GENERAL_COURSES)
+            }
+        
+        # Gender filter
+        gender_filter = filters.get('gender')
+        if gender_filter:
+            filtered = {
+                key: course for key, course in filtered.items()
+                if self._matches_gender_filter(course, gender_filter)
+            }
+        
+        return filtered
+    
+    def _matches_time_filter(self, course, time_from, time_to):
+        """Check if course has any session in the time range"""
+        schedule = course.get('schedule', [])
+        if not schedule:
+            return False
+        
+        for session in schedule:
+            start = session.get('start', '')
+            end = session.get('end', '')
+            
+            if start and end:
+                # Extract hour from time string (format: "HH:MM")
+                try:
+                    start_hour = int(start.split(':')[0])
+                    end_hour = int(end.split(':')[0])
+                    
+                    # Check if session overlaps with filter range
+                    # Session overlaps if: start_hour <= time_to AND end_hour >= time_from
+                    # This includes sessions that start or end at the boundaries
+                    if start_hour <= time_to and end_hour >= time_from:
+                        return True
+                except (ValueError, IndexError):
+                    continue
+        
+        return False
+    
+    def _is_general_course(self, course, general_courses_list):
+        """Check if course is a general course"""
+        from app.core.text_normalizer import is_general_course_match
+        
+        course_name = course.get('name', '')
+        if not course_name:
+            return False
+        
+        for general_course_pattern in general_courses_list:
+            if is_general_course_match(course_name, general_course_pattern):
+                return True
+        
+        return False
+    
+    def _clear_overlapping_spans(self, target_row, target_col, target_row_span=1, target_col_span=1):
+        """Reset any existing spans that overlap the target rectangle."""
+        try:
+            row_count = self.schedule_table.rowCount()
+            col_count = self.schedule_table.columnCount()
+            # Target rectangle
+            tr0, tc0 = target_row, target_col
+            tr1 = min(row_count - 1, target_row + max(1, target_row_span) - 1)
+            tc1 = min(col_count - 1, target_col + max(1, target_col_span) - 1)
+            if tr0 < 0 or tc0 < 0 or tr0 >= row_count or tc0 >= col_count:
+                return
+            # Scan all cells that could be span origins
+            for r in range(row_count):
+                for c in range(col_count):
+                    rs = self.schedule_table.rowSpan(r, c)
+                    cs = self.schedule_table.columnSpan(r, c)
+                    if rs <= 1 and cs <= 1:
+                        continue
+                    # Existing span rectangle
+                    er0, ec0 = r, c
+                    er1 = min(row_count - 1, r + rs - 1)
+                    ec1 = min(col_count - 1, c + cs - 1)
+                    # Check overlap
+                    if not (er1 < tr0 or tr1 < er0 or ec1 < tc0 or tc1 < ec0):
+                        # Reset this span at its origin
+                        self.schedule_table.setSpan(r, c, 1, 1)
+        except Exception:
+            pass
+    
+    def _matches_gender_filter(self, course, gender_filter):
+        """Check if course matches gender filter"""
+        course_gender = course.get('gender_restriction', '')
+        if not course_gender:
+            # If course has no gender restriction, it's considered "مختلط"
+            return gender_filter == 'مختلط'
+        
+        # Normalize gender values for matching
+        # Support both old and new values
+        gender_mapping = {
+            'آقا': 'مرد',
+            'خانم': 'زن',
+            'مرد': 'مرد',
+            'زن': 'زن',
+            'مختلط': 'مختلط'
+        }
+        
+        normalized_course_gender = gender_mapping.get(course_gender, course_gender)
+        normalized_filter = gender_mapping.get(gender_filter, gender_filter)
+        
+        return normalized_course_gender == normalized_filter
+
+    def populate_major_categories(self):
+        """Populate major categories for filtering"""
+        try:
             major_categories = []
             if self.db is not None:
                 # Use database method to get faculties with departments
@@ -836,7 +1030,16 @@ class SchedulerWindow(QtWidgets.QMainWindow):
             # Set the item user data
             item.setData(QtCore.Qt.ItemDataRole.UserRole, course_key)
 
+            # Clear any existing span before setting new one to avoid overlap errors
+            try:
+                current_span = self.schedule_table.rowSpan(row_start, col_start)
+                if current_span > 1:
+                    self.schedule_table.setSpan(row_start, col_start, 1, 1)
+            except:
+                pass
+            
             # Add the item to the schedule table
+            self._clear_overlapping_spans(row_start, col_start, row_span, col_span)
             self.schedule_table.setSpan(row_start, col_start, row_span, col_span)
             self.schedule_table.setItem(row_start, col_start, item)
 
@@ -1728,8 +1931,7 @@ class SchedulerWindow(QtWidgets.QMainWindow):
 
             # Update window title
             app_title = translator.t("app.title")
-            version = translator.t("app.version", **{"0": "2.1"})
-            self.setWindowTitle(f"🎓 {app_title} - {version}")
+            self.setWindowTitle(f"🎓 {app_title}")
             
             # Update menu items
             # Update combo box
@@ -2096,7 +2298,6 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         try:
             import jdatetime
             
-            # تنظیم locale برای فارسی
             jdatetime.set_locale(jdatetime.FA_LOCALE)
             now = jdatetime.datetime.now()
             
@@ -2149,7 +2350,6 @@ class SchedulerWindow(QtWidgets.QMainWindow):
             
         logger.debug("=== Debug Stats Widget ===")
         
-        # پیدا کردن تمام label های موجود
         labels = self.findChildren(QtWidgets.QLabel)
         for label in labels:
             if hasattr(label, 'objectName'):
@@ -2157,7 +2357,6 @@ class SchedulerWindow(QtWidgets.QMainWindow):
                 text = label.text()[:50] + "..." if len(label.text()) > 50 else label.text()
                 logger.debug(f"Label: {name} -> {text}")
         
-        # تست مستقیم
         widgets_to_test = [
             'stats_label',
             'statsLabel', 
@@ -2176,6 +2375,148 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         
         return None
 
+    def check_exam_conflicts(self):
+        """
+        Check for exam time conflicts (courses with same exam date and time)
+        Returns a list of conflict groups, each containing courses with the same exam time
+        """
+        try:
+            from app.core.translator import translator
+            
+            # Get all placed courses
+            placed_courses = set()
+            if hasattr(self, 'placed') and self.placed:
+                for info in self.placed.values():
+                    if info.get('type') == 'dual':
+                        placed_courses.update(info.get('courses', []))
+                    else:
+                        placed_courses.add(info.get('course'))
+            
+            if not placed_courses:
+                return []
+            
+            # Group courses by exam time
+            exam_time_groups = {}
+            no_exam_time = translator.t("common.no_exam_time")
+            
+            for course_key in placed_courses:
+                course = COURSES.get(course_key)
+                if not course:
+                    continue
+                
+                exam_time = course.get('exam_time', '')
+                # Skip courses without exam time
+                if not exam_time or exam_time == no_exam_time or exam_time == 'اعلام نشده':
+                    continue
+                
+                # Normalize exam time for comparison (extract date and time)
+                # Format: "1404/07/08 08:00-10:00" or "1404/07/08 - 08:00-10:00"
+                normalized_time = self._normalize_exam_time(exam_time)
+                if not normalized_time:
+                    continue
+                
+                if normalized_time not in exam_time_groups:
+                    exam_time_groups[normalized_time] = []
+                exam_time_groups[normalized_time].append({
+                    'key': course_key,
+                    'name': course.get('name', course_key),
+                    'code': course.get('code', ''),
+                    'exam_time': exam_time
+                })
+            
+            # Find conflicts (groups with more than one course)
+            conflicts = []
+            for normalized_time, courses in exam_time_groups.items():
+                if len(courses) > 1:
+                    conflicts.append({
+                        'time': normalized_time,
+                        'courses': courses,
+                        'raw_exam_time': courses[0]['exam_time']
+                    })
+            
+            return conflicts
+            
+        except Exception as e:
+            logger.error(f"Error checking exam conflicts: {e}")
+            return []
+    
+    def _normalize_exam_time(self, exam_time):
+        """
+        Normalize exam time string to a comparable format
+        Extracts date and time from formats like:
+        - "1404/07/08 08:00-10:00"
+        - "1404/07/08 - 08:00-10:00"
+        Returns (date, time_range) tuple or None if invalid
+        """
+        try:
+            import re
+            # Pattern to match date and time
+            # Matches: "1404/07/08 08:00-10:00" or "1404/07/08 - 08:00-10:00"
+            pattern = r'(\d{4}/\d{2}/\d{2})\s*-?\s*(\d{2}:\d{2}-\d{2}:\d{2})'
+            match = re.search(pattern, exam_time)
+            if match:
+                date = match.group(1)
+                time_range = match.group(2)
+                return (date, time_range)
+            return None
+        except Exception as e:
+            logger.error(f"Error normalizing exam time '{exam_time}': {e}")
+            return None
+    
+    def format_exam_conflict_message(self, conflicts):
+        """
+        Format exam conflicts into a user-friendly message
+        """
+        try:
+            from app.core.translator import translator
+            
+            if not conflicts:
+                return translator.t("exam_conflicts.no_conflicts")
+            
+            lines = [translator.t("exam_conflicts.conflicts_found", count=len(conflicts))]
+            
+            for conflict in conflicts:
+                courses = conflict['courses']
+                course_names = [c['name'] for c in courses]
+                courses_str = "، ".join(course_names)
+                
+                # Extract date and time from raw exam time for display
+                raw_time = conflict['raw_exam_time']
+                date_time = self._extract_date_time_for_display(raw_time)
+                
+                if date_time:
+                    date, time = date_time
+                    lines.append(translator.t("exam_conflicts.conflict_item", 
+                                             courses=courses_str, 
+                                             date=date, 
+                                             time=time))
+                else:
+                    lines.append(f"• {courses_str}: {raw_time}")
+            
+            return "\n".join(lines)
+            
+        except Exception as e:
+            logger.error(f"Error formatting exam conflict message: {e}")
+            return ""
+    
+    def _extract_date_time_for_display(self, exam_time):
+        """
+        Extract date and time from exam_time string for display
+        Returns (date, time) tuple or None
+        """
+        try:
+            import re
+            pattern = r'(\d{4}/\d{2}/\d{2})\s*-?\s*(\d{2}:\d{2}-\d{2}:\d{2})'
+            match = re.search(pattern, exam_time)
+            if match:
+                date = match.group(1)
+                time = match.group(2)
+                return (date, time)
+            return None
+        except Exception as e:
+            logger.error(f"Error extracting date/time from '{exam_time}': {e}")
+            return None
+
     def update_stats_panel(self):
         """Update the stats panel with current schedule information - FORCED VERSION"""
         # Only show debug log if in debug mode
@@ -2183,7 +2524,6 @@ class SchedulerWindow(QtWidgets.QMainWindow):
             logger.debug("🔄 update_stats_panel called")
         
         try:
-            # پیدا کردن widget صحیح
             stats_widget = None
             widget_candidates = [
                 getattr(self, 'stats_label', None),
@@ -2216,7 +2556,6 @@ class SchedulerWindow(QtWidgets.QMainWindow):
                     logger.debug("Still no stats widget found!")
                 return
                 
-            # محاسبه آمار
             if hasattr(self, 'placed') and self.placed:
                 # Collect currently placed course keys
                 # Handle both single and dual courses correctly
@@ -2244,7 +2583,6 @@ class SchedulerWindow(QtWidgets.QMainWindow):
                 if os.environ.get('DEBUG'):
                     logger.debug(f"Found {len(keys)} courses")
                 
-                # محاسبه واحدها
                 total_units = 0
                 total_sessions = len(self.placed)
                 days_used = set()
@@ -2287,11 +2625,70 @@ class SchedulerWindow(QtWidgets.QMainWindow):
             stats_widget.update()
             stats_widget.repaint()
             
+            # Update notifications with exam conflicts
+            self.update_notifications()
+            
         except Exception as e:
             logger.error(f"Error in update_stats_panel: {e}")
             if os.environ.get('DEBUG'):
                 import traceback
                 traceback.print_exc()
+    
+    def update_notifications(self):
+        """Update the notifications label with exam conflicts"""
+        try:
+            if not hasattr(self, 'notifications_label'):
+                return
+            
+            from app.core.translator import translator
+            
+            # Check for exam conflicts
+            conflicts = self.check_exam_conflicts()
+            
+            # Format conflict message
+            if conflicts:
+                message = self.format_exam_conflict_message(conflicts)
+                self.notifications_label.setText(message)
+                # Set text color to red for conflicts
+                self.notifications_label.setStyleSheet("color: #e74c3c; font-weight: bold;")
+                
+                # Create detailed tooltip with conflict information
+                tooltip_lines = []
+                tooltip_lines.append(translator.t("exam_conflicts.conflicts_found", count=len(conflicts)))
+                tooltip_lines.append("")  # Empty line
+                
+                for conflict in conflicts:
+                    courses = conflict['courses']
+                    course_names = [c['name'] for c in courses]
+                    courses_str = "، ".join(course_names)
+                    
+                    # Extract date and time from raw exam time for display
+                    raw_time = conflict['raw_exam_time']
+                    date_time = self._extract_date_time_for_display(raw_time)
+                    
+                    if date_time:
+                        date, time = date_time
+                        tooltip_lines.append(f"• {courses_str}")
+                        tooltip_lines.append(f"  {translator.t('exam_conflicts.date')}: {date}")
+                        tooltip_lines.append(f"  {translator.t('exam_conflicts.time')}: {time}")
+                    else:
+                        tooltip_lines.append(f"• {courses_str}: {raw_time}")
+                    tooltip_lines.append("")  # Empty line between conflicts
+                
+                tooltip_text = "\n".join(tooltip_lines).strip()
+                self.notifications_label.setToolTip(tooltip_text)
+            else:
+                self.notifications_label.setText(translator.t("exam_conflicts.no_conflicts"))
+                # Reset to default style
+                self.notifications_label.setStyleSheet("")
+                # Clear tooltip when no conflicts
+                self.notifications_label.setToolTip("")
+            
+            self.notifications_label.update()
+            self.notifications_label.repaint()
+            
+        except Exception as e:
+            logger.error(f"Error updating notifications: {e}")
 
     def updatestatspanel(self):
         """Alias for update_stats_panel"""
@@ -2302,7 +2699,6 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         from datetime import datetime
         now = datetime.now()
         
-        # روش ساده‌تر بدون تبدیل دقیق تقویم
         persian_months = [
             'فروردین', 'اردیبهشت', 'خرداد', 'تیر', 'مرداد', 'شهریور',
             'مهر', 'آبان', 'آذر', 'دی', 'بهمن', 'اسفند'
@@ -2315,7 +2711,6 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         weekday_names = ['شنبه', 'یکشنبه', 'دوشنبه', 'سه‌شنبه', 'چهارشنبه', 'پنج‌شنبه', 'جمعه']
         weekday = weekday_names[persian_weekday_index]
         
-        # تقریبی - نه دقیق
         month_name = persian_months[now.month - 1] if 1 <= now.month <= 12 else translator.t("messages.unknown")
         
         time_str = now.strftime('%H:%M:%S')
@@ -2784,8 +3179,17 @@ class SchedulerWindow(QtWidgets.QMainWindow):
                     
                     # Set cell widget only once with safety check
                     try:
+                        # Clear any existing span before setting new one to avoid overlap errors
+                        try:
+                            current_span = self.schedule_table.rowSpan(srow, col)
+                            if current_span > 1:
+                                self.schedule_table.setSpan(srow, col, 1, 1)
+                        except:
+                            pass
+                        
                         self.schedule_table.setCellWidget(srow, col, preview_widget)
                         if span > 1:
+                            self._clear_overlapping_spans(srow, col, span, 1)
                             self.schedule_table.setSpan(srow, col, span, 1)
                         self.preview_cells.append((srow, col, span))
                     except Exception as e:
@@ -3068,9 +3472,7 @@ class SchedulerWindow(QtWidgets.QMainWindow):
                     if hasattr(existing_widget, 'course_key'):
                         existing_course_key = existing_widget.course_key
                         
-                        # IMPORTANT: If it's the same course, skip conflict check (already added)
                         if existing_course_key == course_key:
-                            # This is the same course - it's already added, skip this placement
                             continue
                         
                         existing_course = COURSES.get(existing_course_key, {})
@@ -3519,6 +3921,9 @@ class SchedulerWindow(QtWidgets.QMainWindow):
                     try:
                         dual_widget = create_dual_course_widget(odd_data, even_data, self)
                         self.schedule_table.setCellWidget(srow, col, dual_widget)
+                        self._clear_overlapping_spans(srow, col, span, 1)
+                        if span > 1:
+                            self.schedule_table.setSpan(srow, col, span, 1)
                     except Exception as e:
                         logger.error(f"Error creating dual widget: {e}")
                         import traceback
@@ -3600,6 +4005,9 @@ class SchedulerWindow(QtWidgets.QMainWindow):
                     try:
                         dual_widget = create_dual_course_widget(odd_data, even_data, self)
                         self.schedule_table.setCellWidget(srow, col, dual_widget)
+                        self._clear_overlapping_spans(srow, col, span, 1)
+                        if span > 1:
+                            self.schedule_table.setSpan(srow, col, span, 1)
                     except Exception as e:
                         logger.error(f"Error creating dual widget: {e}")
                         import traceback
@@ -3719,8 +4127,17 @@ class SchedulerWindow(QtWidgets.QMainWindow):
                 cell_widget.leaveEvent = leave_event
                 cell_widget.mousePressEvent = mouse_press_event
                 
+                # Clear any existing span before setting new one to avoid overlap errors
+                try:
+                    current_span = self.schedule_table.rowSpan(srow, col)
+                    if current_span > 1:
+                        self.schedule_table.setSpan(srow, col, 1, 1)
+                except:
+                    pass
+                
                 self.schedule_table.setCellWidget(srow, col, cell_widget)
                 if span > 1:
+                    self._clear_overlapping_spans(srow, col, span, 1)
                     self.schedule_table.setSpan(srow, col, span, 1)
                 
                 self.placed[(srow, col)] = {
@@ -3738,8 +4155,8 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         
         # Update stats panel
         print("🔄 Calling update_stats_panel from add_course_to_table")
-        self.update_stats_panel()  # فورس کال
-        QtCore.QCoreApplication.processEvents()  # فورس UI update
+        self.update_stats_panel()
+        QtCore.QCoreApplication.processEvents()
 
 
     def remove_placed_by_start(self, start_tuple):
@@ -3863,8 +4280,17 @@ class SchedulerWindow(QtWidgets.QMainWindow):
                 bottom_row.addStretch()
                 cell_layout.addLayout(bottom_row)
             
+            # Clear any existing span before setting new one to avoid overlap errors
+            try:
+                current_span = self.schedule_table.rowSpan(srow, scol)
+                if current_span > 1:
+                    self.schedule_table.setSpan(srow, scol, 1, 1)
+            except:
+                pass
+            
             self.schedule_table.setCellWidget(srow, scol, cell_widget)
             if span > 1:
+                self._clear_overlapping_spans(srow, scol, span, 1)
                 self.schedule_table.setSpan(srow, scol, span, 1)
             
             self.placed[widget_position] = {
@@ -4085,7 +4511,7 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         # Update stats panel after removing course
         print("🔄 Calling update_stats_panel from remove_entire_course")
         self.update_stats_panel()
-        QtCore.QCoreApplication.processEvents()  # فورس UI update
+        QtCore.QCoreApplication.processEvents()
         
         # Show confirmation
         from app.core.config import COURSES
@@ -5667,12 +6093,153 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         pass
 
     def on_search_text_changed(self, text):
-        """Handle search text change"""
+        """Handle search text change with debouncing and background thread"""
         try:
-            # Filter course list based on search text
-            self.filter_course_list(text)
+            # Cancel any existing search worker
+            if hasattr(self, '_search_worker') and self._search_worker.isRunning():
+                self._search_worker.cancel()
+                self._search_worker.wait(100)  # Wait max 100ms for cancellation
+            
+            # Use QTimer to debounce the search (reduced to 200ms for faster response)
+            if not hasattr(self, '_search_timer'):
+                self._search_timer = QtCore.QTimer(self)
+                self._search_timer.setSingleShot(True)
+            
+            # Stop any existing timer
+            self._search_timer.stop()
+            
+            # Create a closure to capture the current text value
+            def perform_search():
+                try:
+                    # Use background thread for search to prevent UI freezing
+                    self._start_background_search(text)
+                except Exception as e:
+                    logger.error(f"Error in debounced search: {e}")
+                    # Fallback to immediate search if thread fails
+                    try:
+                        self.filter_course_list(text)
+                    except Exception as e2:
+                        logger.error(f"Error in fallback search: {e2}")
+            
+            # Connect the timeout signal to our closure
+            self._search_timer.timeout.disconnect()  # Disconnect any previous connections
+            self._search_timer.timeout.connect(perform_search)
+            
+            # Start the timer with 200ms delay (reduced from 300ms)
+            self._search_timer.start(200)
         except Exception as e:
-            logger.error(f"Error in search: {e}")
+            logger.error(f"Error in search text changed handler: {e}")
+            # Fallback to immediate search if timer fails
+            try:
+                self.filter_course_list(text)
+            except Exception as e2:
+                logger.error(f"Error in fallback search: {e2}")
+    
+    def _start_background_search(self, filter_text):
+        """Start search in background thread"""
+        try:
+            from app.core.config import COURSES
+            from .search_worker import SearchWorker
+            
+            # Cancel previous worker if exists
+            if hasattr(self, '_search_worker') and self._search_worker.isRunning():
+                self._search_worker.cancel()
+                self._search_worker.wait(50)
+            
+            # Get current major filter
+            major_filter = None
+            if hasattr(self, 'current_major_filter') and self.current_major_filter:
+                major_filter = self.current_major_filter.strip()
+            
+            # Get active filters
+            filters = getattr(self, 'active_filters', {})
+            
+            # Create and start search worker
+            self._search_worker = SearchWorker(COURSES, filter_text, major_filter, filters)
+            self._search_worker.search_finished.connect(self._on_search_finished)
+            self._search_worker.start()
+            
+        except Exception as e:
+            logger.error(f"Error starting background search: {e}")
+            # Fallback to synchronous search
+            self.filter_course_list(filter_text)
+    
+    def _on_search_finished(self, filtered_courses):
+        """Handle search completion from background thread"""
+        try:
+            # Update UI with search results
+            self._populate_course_list_with_results(filtered_courses)
+        except Exception as e:
+            logger.error(f"Error handling search results: {e}")
+    
+    def _populate_course_list_with_results(self, filtered_courses):
+        """Populate course list with search results (optimized)"""
+        try:
+            course_list_widget = None
+            if hasattr(self, 'course_list') and self.course_list is not None:
+                course_list_widget = self.course_list
+            elif hasattr(self, 'course_list_widget') and self.course_list_widget is not None:
+                course_list_widget = self.course_list_widget
+            elif hasattr(self, 'courselist') and self.courselist is not None:
+                course_list_widget = self.courselist
+            else:
+                course_list_widget = self.findChild(QtWidgets.QListWidget, 'course_list')
+                if course_list_widget is None:
+                    logger.error("Course list widget not found")
+                    return
+            
+            # Clear the list
+            course_list_widget.clear()
+            
+            if not hasattr(self, 'course_list') or self.course_list is None:
+                self.course_list = course_list_widget
+            
+            # Show placeholder if no results
+            if not filtered_courses:
+                placeholder_item = QtWidgets.QListWidgetItem()
+                placeholder_item.setFlags(QtCore.Qt.ItemFlag.NoItemFlags)
+                placeholder_item.setForeground(QtGui.QColor(128, 128, 128))
+                placeholder_item.setText(translator.t("hardcoded_texts.no_search_results"))
+                course_list_widget.addItem(placeholder_item)
+                return
+            
+            # Limit results to prevent UI lag (show max 500 results)
+            max_results = 500
+            courses_to_show = dict(list(filtered_courses.items())[:max_results])
+            
+            if len(filtered_courses) > max_results:
+                logger.info(f"Search returned {len(filtered_courses)} results, showing first {max_results}")
+            
+            # Add courses to list (batch operation for better performance)
+            from .widgets import CourseListWidget
+            
+            for course_key, course in courses_to_show.items():
+                try:
+                    # Create item with course key
+                    item = QtWidgets.QListWidgetItem()
+                    item.setData(QtCore.Qt.ItemDataRole.UserRole, course_key)
+                    item.setSizeHint(QtCore.QSize(200, 60))
+                    
+                    # Create custom widget
+                    item_widget = CourseListWidget(course_key, course, course_list_widget, self)
+                    course_list_widget.addItem(item)
+                    course_list_widget.setItemWidget(item, item_widget)
+                except Exception as e:
+                    logger.warning(f"Error creating course list item for {course_key}: {e}")
+                    # Fallback to simple text item
+                    course_name = course.get('name', 'Unknown')
+                    course_code = course.get('code', '')
+                    display_text = f"{course_code}: {course_name}" if course_code else course_name
+                    item = QtWidgets.QListWidgetItem(display_text)
+                    item.setData(QtCore.Qt.ItemDataRole.UserRole, course_key)
+                    course_list_widget.addItem(item)
+            
+            logger.info(f"Populated course list with {len(courses_to_show)} courses")
+            
+        except Exception as e:
+            logger.error(f"Error populating course list with results: {e}")
+            import traceback
+            traceback.print_exc()
 
     def on_clear_schedule(self):
         """Clear all courses from schedule table"""
@@ -5765,27 +6332,6 @@ class SchedulerWindow(QtWidgets.QMainWindow):
                 self,
                 translator.t("common.error"),
                 translator.t("messages.auto_add_error", error=str(e))
-            )
-
-    def on_search_text_changed(self, text):
-        """Handle search text change with debouncing"""
-        try:
-            # Use QTimer to debounce the search (delay for 300ms)
-            if hasattr(self, '_search_timer'):
-                self._search_timer.stop()
-            else:
-                self._search_timer = QtCore.QTimer(self)
-                self._search_timer.setSingleShot(True)
-                self._search_timer.timeout.connect(lambda: self.filter_course_list(text))
-            
-            # Start the timer with 300ms delay
-            self._search_timer.start(300)
-        except Exception as e:
-            logger.error(f"Error : {e}")
-            QtWidgets.QMessageBox.critical(
-                self,
-                translator.t("common.error"),
-                translator.t("messages.generic_error", error=str(e))
             )
 
     def update_item_size_hint(self, item, widget):
@@ -5904,6 +6450,209 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         """Show/hide the search clear button based on search text"""
         if hasattr(self, 'search_clear_button'):
             self.search_clear_button.setVisible(bool(text))
+    
+    def create_filter_button(self):
+        """Create and position the filter button next to search box"""
+        try:
+            if hasattr(self, 'search_box') and hasattr(self, 'search_group'):
+                # Try to find filter_button from UI first
+                filter_btn = self.findChild(QtWidgets.QPushButton, 'filter_button')
+                
+                if not filter_btn:
+                    # Create filter button if not found in UI
+                    filter_btn = QtWidgets.QPushButton("🎛️")
+                    filter_btn.setObjectName("filter_button")
+                
+                filter_btn.setFixedSize(28, 28)
+                filter_btn.setCursor(QtCore.Qt.PointingHandCursor)
+                filter_btn.setToolTip(translator.t("filters.title", default="فیلترهای جستجو"))
+                
+                # Style the filter button
+                filter_btn.setStyleSheet("""
+                    QPushButton#filter_button {
+                        background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
+                                  stop: 0 #1976D2, stop: 1 #1565C0);
+                        color: white;
+                        border: none;
+                        border-radius: 6px;
+                        font-size: 14px;
+                        font-weight: bold;
+                        padding: 2px;
+                    }
+                    QPushButton#filter_button:hover {
+                        background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
+                                  stop: 0 #1565C0, stop: 1 #1976D2);
+                    }
+                    QPushButton#filter_button:pressed {
+                        background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
+                                  stop: 0 #0D47A1, stop: 1 #1565C0);
+                    }
+                """)
+                
+                # Connect to filter dialog
+                filter_btn.clicked.connect(self.show_filter_dialog)
+                
+                # Add to search layout if not already there
+                search_layout = self.search_group.findChild(QtWidgets.QHBoxLayout, 'search_layout')
+                if search_layout and filter_btn.parent() != self.search_group:
+                    search_layout.addWidget(filter_btn)
+                
+                self.filter_button = filter_btn
+                
+                # Update filter button indicator if filters are active
+                self.update_filter_button_indicator()
+                
+        except Exception as e:
+            logger.error(f"Failed to create filter button: {e}")
+    
+    def show_filter_dialog(self):
+        """Show floating filter menu and apply filters"""
+        try:
+            from .filter_menu import FilterMenu
+            
+            # Get button position
+            if not hasattr(self, 'filter_button'):
+                return
+            
+            button = self.filter_button
+            button_pos = button.mapToGlobal(QtCore.QPoint(0, 0))
+            
+            # Create and show floating menu
+            menu = FilterMenu(self, self.active_filters)
+            menu.filters_changed.connect(self._on_filters_changed)
+            menu.search_all_courses.connect(self._on_search_all_courses)
+            
+            # Position menu below button (or above if not enough space)
+            menu_x = button_pos.x()
+            menu_y = button_pos.y() + button.height() + 2
+            
+            # Check if menu fits below, otherwise show above
+            screen = QtWidgets.QApplication.desktop().screenGeometry()
+            if menu_y + menu.height() > screen.height():
+                menu_y = button_pos.y() - menu.height() - 2
+            
+            # Adjust for RTL/LTR
+            from app.core.language_manager import language_manager
+            current_lang = language_manager.get_current_language()
+            if current_lang == 'fa':
+                # RTL: align right edge with button right edge
+                menu_x = button_pos.x() + button.width() - menu.width()
+            
+            menu.move(menu_x, menu_y)
+            menu.show()
+            
+        except Exception as e:
+            logger.error(f"Error showing filter menu: {e}")
+            import traceback
+            traceback.print_exc()
+    
+    def _on_filters_changed(self, filters):
+        """Handle filter changes"""
+        try:
+            self.active_filters = filters
+            self.update_filter_button_indicator()
+            # Apply filters by refreshing the course list
+            current_search_text = self.search_box.text() if hasattr(self, 'search_box') else ""
+            self.filter_course_list(current_search_text)
+        except Exception as e:
+            logger.error(f"Error applying filters: {e}")
+    
+    def _on_search_all_courses(self):
+        """Handle search all courses button click"""
+        try:
+            from app.core.translator import translator
+            from app.core.config import COURSES
+            from .search_worker import SearchWorker
+            
+            if hasattr(self, 'current_major_filter'):
+                self.current_major_filter = None
+            
+            if hasattr(self, 'comboBox'):
+                placeholder_text = translator.t("hardcoded_texts.select_major_placeholder", default="لطفاً یک رشته انتخاب کنید")
+                for i in range(self.comboBox.count()):
+                    if self.comboBox.itemText(i) == placeholder_text or "انتخاب" in self.comboBox.itemText(i):
+                        self.comboBox.setCurrentIndex(i)
+                        break
+            
+            if hasattr(self, '_search_all_worker') and self._search_all_worker.isRunning():
+                self._search_all_worker.cancel()
+                self._search_all_worker.wait(100)
+            
+            current_search_text = self.search_box.text() if hasattr(self, 'search_box') else ""
+            filters = getattr(self, 'active_filters', {})
+            
+            self._search_all_worker = SearchWorker(COURSES, current_search_text, None, filters)
+            self._search_all_worker.search_finished.connect(self._on_search_all_finished)
+            self._search_all_worker.start()
+            
+        except Exception as e:
+            logger.error(f"Error in search all courses: {e}")
+    
+    def _on_search_all_finished(self, filtered_courses):
+        """Handle search all courses completion"""
+        try:
+            self._populate_course_list_with_results(filtered_courses)
+        except Exception as e:
+            logger.error(f"Error handling search all courses results: {e}")
+    
+    def update_filter_button_indicator(self):
+        """Update filter button to show if filters are active"""
+        try:
+            if hasattr(self, 'filter_button'):
+                has_active_filters = (
+                    (self.active_filters.get('time_from') is not None) or
+                    self.active_filters.get('general_courses_only', False) or
+                    self.active_filters.get('gender') is not None
+                )
+                
+                if has_active_filters:
+                    # Change to different emoji/icon to show filters are active
+                    self.filter_button.setText("🎛️✓")
+                    self.filter_button.setStyleSheet("""
+                        QPushButton#filter_button {
+                            background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
+                                      stop: 0 #43A047, stop: 1 #388E3C);
+                            color: white;
+                            border: none;
+                            border-radius: 6px;
+                            font-size: 14px;
+                            font-weight: bold;
+                            padding: 2px;
+                        }
+                        QPushButton#filter_button:hover {
+                            background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
+                                      stop: 0 #388E3C, stop: 1 #43A047);
+                        }
+                        QPushButton#filter_button:pressed {
+                            background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
+                                      stop: 0 #2E7D32, stop: 1 #388E3C);
+                        }
+                    """)
+                else:
+                    # Reset to default
+                    self.filter_button.setText("🎛️")
+                    self.filter_button.setStyleSheet("""
+                        QPushButton#filter_button {
+                            background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
+                                      stop: 0 #1976D2, stop: 1 #1565C0);
+                            color: white;
+                            border: none;
+                            border-radius: 6px;
+                            font-size: 14px;
+                            font-weight: bold;
+                            padding: 2px;
+                        }
+                        QPushButton#filter_button:hover {
+                            background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
+                                      stop: 0 #1565C0, stop: 1 #1976D2);
+                        }
+                        QPushButton#filter_button:pressed {
+                            background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
+                                      stop: 0 #0D47A1, stop: 1 #1565C0);
+                        }
+                    """)
+        except Exception as e:
+            logger.error(f"Error updating filter button indicator: {e}")
             
     def save_table_image(self):
         """Save table as image (table only, not entire window) with high DPI support and improved quality"""
