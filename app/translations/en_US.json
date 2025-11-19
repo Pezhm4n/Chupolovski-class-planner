@@ -445,6 +445,7 @@
     "context_menu_add_to_auto": "Add to Auto-Scheduling List",
     "conflict_reason": "Reason: Time conflict with",
     "conflict_with_course": "conflicts with course",
+    "conflict_tooltip": "This course conflicts with your selected courses",
     "conflict_title": "Course Scheduling Conflict",
     "conflict_message": "Course \"{course_name}\" conflicts with the following courses:",
     "conflict_details": "Conflicting courses:",
@@ -483,6 +484,16 @@
     "course_info": "Course Info",
     "stats": "Stats",
     "notifications": "Notifications"
+  },
+  "exam_conflicts": {
+    "title": "⚠️ Exam Schedule Conflicts",
+    "no_conflicts": "No conflicts found in exam schedule.",
+    "conflicts_found": "⚠️ {count} conflicts found in exam schedule:",
+    "conflict_item": "• {courses} on {date} at {time}",
+    "conflict_details": "Courses: {courses}",
+    "conflict_time": "Date and time: {date} {time}",
+    "date": "Date",
+    "time": "Time"
   },
   "buttons": {
     "add": "Add",
@@ -648,5 +659,26 @@
     "no_courses_for_major": "No courses found for this major",
     "system_error": "System Error",
     "enter_name": "Please enter a name"
+  },
+  "filters": {
+    "title": "Search Filters",
+    "time_range": "Time Range",
+    "from": "From",
+    "to": "To",
+    "hour": "Hour",
+    "enable_time": "Enable",
+    "general_courses_only": "General Courses Only",
+    "general_courses_tooltip": "Show only general courses like Islamic Thought, Physical Education, etc.",
+    "gender": "Gender",
+    "gender_all": "All",
+    "gender_male": "Male",
+    "gender_female": "Female",
+    "gender_mixed": "Mixed",
+    "apply": "Apply",
+    "clear": "Clear",
+    "cancel": "Cancel",
+    "search_all_courses": "Search All Courses",
+    "searching": "Searching",
+    "searching_all_courses": "Searching in all courses..."
   }
 }

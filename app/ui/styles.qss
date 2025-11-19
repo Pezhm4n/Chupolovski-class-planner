@@ -683,7 +683,7 @@ QWidget#dual-course-cell {
     padding: 2px !important;
     margin: 1px !important;
     min-height: 60px;
-    min-width: 90px;
+    min-width: 0px;
 }
 
 /* Hover state for dual course cells - no border */
@@ -796,7 +796,7 @@ QPushButton#close-btn:pressed {
 @media (max-width: 1200px) {
     QWidget#dual-course-cell {
         min-height: 70px;
-        min-width: 100px;
+        min-width: 0px;
     }
     
     QLabel#course-name-label {
@@ -815,7 +815,7 @@ QPushButton#close-btn:pressed {
 @media (max-width: 800px) {
     QWidget#dual-course-cell {
         min-height: 60px;
-        min-width: 90px;
+        min-width: 0px;
     }
     
     QLabel#course-name-label {

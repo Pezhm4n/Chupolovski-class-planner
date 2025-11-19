@@ -31,9 +31,12 @@ class SimpleDualCourseWidget(QtWidgets.QWidget):
         self.setMouseTracking(True)
 
         self.setMinimumHeight(60)
-        self.setMinimumWidth(90)
         self.setMaximumHeight(110)
-        self.setSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Preferred)
+        size_policy = QtWidgets.QSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Preferred)
+        size_policy.setHorizontalStretch(1)
+        size_policy.setVerticalStretch(1)
+        self.setSizePolicy(size_policy)
+        self.setMinimumWidth(0)
         self.setContentsMargins(0, 0, 0, 0)
 
         self.init_ui()
@@ -62,6 +65,9 @@ class SimpleDualCourseWidget(QtWidgets.QWidget):
         section.setLineWidth(0)
         section.setMouseTracking(True)
         section.setContentsMargins(0, 0, 0, 0)
+        section.setSizePolicy(
+            QtWidgets.QSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Preferred)
+        )
 
         color = course_data['color']
         section.setStyleSheet(f"""
@@ -95,6 +101,8 @@ class SimpleDualCourseWidget(QtWidgets.QWidget):
             course_name = course_name[:17] + '...'
 
         name_label = QtWidgets.QLabel(course_name)
+        name_label.setWordWrap(True)
+        name_label.setAlignment(QtCore.Qt.AlignmentFlag.AlignRight | QtCore.Qt.AlignmentFlag.AlignVCenter)
         name_label.setStyleSheet("""
             font-weight: bold; 
             font-size: 8pt; 
@@ -113,6 +121,8 @@ class SimpleDualCourseWidget(QtWidgets.QWidget):
             instructor = instructor[:15] + '...'
 
         instructor_label = QtWidgets.QLabel(instructor)
+        instructor_label.setWordWrap(True)
+        instructor_label.setAlignment(QtCore.Qt.AlignmentFlag.AlignRight | QtCore.Qt.AlignmentFlag.AlignVCenter)
         instructor_label.setStyleSheet("""
             font-size: 7pt; 
             color: #333; 
