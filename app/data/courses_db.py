@@ -1,259 +1,177 @@
-import json
 from typing import Dict, List, Optional, Union
 import os
 from dotenv import load_dotenv
-
-try:
-    import psycopg2
-    from psycopg2 import sql
-    from psycopg2.extensions import ISOLATION_LEVEL_AUTOCOMMIT
-    from psycopg2.extras import execute_values, Json
-
-    POSTGRES_AVAILABLE = True
-except ImportError:
-    POSTGRES_AVAILABLE = False
 import sqlite3
+import requests
+import time
+from datetime import datetime, timedelta
 
 
 class CourseDatabase:
-    """Manages database operations with PostgreSQL or SQLite fallback."""
+    """Manages database operations with API and SQLite fallback."""
 
-    def __init__(self, db_config: Optional[Dict] = None, force_sqlite: bool = False):
+    def __init__(self, use_api: bool = True, force_local_scrape: bool = False):
         """
-        Initialize database connection configuration.
+        Initialize database connection.
 
         Args:
-            db_config: Dictionary with keys: host, database, user, password.
-                      If None, loads from environment variables.
-            force_sqlite: If True, use SQLite even if PostgreSQL is available.
+            use_api: If True, attempts to use API first (default: True)
+            force_local_scrape: If True, scrapes from Golestan immediately (default: False)
         """
-        self.use_postgres = False
-        self.use_sqlite = False
+        load_dotenv()
 
-        # Try PostgreSQL first unless forced to use SQLite
-        if not force_sqlite and POSTGRES_AVAILABLE:
-            try:
-                if db_config is None:
-                    load_dotenv()
-                    db_config = {
-                        'host': os.getenv('DB_HOST', 'localhost'),
-                        'database': os.getenv('DB_NAME', 'golestan_courses'),
-                        'user': os.getenv('DB_USER', 'postgres'),
-                        'password': os.getenv('DB_PASSWORD', 'password')
-                    }
-
-                self.config = db_config
-                self._create_database_if_not_exists()
-                self.use_postgres = True
-                # Only print in debug mode
-                if os.environ.get('DEBUG'):
-                    print("✓ Using PostgreSQL database")
-
-            except Exception as e:
-                # Only print in debug mode
-                if os.environ.get('DEBUG'):
-                    print(f"⚠ PostgreSQL connection failed: {e}")
-                    print("✓ Falling back to SQLite database")
-                self._setup_sqlite()
-        else:
-            # Use SQLite (either forced or PostgreSQL not available)
-            if not POSTGRES_AVAILABLE:
-                # Only print in debug mode
-                if os.environ.get('DEBUG'):
-                    print("⚠ psycopg2 not installed (run: pip install psycopg2-binary)")
-            # Only print in debug mode
-            if os.environ.get('DEBUG'):
-                print("✓ Using SQLite database")
-            self._setup_sqlite()
-
-    def _setup_sqlite(self):
-        """Setup SQLite database."""
-        self.use_sqlite = True
         self.sqlite_path = os.path.join(os.path.dirname(__file__), 'golestan_courses.db')
-        # Only print in debug mode
-        if os.environ.get('DEBUG'):
-            print(f"  Database file: {self.sqlite_path}")
+        self.force_local_scrape = force_local_scrape
 
-    def _create_database_if_not_exists(self):
-        """Create the PostgreSQL database if it doesn't exist."""
-        try:
-            # Connect to default 'postgres' database to create our database
-            conn = psycopg2.connect(
-                host=self.config['host'],
-                user=self.config['user'],
-                password=self.config['password'],
-                database='postgres'  # Connect to default database
-            )
-            conn.set_isolation_level(ISOLATION_LEVEL_AUTOCOMMIT)
-            cursor = conn.cursor()
-
-            try:
-                # Check if database exists
-                cursor.execute(
-                    "SELECT 1 FROM pg_catalog.pg_database WHERE datname = %s",
-                    (self.config['database'],)
-                )
-                exists = cursor.fetchone()
-
-                if not exists:
-                    # Create database
-                    cursor.execute(
-                        sql.SQL("CREATE DATABASE {}").format(
-                            sql.Identifier(self.config['database'])
-                        )
-                    )
-                    # Only print in debug mode
-                    if os.environ.get('DEBUG'):
-                        print(f"  Database '{self.config['database']}' created successfully")
-                else:
-                    # Only print in debug mode
-                    if os.environ.get('DEBUG'):
-                        print(f"  Database '{self.config['database']}' already exists")
-
-            finally:
-                cursor.close()
-                conn.close()
-
-        except Exception as e:
-            # Only print in debug mode
-            if os.environ.get('DEBUG'):
-                print(f"✗ Error with database setup: {e}")
-            raise  # Re-raise to be caught in __init__
-
-    def get_connection(self):
-        """Create and return appropriate database connection."""
-        if self.use_postgres:
-            return psycopg2.connect(**self.config)
+        if self.force_local_scrape:
+            self._scrape_and_store_locally()
+            self.should_try_api = False
         else:
-            # SQLite connection with foreign key support enabled
-            conn = sqlite3.connect(self.sqlite_path)
-            conn.execute("PRAGMA foreign_keys = ON")
-            return conn
+            self.api_url = os.getenv('API_URL', '').rstrip('/')
+            self.should_try_api = use_api and bool(self.api_url)
+            self.last_local_update = None
+            self.local_data_timeout = timedelta(minutes=15)
 
-    def _get_placeholder(self):
-        """Return appropriate placeholder for SQL queries."""
-        return "%s" if self.use_postgres else "?"
+    def _get_last_update_time(self) -> Optional[datetime]:
+        """Get timestamp of last course update in local DB."""
+        if not self.is_initialized():
+            return None
 
-
-    def _adapt_create_table_syntax(self, postgres_sql: str) -> str:
-        """Convert PostgreSQL CREATE TABLE syntax to SQLite."""
-        if self.use_postgres:
-            return postgres_sql
-
-        # Convert SERIAL to INTEGER PRIMARY KEY AUTOINCREMENT
-        sqlite_sql = postgres_sql.replace("SERIAL PRIMARY KEY", "INTEGER PRIMARY KEY AUTOINCREMENT")
-
-        # Convert TIMESTAMP to TEXT (SQLite doesn't have native timestamp)
-        sqlite_sql = sqlite_sql.replace("TIMESTAMP DEFAULT CURRENT_TIMESTAMP",
-                                        "TEXT DEFAULT (datetime('now'))")
-
-        return sqlite_sql
-
-    def drop_all_tables(self):
-        """Drop all tables - USE WITH CAUTION! This deletes all data."""
         conn = self.get_connection()
         cursor = conn.cursor()
 
         try:
-            if self.use_postgres:
-                # PostgreSQL supports CASCADE
-                cursor.execute("DROP TABLE IF EXISTS course_schedules CASCADE")
-                cursor.execute("DROP TABLE IF EXISTS schedule_entries CASCADE")
-                cursor.execute("DROP TABLE IF EXISTS time_slots CASCADE")
-                cursor.execute("DROP TABLE IF EXISTS locations CASCADE")
-                cursor.execute("DROP TABLE IF EXISTS courses CASCADE")
-                cursor.execute("DROP TABLE IF EXISTS instructors CASCADE")
-                cursor.execute("DROP TABLE IF EXISTS genders CASCADE")
-                cursor.execute("DROP TABLE IF EXISTS departments CASCADE")
-                cursor.execute("DROP TABLE IF EXISTS faculties CASCADE")
-            else:
-                # SQLite doesn't support CASCADE in DROP TABLE
-                cursor.execute("PRAGMA foreign_keys = OFF")
-                cursor.execute("DROP TABLE IF EXISTS course_schedules")
-                cursor.execute("DROP TABLE IF EXISTS schedule_entries")
-                cursor.execute("DROP TABLE IF EXISTS time_slots")
-                cursor.execute("DROP TABLE IF EXISTS locations")
-                cursor.execute("DROP TABLE IF EXISTS courses")
-                cursor.execute("DROP TABLE IF EXISTS instructors")
-                cursor.execute("DROP TABLE IF EXISTS genders")
-                cursor.execute("DROP TABLE IF EXISTS departments")
-                cursor.execute("DROP TABLE IF EXISTS faculties")
-                cursor.execute("PRAGMA foreign_keys = ON")
+            cursor.execute("SELECT MAX(updated_at) FROM courses")
+            result = cursor.fetchone()[0]
+            if result:
+                return datetime.strptime(result, '%Y-%m-%d %H:%M:%S')
+            return None
+        except Exception:
+            return None
+        finally:
+            cursor.close()
+            conn.close()
 
+    def _is_local_data_fresh(self) -> bool:
+        """Check if local data is fresh (< 15 minutes old)."""
+        last_update = self._get_last_update_time()
+        if not last_update:
+            return False
+
+        age = datetime.now() - last_update
+        return age < self.local_data_timeout
+
+    def _api_request_with_retry(self, endpoint: str, params: Optional[Dict] = None) -> Optional[Union[Dict, List]]:
+        """Make API request with one retry after 1 second delay. Returns None if both fail."""
+        if not self.should_try_api:
+            return None
+
+        for attempt in range(2):
+            try:
+                timeout = 5 if attempt == 0 else 3
+                response = requests.get(f"{self.api_url}{endpoint}", params=params, timeout=timeout)
+                response.raise_for_status()
+                return response.json()
+
+            except requests.exceptions.RequestException:
+                if attempt == 0:
+                    time.sleep(1)
+                    continue
+                else:
+                    self.should_try_api = False
+                    self.last_local_update = datetime.now()
+                    return None
+
+        return None
+
+    def _should_retry_api(self) -> bool:
+        """Check if 15 minutes passed since switching to local mode."""
+        if self.should_try_api:
+            return True
+
+        if not self.last_local_update:
+            return True
+
+        time_since_local = datetime.now() - self.last_local_update
+        if time_since_local >= self.local_data_timeout:
+            self.should_try_api = True
+            return True
+
+        return False
+
+    def get_connection(self):
+        """Create and return SQLite connection."""
+        conn = sqlite3.connect(self.sqlite_path)
+        conn.execute("PRAGMA foreign_keys = ON")
+        return conn
+
+    def drop_all_tables(self):
+        """Drop all tables - USE WITH CAUTION."""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+
+        try:
+            cursor.execute("PRAGMA foreign_keys = OFF")
+            cursor.execute("DROP TABLE IF EXISTS course_schedules")
+            cursor.execute("DROP TABLE IF EXISTS schedule_entries")
+            cursor.execute("DROP TABLE IF EXISTS time_slots")
+            cursor.execute("DROP TABLE IF EXISTS locations")
+            cursor.execute("DROP TABLE IF EXISTS courses")
+            cursor.execute("DROP TABLE IF EXISTS instructors")
+            cursor.execute("DROP TABLE IF EXISTS genders")
+            cursor.execute("DROP TABLE IF EXISTS departments")
+            cursor.execute("DROP TABLE IF EXISTS faculties")
+            cursor.execute("PRAGMA foreign_keys = ON")
             conn.commit()
-            # Only print in debug mode
-            if os.environ.get('DEBUG'):
-                print("✓ All tables dropped successfully")
-
         except Exception as e:
             conn.rollback()
-            # Only print in debug mode
-            if os.environ.get('DEBUG'):
-                print(f"✗ Error dropping tables: {e}")
             raise
         finally:
             cursor.close()
             conn.close()
 
     def create_tables(self):
-        """Create fully normalized database tables."""
+        """Create all database tables with indexes."""
         conn = self.get_connection()
         cursor = conn.cursor()
 
         try:
-            # Create faculties table
-            sql_statement = """
+            cursor.execute("""
                 CREATE TABLE IF NOT EXISTS faculties (
-                    id SERIAL PRIMARY KEY,
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
                     name TEXT UNIQUE NOT NULL
                 )
-            """
-            cursor.execute(self._adapt_create_table_syntax(sql_statement))
+            """)
 
-            # Create departments table
-            sql_statement = """
+            cursor.execute("""
                 CREATE TABLE IF NOT EXISTS departments (
-                    id SERIAL PRIMARY KEY,
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
                     name TEXT NOT NULL,
                     faculty_id INTEGER NOT NULL,
                     FOREIGN KEY (faculty_id) REFERENCES faculties(id) ON DELETE CASCADE,
                     UNIQUE(name, faculty_id)
                 )
-            """
-            cursor.execute(self._adapt_create_table_syntax(sql_statement))
+            """)
 
-            # Create genders table
-            sql_statement = """
+            cursor.execute("""
                 CREATE TABLE IF NOT EXISTS genders (
-                    id SERIAL PRIMARY KEY,
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
                     name VARCHAR(6) UNIQUE NOT NULL
                 )
-            """
-            cursor.execute(self._adapt_create_table_syntax(sql_statement))
+            """)
 
-            # Pre-populate genders
-            if self.use_postgres:
-                cursor.execute("""
-                    INSERT INTO genders (name)
-                    VALUES ('مرد'), ('زن'), ('مختلط')
-                    ON CONFLICT (name) DO NOTHING
-                """)
-            else:
-                cursor.execute("INSERT OR IGNORE INTO genders (name) VALUES ('مرد')")
-                cursor.execute("INSERT OR IGNORE INTO genders (name) VALUES ('زن')")
-                cursor.execute("INSERT OR IGNORE INTO genders (name) VALUES ('مختلط')")
+            cursor.execute("INSERT OR IGNORE INTO genders (name) VALUES ('مرد')")
+            cursor.execute("INSERT OR IGNORE INTO genders (name) VALUES ('زن')")
+            cursor.execute("INSERT OR IGNORE INTO genders (name) VALUES ('مختلط')")
 
-            # Create instructors table
-            sql_statement = """
+            cursor.execute("""
                 CREATE TABLE IF NOT EXISTS instructors (
-                    id SERIAL PRIMARY KEY,
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
                     name TEXT UNIQUE NOT NULL
                 )
-            """
-            cursor.execute(self._adapt_create_table_syntax(sql_statement))
+            """)
 
-            # Create courses table
-            sql_statement = """
+            cursor.execute("""
                 CREATE TABLE IF NOT EXISTS courses (
                     code VARCHAR(10) PRIMARY KEY,
                     name TEXT NOT NULL,
@@ -265,39 +183,33 @@ class CourseDatabase:
                     enrollment_conditions TEXT,
                     exam_time VARCHAR(25),
                     is_available BOOLEAN DEFAULT TRUE,
-                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    updated_at TEXT DEFAULT (datetime('now')),
                     FOREIGN KEY (department_id) REFERENCES departments(id) ON DELETE CASCADE,
                     FOREIGN KEY (instructor_id) REFERENCES instructors(id) ON DELETE SET NULL,
                     FOREIGN KEY (gender_id) REFERENCES genders(id) ON DELETE SET NULL
                 )
-            """
-            cursor.execute(self._adapt_create_table_syntax(sql_statement))
+            """)
 
-            # Create locations table
-            sql_statement = """
+            cursor.execute("""
                 CREATE TABLE IF NOT EXISTS locations (
-                    id SERIAL PRIMARY KEY,
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
                     name TEXT UNIQUE NOT NULL
                 )
-            """
-            cursor.execute(self._adapt_create_table_syntax(sql_statement))
+            """)
 
-            # Create time_slots table
-            sql_statement = """
+            cursor.execute("""
                 CREATE TABLE IF NOT EXISTS time_slots (
-                    id SERIAL PRIMARY KEY,
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
                     day VARCHAR(10) NOT NULL,
                     start_time VARCHAR(5) NOT NULL,
                     end_time VARCHAR(5) NOT NULL,
                     UNIQUE(day, start_time, end_time)
                 )
-            """
-            cursor.execute(self._adapt_create_table_syntax(sql_statement))
+            """)
 
-            # Create schedule_entries table
-            sql_statement = """
+            cursor.execute("""
                 CREATE TABLE IF NOT EXISTS schedule_entries (
-                    id SERIAL PRIMARY KEY,
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
                     time_slot_id INTEGER NOT NULL,
                     parity VARCHAR(1),
                     location_id INTEGER,
@@ -305,11 +217,9 @@ class CourseDatabase:
                     FOREIGN KEY (location_id) REFERENCES locations(id) ON DELETE SET NULL,
                     UNIQUE(time_slot_id, parity, location_id)
                 )
-            """
-            cursor.execute(self._adapt_create_table_syntax(sql_statement))
+            """)
 
-            # Create junction table
-            sql_statement = """
+            cursor.execute("""
                 CREATE TABLE IF NOT EXISTS course_schedules (
                     course_code VARCHAR(10) NOT NULL,
                     schedule_entry_id INTEGER NOT NULL,
@@ -317,28 +227,20 @@ class CourseDatabase:
                     FOREIGN KEY (course_code) REFERENCES courses(code) ON DELETE CASCADE,
                     FOREIGN KEY (schedule_entry_id) REFERENCES schedule_entries(id) ON DELETE CASCADE
                 )
-            """
-            cursor.execute(self._adapt_create_table_syntax(sql_statement))
+            """)
 
-
-            # Create indexes
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_courses_name ON courses (name)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_courses_department ON courses (department_id)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_courses_instructor ON courses (instructor_id)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_courses_gender ON courses (gender_id)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_departments_faculty ON departments (faculty_id)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_time_slots_day ON time_slots (day)")
-            cursor.execute(
-                "CREATE INDEX IF NOT EXISTS idx_schedule_entries_timeslot ON schedule_entries (time_slot_id)")
+            cursor.execute("CREATE INDEX IF NOT EXISTS idx_schedule_entries_timeslot ON schedule_entries (time_slot_id)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_schedule_entries_location ON schedule_entries (location_id)")
             cursor.execute("CREATE INDEX IF NOT EXISTS idx_instructors_name ON instructors (name)")
 
-            # Create search indexes for optimized search performance
-            self.create_search_indexes()
-
             conn.commit()
-            print("✓ Database tables created successfully")
-
+            print("✓ Database tables created")
         except Exception as e:
             conn.rollback()
             print(f"✗ Error creating tables: {e}")
@@ -347,94 +249,56 @@ class CourseDatabase:
             cursor.close()
             conn.close()
 
-    def upsert_courses(self, courses_data: Dict, is_available) -> int:
+    def upsert_courses(self, courses_data: Dict, is_available: bool) -> int:
+        """Insert or update courses in database."""
         conn = self.get_connection()
         cursor = conn.cursor()
 
         try:
             course_count = 0
-            placeholder = self._get_placeholder()
 
             for fac_name, departments in courses_data.items():
-                # Insert or get faculty ID
-                if self.use_postgres:
-                    cursor.execute(f"""
-                        INSERT INTO faculties (name)
-                        VALUES ({placeholder}) ON CONFLICT (name) DO
-                        UPDATE SET name = EXCLUDED.name
-                        RETURNING id
-                    """, (fac_name,))
-                    faculty_id = cursor.fetchone()[0]
-                else:
-                    cursor.execute(f"""
-                        INSERT INTO faculties (name)
-                        VALUES ({placeholder}) ON CONFLICT (name) DO
-                        UPDATE SET name = EXCLUDED.name
-                    """, (fac_name,))
-                    # Always SELECT to get ID (lastrowid unreliable with ON CONFLICT)
-                    cursor.execute("SELECT id FROM faculties WHERE name = ?", (fac_name,))
-                    faculty_id = cursor.fetchone()[0]
+                cursor.execute("""
+                    INSERT INTO faculties (name)
+                    VALUES (?) ON CONFLICT (name) DO
+                    UPDATE SET name = EXCLUDED.name
+                """, (fac_name,))
+                cursor.execute("SELECT id FROM faculties WHERE name = ?", (fac_name,))
+                faculty_id = cursor.fetchone()[0]
 
                 for dept_name, courses in departments.items():
-                    # Insert or get department ID
-                    if self.use_postgres:
-                        cursor.execute(f"""
-                            INSERT INTO departments (name, faculty_id)
-                            VALUES ({placeholder}, {placeholder}) ON CONFLICT (name, faculty_id) DO
-                            UPDATE SET name = EXCLUDED.name
-                            RETURNING id
-                        """, (dept_name, faculty_id))
-                        department_id = cursor.fetchone()[0]
-                    else:
-                        cursor.execute(f"""
-                            INSERT INTO departments (name, faculty_id)
-                            VALUES ({placeholder}, {placeholder}) ON CONFLICT (name, faculty_id) DO
-                            UPDATE SET name = EXCLUDED.name
-                        """, (dept_name, faculty_id))
-                        # Always SELECT to get ID
-                        cursor.execute("SELECT id FROM departments WHERE name = ? AND faculty_id = ?",
-                                       (dept_name, faculty_id))
-                        department_id = cursor.fetchone()[0]
+                    cursor.execute("""
+                        INSERT INTO departments (name, faculty_id)
+                        VALUES (?, ?) ON CONFLICT (name, faculty_id) DO
+                        UPDATE SET name = EXCLUDED.name
+                    """, (dept_name, faculty_id))
+                    cursor.execute("SELECT id FROM departments WHERE name = ? AND faculty_id = ?",
+                                   (dept_name, faculty_id))
+                    department_id = cursor.fetchone()[0]
 
                     for course in courses:
-                        # Insert or get instructor ID
                         instructor_id = None
                         if course.get('instructor'):
-                            if self.use_postgres:
-                                cursor.execute(f"""
-                                    INSERT INTO instructors (name)
-                                    VALUES ({placeholder}) ON CONFLICT (name) DO
-                                    UPDATE SET name = EXCLUDED.name
-                                    RETURNING id
-                                """, (course['instructor'],))
-                                instructor_id = cursor.fetchone()[0]
-                            else:
-                                cursor.execute(f"""
-                                    INSERT INTO instructors (name)
-                                    VALUES ({placeholder}) ON CONFLICT (name) DO
-                                    UPDATE SET name = EXCLUDED.name
-                                """, (course['instructor'],))
-                                # Always SELECT to get ID
-                                cursor.execute("SELECT id FROM instructors WHERE name = ?",
-                                               (course['instructor'],))
-                                instructor_id = cursor.fetchone()[0]
+                            cursor.execute("""
+                                INSERT INTO instructors (name)
+                                VALUES (?) ON CONFLICT (name) DO
+                                UPDATE SET name = EXCLUDED.name
+                            """, (course['instructor'],))
+                            cursor.execute("SELECT id FROM instructors WHERE name = ?",
+                                           (course['instructor'],))
+                            instructor_id = cursor.fetchone()[0]
 
-                        # Get gender ID
                         gender_id = None
                         if course.get('gender'):
-                            cursor.execute(f"""
-                                SELECT id FROM genders WHERE name = {placeholder}
-                            """, (course['gender'],))
+                            cursor.execute("SELECT id FROM genders WHERE name = ?", (course['gender'],))
                             result = cursor.fetchone()
                             if result:
                                 gender_id = result[0]
 
-                        # Insert or update course
-                        cursor.execute(f"""
+                        cursor.execute("""
                             INSERT INTO courses (code, name, credits, department_id, instructor_id,
                                                gender_id, capacity, enrollment_conditions, exam_time, is_available)
-                            VALUES ({placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}, 
-                                    {placeholder}, {placeholder}, {placeholder}, {placeholder}, {placeholder}) 
+                            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) 
                             ON CONFLICT (code) DO UPDATE SET
                                 name = EXCLUDED.name,
                                 credits = EXCLUDED.credits,
@@ -447,471 +311,225 @@ class CourseDatabase:
                                 is_available = EXCLUDED.is_available,
                                 updated_at = CURRENT_TIMESTAMP
                         """, (
-                            course['code'],
-                            course['name'],
-                            course['credits'],
-                            department_id,
-                            instructor_id,
-                            gender_id,
-                            course['capacity'],
-                            course['enrollment_conditions'],
-                            course['exam_time'],
-                            is_available,
+                            course['code'], course['name'], course['credits'],
+                            department_id, instructor_id, gender_id,
+                            course['capacity'], course['enrollment_conditions'],
+                            course['exam_time'], is_available,
                         ))
 
-                        # Delete existing schedule associations
-                        cursor.execute(f"""
-                            DELETE FROM course_schedules WHERE course_code = {placeholder}
-                        """, (course['code'],))
+                        cursor.execute("DELETE FROM course_schedules WHERE course_code = ?", (course['code'],))
 
-                        # Process schedule slots
                         for slot in course['schedule']:
-                            # Insert time_slot
-                            if self.use_postgres:
-                                cursor.execute(f"""
-                                    INSERT INTO time_slots (day, start_time, end_time)
-                                    VALUES ({placeholder}, {placeholder}, {placeholder}) 
-                                    ON CONFLICT (day, start_time, end_time) DO
-                                    UPDATE SET day = EXCLUDED.day
-                                    RETURNING id
-                                """, (slot['day'], slot['start'], slot['end']))
-                                time_slot_id = cursor.fetchone()[0]
-                            else:
-                                cursor.execute(f"""
-                                    INSERT INTO time_slots (day, start_time, end_time)
-                                    VALUES ({placeholder}, {placeholder}, {placeholder}) 
-                                    ON CONFLICT (day, start_time, end_time) DO
-                                    UPDATE SET day = EXCLUDED.day
-                                """, (slot['day'], slot['start'], slot['end']))
-                                # Always SELECT to get ID
-                                cursor.execute(
-                                    "SELECT id FROM time_slots WHERE day = ? AND start_time = ? AND end_time = ?",
-                                    (slot['day'], slot['start'], slot['end']))
-                                time_slot_id = cursor.fetchone()[0]
+                            cursor.execute("""
+                                INSERT INTO time_slots (day, start_time, end_time)
+                                VALUES (?, ?, ?) 
+                                ON CONFLICT (day, start_time, end_time) DO
+                                UPDATE SET day = EXCLUDED.day
+                            """, (slot['day'], slot['start'], slot['end']))
+                            cursor.execute(
+                                "SELECT id FROM time_slots WHERE day = ? AND start_time = ? AND end_time = ?",
+                                (slot['day'], slot['start'], slot['end']))
+                            time_slot_id = cursor.fetchone()[0]
 
-                            # Insert location (if exists)
                             location_id = None
                             if slot.get('location'):
-                                if self.use_postgres:
-                                    cursor.execute(f"""
-                                        INSERT INTO locations (name)
-                                        VALUES ({placeholder}) ON CONFLICT (name) DO
-                                        UPDATE SET name = EXCLUDED.name
-                                        RETURNING id
-                                    """, (slot['location'],))
-                                    location_id = cursor.fetchone()[0]
-                                else:
-                                    cursor.execute(f"""
-                                        INSERT INTO locations (name)
-                                        VALUES ({placeholder}) ON CONFLICT (name) DO
-                                        UPDATE SET name = EXCLUDED.name
-                                    """, (slot['location'],))
-                                    # Always SELECT to get ID
-                                    cursor.execute("SELECT id FROM locations WHERE name = ?",
-                                                   (slot['location'],))
-                                    location_id = cursor.fetchone()[0]
+                                cursor.execute("""
+                                    INSERT INTO locations (name)
+                                    VALUES (?) ON CONFLICT (name) DO
+                                    UPDATE SET name = EXCLUDED.name
+                                """, (slot['location'],))
+                                cursor.execute("SELECT id FROM locations WHERE name = ?", (slot['location'],))
+                                location_id = cursor.fetchone()[0]
 
-                            # Insert schedule_entry
                             parity = slot.get('parity', '') or ''
+                            cursor.execute("""
+                                INSERT INTO schedule_entries (time_slot_id, parity, location_id)
+                                VALUES (?, ?, ?) 
+                                ON CONFLICT (time_slot_id, parity, location_id) DO
+                                UPDATE SET time_slot_id = EXCLUDED.time_slot_id
+                            """, (time_slot_id, parity, location_id))
 
-                            if self.use_postgres:
-                                cursor.execute(f"""
-                                    INSERT INTO schedule_entries (time_slot_id, parity, location_id)
-                                    VALUES ({placeholder}, {placeholder}, {placeholder}) 
-                                    ON CONFLICT (time_slot_id, parity, location_id) DO
-                                    UPDATE SET time_slot_id = EXCLUDED.time_slot_id
-                                    RETURNING id
-                                """, (time_slot_id, parity, location_id))
-                                schedule_entry_id = cursor.fetchone()[0]
+                            if location_id is None:
+                                cursor.execute(
+                                    "SELECT id FROM schedule_entries WHERE time_slot_id = ? AND parity = ? AND location_id IS NULL",
+                                    (time_slot_id, parity))
                             else:
-                                cursor.execute(f"""
-                                    INSERT INTO schedule_entries (time_slot_id, parity, location_id)
-                                    VALUES ({placeholder}, {placeholder}, {placeholder}) 
-                                    ON CONFLICT (time_slot_id, parity, location_id) DO
-                                    UPDATE SET time_slot_id = EXCLUDED.time_slot_id
-                                """, (time_slot_id, parity, location_id))
+                                cursor.execute(
+                                    "SELECT id FROM schedule_entries WHERE time_slot_id = ? AND parity = ? AND location_id = ?",
+                                    (time_slot_id, parity, location_id))
+                            schedule_entry_id = cursor.fetchone()[0]
 
-                                # Always SELECT to get ID with proper NULL handling
-                                if location_id is None:
-                                    cursor.execute(
-                                        "SELECT id FROM schedule_entries WHERE time_slot_id = ? AND parity = ? AND location_id IS NULL",
-                                        (time_slot_id, parity))
-                                else:
-                                    cursor.execute(
-                                        "SELECT id FROM schedule_entries WHERE time_slot_id = ? AND parity = ? AND location_id = ?",
-                                        (time_slot_id, parity, location_id))
-                                schedule_entry_id = cursor.fetchone()[0]
-
-                            # Link course to schedule
-                            cursor.execute(f"""
+                            cursor.execute("""
                                 INSERT INTO course_schedules (course_code, schedule_entry_id)
-                                VALUES ({placeholder}, {placeholder}) ON CONFLICT DO NOTHING
+                                VALUES (?, ?) ON CONFLICT DO NOTHING
                             """, (course['code'], schedule_entry_id))
 
                         course_count += 1
 
             conn.commit()
-            print(f"✓ Successfully stored/updated {course_count} courses")
+            print(f"✓ Stored {course_count} courses")
             return course_count
-
         except Exception as e:
             conn.rollback()
-            print(f"✗ Error upserting courses: {e}")
+            print(f"✗ Error storing courses: {e}")
             raise
         finally:
             cursor.close()
             conn.close()
 
-    def get_course_count(self) -> int:
-        """Get total number of courses in database."""
-        conn = self.get_connection()
-        cursor = conn.cursor()
-
-        try:
-            cursor.execute("SELECT COUNT(*) FROM courses")
-            count = cursor.fetchone()[0]
-            return count
-        finally:
-            cursor.close()
-            conn.close()
-
-    def is_initialized(self) -> bool:
+    def get_courses(self, availability: str = 'both',
+                   return_hierarchy: bool = True, department_name: Optional[str] = None) -> Union[List[Dict], Dict]:
         """
-        Check if all required database tables exist.
-
-        Returns:
-            True if all tables exist, False otherwise
-        """
-        conn = self.get_connection()
-        cursor = conn.cursor()
-
-        try:
-            required_tables = ['faculties', 'departments', 'courses', 'instructors',
-                               'genders', 'time_slots', 'locations', 'schedule_entries',
-                               'course_schedules']
-
-            for table in required_tables:
-                if self.use_postgres:
-                    cursor.execute("""
-                                   SELECT EXISTS (SELECT
-                                                  FROM information_schema.tables
-                                                  WHERE table_name = %s)
-                                   """, (table,))
-                else:
-                    cursor.execute("""
-                                   SELECT name
-                                   FROM sqlite_master
-                                   WHERE type = 'table'
-                                     AND name = ?
-                                   """, (table,))
-
-                result = cursor.fetchone()
-                if not result or not result[0]:
-                    return False
-
-            return True
-
-        except Exception:
-            return False
-        finally:
-            cursor.close()
-            conn.close()
-
-    def initialize_if_needed(self, force: bool = False) -> bool:
-        """
-        Initialize database tables if they don't exist.
-
-        Args:
-            force: If True, drop existing tables and recreate
-
-        Returns:
-            True if initialization was performed, False if already initialized
-        """
-        if force or not self.is_initialized():
-            print("🔄 Initializing database...")
-            if force:
-                self.drop_all_tables()
-            self.create_tables()
-            print("✓ Database initialized")
-            return True
-        else:
-            print("✓ Database already initialized")
-            return False
-
-    def store_courses(self, available_courses: Dict = None, unavailable_courses: Dict = None,
-                      auto_init: bool = True, force_reinit: bool = False):
-        """
-        Store parsed course data to database.
-
-        Args:
-            available_courses: Dictionary of available courses from parser
-            unavailable_courses: Dictionary of unavailable courses from parser
-            auto_init: If True, automatically initialize database if needed (default: True)
-            force_reinit: If True, drop and recreate tables regardless of state
-        """
-        # Auto-initialize if needed
-        if auto_init:
-            self.initialize_if_needed(force=force_reinit)
-
-        total_courses = 0
-
-        # Store available courses
-        if available_courses:
-            count = self.upsert_courses(available_courses, is_available=True)
-            total_courses += count
-
-        # Store unavailable courses
-        if unavailable_courses:
-            count = self.upsert_courses(unavailable_courses, is_available=False)
-            total_courses += count
-
-        print(f"✓ Total courses in database: {total_courses}")
-
-    def _get_schedule_aggregation(self) -> str:
-        """Get database-specific schedule aggregation SQL."""
-        if self.use_postgres:
-            return """
-                COALESCE(
-                    json_agg(
-                        json_build_object(
-                            'day', ts.day,
-                            'start', ts.start_time,
-                            'end', ts.end_time,
-                            'parity', COALESCE(se.parity, ''),
-                            'location', COALESCE(l.name, '')
-                        ) ORDER BY ts.day, ts.start_time
-                    ) FILTER (WHERE ts.id IS NOT NULL),
-                    '[]'
-                ) as schedule
-            """
-        else:
-            return """
-                GROUP_CONCAT(
-                    ts.day || '|' || 
-                    ts.start_time || '|' || 
-                    ts.end_time || '|' || 
-                    COALESCE(se.parity, '') || '|' || 
-                    COALESCE(l.name, ''),
-                    ';;'
-                ) as schedule_data
-            """
-
-    def _get_schedule_joins(self) -> str:
-        """Get SQL JOINs for schedule tables."""
-        return """
-            LEFT JOIN course_schedules cs ON c.code = cs.course_code
-            LEFT JOIN schedule_entries se ON cs.schedule_entry_id = se.id
-            LEFT JOIN time_slots ts ON se.time_slot_id = ts.id
-            LEFT JOIN locations l ON se.location_id = l.id
-        """
-
-    def _get_group_by_clause(self) -> str:
-        """Get GROUP BY clause for schedule aggregation."""
-        if self.use_postgres:
-            return """
-                GROUP BY c.code, c.name, c.credits, d.name, f.name, i.name, g.name,
-                         c.capacity, c.enrollment_conditions, c.exam_time, 
-                         c.is_available, c.updated_at
-            """
-        else:
-            return "GROUP BY c.code"
-
-    def _get_schedule_subquery(self) -> str:
-        """Get subquery for schedule aggregation in FTS searches."""
-        if self.use_postgres:
-            return """
-                SELECT 
-                    c.code as course_code,
-                    COALESCE(
-                        json_agg(
-                            json_build_object(
-                                'day', ts.day,
-                                'start', ts.start_time,
-                                'end', ts.end_time,
-                                'parity', COALESCE(se.parity, ''),
-                                'location', COALESCE(l.name, '')
-                            ) ORDER BY ts.day, ts.start_time
-                        ) FILTER (WHERE ts.id IS NOT NULL),
-                        '[]'
-                    ) as schedule
-                FROM courses c
-                LEFT JOIN course_schedules cs ON c.code = cs.course_code
-                LEFT JOIN schedule_entries se ON cs.schedule_entry_id = se.id
-                LEFT JOIN time_slots ts ON se.time_slot_id = ts.id
-                LEFT JOIN locations l ON se.location_id = l.id
-                GROUP BY c.code
-            """
-        else:
-            return """
-                SELECT 
-                    c.code as course_code,
-                    GROUP_CONCAT(
-                        ts.day || '|' || 
-                        ts.start_time || '|' || 
-                        ts.end_time || '|' || 
-                        COALESCE(se.parity, '') || '|' || 
-                        COALESCE(l.name, ''),
-                        ';;'
-                    ) as schedule_data
-                FROM courses c
-                LEFT JOIN course_schedules cs ON c.code = cs.course_code
-                LEFT JOIN schedule_entries se ON cs.schedule_entry_id = se.id
-                LEFT JOIN time_slots ts ON se.time_slot_id = ts.id
-                LEFT JOIN locations l ON se.location_id = l.id
-                GROUP BY c.code
-            """
-
-    def _get_availability_filter(self, availability: str) -> str:
-        """
-        Build availability filter SQL clause.
+        Get courses with automatic API/local fallback.
 
         Args:
             availability: 'available', 'unavailable', or 'both'
-
-        Returns:
-            SQL filter clause (e.g., "AND c.is_available = TRUE")
+            return_hierarchy: Return as hierarchy or flat list
+            return_hierarchy: Return as hierarchy or flat list
+            department_name: Filter by department name (optional)
         """
-        if availability == 'both':
-            return ""
+        if self.force_local_scrape:
+            return self._get_courses_local(department_name, availability, return_hierarchy)
 
-        bool_value = 'TRUE' if availability == 'available' else 'FALSE'
-        if not self.use_postgres:
-            bool_value = '1' if availability == 'available' else '0'
+        self._should_retry_api()
 
-        return f"AND c.is_available = {bool_value}"
+        if self.should_try_api:
+            endpoint = f'/api/courses/department/{department_name}' if department_name else '/api/courses/all'
 
-    def _build_course_query(self, where_clause: str = "", availability: str = 'both',
-                            order_by: str = "c.name") -> str:
+            api_result = self._api_request_with_retry(endpoint, {
+                'availability': availability,
+                'hierarchy': return_hierarchy
+            })
+
+            if api_result is not None:
+                return api_result
+
+        if not self.is_initialized() or self.get_course_count() == 0:
+            self._scrape_and_store_locally()
+        elif not self._is_local_data_fresh():
+            self._scrape_and_store_locally()
+
+        return self._get_courses_local(department_name, availability, return_hierarchy)
+
+    def search_courses(self, search_term: str, search_in: str = 'both',
+                      availability: str = 'both', return_hierarchy: bool = False) -> Union[List[Dict], Dict]:
         """
-        Build complete course query with schedules.
+        Search courses by name or instructor.
 
         Args:
-            where_clause: WHERE conditions (e.g., "WHERE d.name = ?")
-            availability: 'available', 'unavailable', or 'both'
-            order_by: ORDER BY clause (e.g., "c.name" or "f.name, d.name, c.name")
-
-        Returns:
-            Complete SQL query string
-        """
-        availability_filter = self._get_availability_filter(availability)
-
-        # Add WHERE keyword if not present and we have availability filter
-        if availability_filter and not where_clause.strip().upper().startswith('WHERE'):
-            if where_clause:
-                # Already has WHERE, just add AND
-                pass
-            else:
-                # No WHERE clause, convert AND to WHERE
-                availability_filter = availability_filter.replace('AND', 'WHERE', 1)
-
-        return f"""
-            SELECT 
-                c.code,
-                c.name,
-                c.credits,
-                d.name as department,
-                f.name as faculty,
-                i.name as instructor,
-                g.name as gender,
-                c.capacity,
-                c.enrollment_conditions,
-                c.exam_time,
-                c.is_available,
-                c.updated_at,
-                {self._get_schedule_aggregation()}
-            FROM courses c
-            JOIN departments d ON c.department_id = d.id
-            JOIN faculties f ON d.faculty_id = f.id
-            LEFT JOIN instructors i ON c.instructor_id = i.id
-            LEFT JOIN genders g ON c.gender_id = g.id
-            {self._get_schedule_joins()}
-            {where_clause}
-            {availability_filter}
-            {self._get_group_by_clause()}
-            ORDER BY {order_by}
-        """
-
-    def _parse_schedule_results(self, cursor) -> List[Dict]:
-        """Parse cursor results and convert schedule data to list of dicts."""
-        if self.use_postgres:
-            columns = [desc[0] for desc in cursor.description]
-            results = []
-            for row in cursor.fetchall():
-                course = dict(zip(columns, row))
-                if isinstance(course.get('schedule'), str):
-                    course['schedule'] = json.loads(course['schedule'])
-                results.append(course)
-        else:
-            cursor.row_factory = sqlite3.Row
-            results = []
-            for row in cursor.fetchall():
-                course = dict(row)
-                schedule_data = course.pop('schedule_data', None)
-                course['schedule'] = []
-                if schedule_data:
-                    for entry in schedule_data.split(';;'):
-                        parts = entry.split('|')
-                        if len(parts) == 5:
-                            course['schedule'].append({
-                                'day': parts[0],
-                                'start': parts[1],
-                                'end': parts[2],
-                                'parity': parts[3],
-                                'location': parts[4]
-                            })
-                results.append(course)
-
-        return results
-
-    def _build_hierarchy(self, courses: List[Dict]) -> Dict:
-        """
-        Convert flat course list to hierarchical structure.
-
-        Args:
-            courses: List of course dictionaries with 'faculty' and 'department' fields
-
-        Returns:
-            Dict in format {faculty: {department: [courses]}}
-        """
-        hierarchy = {}
-        for course in courses:
-            faculty = course['faculty']
-            department = course['department']
-
-            # Initialize faculty if not exists
-            if faculty not in hierarchy:
-                hierarchy[faculty] = {}
-
-            # Initialize department if not exists
-            if department not in hierarchy[faculty]:
-                hierarchy[faculty][department] = []
-
-            # Remove faculty/department from course data to avoid redundancy
-            course_data = {k: v for k, v in course.items() if k not in ['faculty', 'department']}
-            hierarchy[faculty][department].append(course_data)
-
-        return hierarchy
-
-    def search_courses(self, search_term: str, search_in: str = 'both', availability: str = 'both',
-                       return_hierarchy: bool = False) -> Union[List[Dict], Dict]:
-        """
-        Search with support for multiple words in any order.
-
-        Args:
-            search_term: Search query string
+            search_term: Search query
             search_in: 'course', 'instructor', or 'both'
             availability: 'available', 'unavailable', or 'both'
-            return_hierarchy: If True, returns hierarchical dict; if False, returns flat list
-
-        Returns:
-            If return_hierarchy=False: List of course dictionaries
-            If return_hierarchy=True: Dict in format {faculty: {department: [courses]}}
+            return_hierarchy: Return as hierarchy or flat list
         """
+        if self.force_local_scrape:
+            return self._search_courses_local(search_term, search_in, availability, return_hierarchy)
+
+        self._should_retry_api()
+
+        if self.should_try_api:
+            api_result = self._api_request_with_retry('/api/courses/search', {
+                'q': search_term,
+                'search_in': search_in,
+                'availability': availability,
+                'hierarchy': return_hierarchy
+            })
+
+            if api_result is not None:
+                return api_result
+
+        if not self.is_initialized() or self.get_course_count() == 0:
+            self._scrape_and_store_locally()
+        elif not self._is_local_data_fresh():
+            self._scrape_and_store_locally()
+
+        return self._search_courses_local(search_term, search_in, availability, return_hierarchy)
+
+    def get_faculties_with_departments(self) -> Dict[str, List[str]]:
+        """Get all faculties with their departments."""
+        if self.force_local_scrape:
+            return self._get_faculties_with_departments_local()
+
+        self._should_retry_api()
+
+        if self.should_try_api:
+            api_result = self._api_request_with_retry('/api/faculties')
+
+            if api_result is not None:
+                return api_result
+
+        if not self.is_initialized() or self.get_course_count() == 0:
+            self._scrape_and_store_locally()
+        elif not self._is_local_data_fresh():
+            self._scrape_and_store_locally()
+
+        return self._get_faculties_with_departments_local()
+
+    def _scrape_and_store_locally(self):
+        """Scrape courses from Golestan and store in local DB."""
+        print("🔄 Scraping courses from Golestan...")
+
+        from app.scrapers.requests_scraper.fetch_data import scrape_and_store_courses
+        scrape_and_store_courses(db=self)
+
+    def _get_courses_local(self, department_name: Optional[str], availability: str,
+                          return_hierarchy: bool) -> Union[List[Dict], Dict]:
+        """Query courses from local database."""
         conn = self.get_connection()
         cursor = conn.cursor()
 
         try:
-            # Split search term by space/ZWNJ and normalize each part
+            where_conditions = []
+            params = []
+
+            if department_name:
+                where_conditions.append("d.name = ?")
+                params.append(department_name)
+
+            if availability != 'both':
+                bool_value = '1' if availability == 'available' else '0'
+                where_conditions.append(f"c.is_available = {bool_value}")
+
+            where_clause = "WHERE " + " AND ".join(where_conditions) if where_conditions else ""
+
+            query = f"""
+                SELECT 
+                    c.code, c.name, c.credits, d.name as department, f.name as faculty,
+                    i.name as instructor, g.name as gender, c.capacity,
+                    c.enrollment_conditions, c.exam_time, c.is_available, c.updated_at,
+                    GROUP_CONCAT(
+                        ts.day || '|' || ts.start_time || '|' || ts.end_time || '|' || 
+                        COALESCE(se.parity, '') || '|' || COALESCE(l.name, ''), ';;'
+                    ) as schedule_data
+                FROM courses c
+                JOIN departments d ON c.department_id = d.id
+                JOIN faculties f ON d.faculty_id = f.id
+                LEFT JOIN instructors i ON c.instructor_id = i.id
+                LEFT JOIN genders g ON c.gender_id = g.id
+                LEFT JOIN course_schedules cs ON c.code = cs.course_code
+                LEFT JOIN schedule_entries se ON cs.schedule_entry_id = se.id
+                LEFT JOIN time_slots ts ON se.time_slot_id = ts.id
+                LEFT JOIN locations l ON se.location_id = l.id
+                {where_clause}
+                GROUP BY c.code
+                ORDER BY f.name, d.name, c.name
+            """
+
+            cursor.execute(query, params)
+            results = self._parse_schedule_results(cursor)
+
+            return self._build_hierarchy(results) if return_hierarchy else results
+        finally:
+            cursor.close()
+            conn.close()
+
+    def _search_courses_local(self, search_term: str, search_in: str,
+                             availability: str, return_hierarchy: bool) -> Union[List[Dict], Dict]:
+        """Search courses in local database."""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+
+        try:
             search_parts = [
                 part.replace(' ', '').replace('\u200c', '')
                 for part in search_term.replace('\u200c', ' ').split()
@@ -924,135 +542,73 @@ class CourseDatabase:
             search_conditions = []
             params = []
 
-            # For each search part, create conditions
             for part in search_parts:
                 part_conditions = []
                 pattern = f"%{part}%"
 
                 if search_in in ['course', 'both']:
-                    if self.use_postgres:
-                        part_conditions.append("c.name LIKE %s")
-                    else:
-                        part_conditions.append("c.name LIKE ?")
+                    part_conditions.append("c.name LIKE ?")
                     params.append(pattern)
 
                 if search_in in ['instructor', 'both']:
-                    if self.use_postgres:
-                        part_conditions.append("i.name LIKE %s")
-                    else:
-                        part_conditions.append("i.name LIKE ?")
+                    part_conditions.append("i.name LIKE ?")
                     params.append(pattern)
 
                 if part_conditions:
                     search_conditions.append(f"({' OR '.join(part_conditions)})")
 
-            # Build WHERE clause
-            where_clause = f"WHERE {' AND '.join(search_conditions)}"
+            where_clause = "WHERE " + " AND ".join(search_conditions)
 
-            # Build complete query using helper
-            query = self._build_course_query(where_clause, availability, "f.name, d.name, c.name")
+            if availability != 'both':
+                bool_value = '1' if availability == 'available' else '0'
+                where_clause += f" AND c.is_available = {bool_value}"
+
+            query = f"""
+                SELECT 
+                    c.code, c.name, c.credits, d.name as department, f.name as faculty,
+                    i.name as instructor, g.name as gender, c.capacity,
+                    c.enrollment_conditions, c.exam_time, c.is_available, c.updated_at,
+                    GROUP_CONCAT(
+                        ts.day || '|' || ts.start_time || '|' || ts.end_time || '|' || 
+                        COALESCE(se.parity, '') || '|' || COALESCE(l.name, ''), ';;'
+                    ) as schedule_data
+                FROM courses c
+                JOIN departments d ON c.department_id = d.id
+                JOIN faculties f ON d.faculty_id = f.id
+                LEFT JOIN instructors i ON c.instructor_id = i.id
+                LEFT JOIN genders g ON c.gender_id = g.id
+                LEFT JOIN course_schedules cs ON c.code = cs.course_code
+                LEFT JOIN schedule_entries se ON cs.schedule_entry_id = se.id
+                LEFT JOIN time_slots ts ON se.time_slot_id = ts.id
+                LEFT JOIN locations l ON se.location_id = l.id
+                {where_clause}
+                GROUP BY c.code
+                ORDER BY f.name, d.name, c.name
+            """
 
             cursor.execute(query, params)
             results = self._parse_schedule_results(cursor)
 
-            # Return flat list or hierarchy
             return self._build_hierarchy(results) if return_hierarchy else results
-
         finally:
             cursor.close()
             conn.close()
 
-    def get_courses_by_department(self, department_name: str, availability: str = 'both',
-                                  return_hierarchy: bool = True) -> Union[List[Dict], Dict]:
-        """
-        Get all courses for a specific department.
-
-        Args:
-            department_name: Name of the department
-            availability: 'available', 'unavailable', or 'both'
-            return_hierarchy: If True, returns hierarchical dict; if False, returns flat list
-
-        Returns:
-            If return_hierarchy=False: List of course dictionaries
-            If return_hierarchy=True: Dict in format {faculty: {department: [courses]}}
-        """
-        conn = self.get_connection()
-        cursor = conn.cursor()
-
-        try:
-            placeholder = self._get_placeholder()
-            where_clause = f"WHERE d.name = {placeholder}"
-
-            # Build complete query using helper
-            query = self._build_course_query(where_clause, availability, "f.name, d.name, c.name")
-
-            cursor.execute(query, (department_name,))
-            results = self._parse_schedule_results(cursor)
-
-            # Return flat list or hierarchy
-            return self._build_hierarchy(results) if return_hierarchy else results
-
-        finally:
-            cursor.close()
-            conn.close()
-
-    def get_all_courses(self, availability: str = 'both', return_hierarchy: bool = True):
-        """
-        Get all courses from the database.
-
-        Args:
-            availability: 'available', 'unavailable', or 'both' (default: 'both')
-            return_hierarchy: If True, returns hierarchical dict; if False, returns flat list (default: True)
-
-        Returns:
-            If return_hierarchy=False: List of course dictionaries
-            If return_hierarchy=True: Dict in format {faculty: {department: [courses]}}
-
-        Examples:
-            db.get_all_courses()  # Returns list
-            db.get_all_courses(return_hierarchy=True)  # Returns hierarchy
-            db.get_all_courses(availability='available', return_hierarchy=True)
-        """
-        conn = self.get_connection()
-        cursor = conn.cursor()
-
-        try:
-            # Build complete query using helper (no WHERE clause for "all")
-            query = self._build_course_query("", availability, "f.name, d.name, c.name")
-
-            cursor.execute(query)
-            results = self._parse_schedule_results(cursor)
-
-            # Return flat list or hierarchy
-            return self._build_hierarchy(results) if return_hierarchy else results
-
-        finally:
-            cursor.close()
-            conn.close()
-
-    def get_faculties_with_departments(self) -> Dict[str, List[str]]:
-        """
-        Get all faculties with their departments in a hierarchical structure.
-        Perfect for GUI dropdowns and tree views.
-
-        Returns:
-            Dictionary where keys are faculty names and values are lists of department names
-        """
+    def _get_faculties_with_departments_local(self) -> Dict[str, List[str]]:
+        """Get faculties and departments from local database."""
         conn = self.get_connection()
         cursor = conn.cursor()
 
         try:
             query = """
-                    SELECT f.name as faculty,
-                           d.name as department
-                    FROM departments d
-                             JOIN faculties f ON d.faculty_id = f.id
-                    ORDER BY f.name, d.name \
-                    """
+                SELECT f.name as faculty, d.name as department
+                FROM departments d
+                JOIN faculties f ON d.faculty_id = f.id
+                ORDER BY f.name, d.name
+            """
 
             cursor.execute(query)
 
-            # Build hierarchical structure
             result = {}
             for row in cursor.fetchall():
                 faculty = row[0]
@@ -1063,7 +619,161 @@ class CourseDatabase:
                 result[faculty].append(department)
 
             return result
-
         finally:
             cursor.close()
             conn.close()
+
+    def _parse_schedule_results(self, cursor) -> List[Dict]:
+        """Parse SQLite results with schedule data."""
+        cursor.row_factory = sqlite3.Row
+        results = []
+        for row in cursor.fetchall():
+            course = dict(row)
+            schedule_data = course.pop('schedule_data', None)
+            course['schedule'] = []
+            if schedule_data:
+                for entry in schedule_data.split(';;'):
+                    parts = entry.split('|')
+                    if len(parts) == 5:
+                        course['schedule'].append({
+                            'day': parts[0],
+                            'start': parts[1],
+                            'end': parts[2],
+                            'parity': parts[3],
+                            'location': parts[4]
+                        })
+            results.append(course)
+        return results
+
+    def _build_hierarchy(self, courses: List[Dict]) -> Dict:
+        """Convert flat course list to hierarchical structure."""
+        hierarchy = {}
+        for course in courses:
+            faculty = course['faculty']
+            department = course['department']
+
+            if faculty not in hierarchy:
+                hierarchy[faculty] = {}
+
+            if department not in hierarchy[faculty]:
+                hierarchy[faculty][department] = []
+
+            course_data = {k: v for k, v in course.items() if k not in ['faculty', 'department']}
+            hierarchy[faculty][department].append(course_data)
+
+        return hierarchy
+
+    def get_course_count(self) -> int:
+        """
+        Get total number of courses.
+        Uses API if available, otherwise queries local database.
+        """
+        # If force local mode, skip API
+        if self.force_local_scrape:
+            return self._get_course_count_local()
+
+        # Check if we should retry API
+        self._should_retry_api()
+
+        # Try API first
+        if self.should_try_api:
+            api_result = self._api_request_with_retry('/api/stats')
+
+            if api_result is not None and 'total_courses' in api_result:
+                return api_result['total_courses']
+
+        # Fall back to local database
+        return self._get_course_count_local()
+
+    def _get_course_count_local(self) -> int:
+        """Get course count from local database."""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+
+        try:
+            cursor.execute("SELECT COUNT(*) FROM courses")
+            count = cursor.fetchone()[0]
+            return count
+        finally:
+            cursor.close()
+            conn.close()
+
+    def is_initialized(self) -> bool:
+        """Check if all required database tables exist."""
+        conn = self.get_connection()
+        cursor = conn.cursor()
+
+        try:
+            required_tables = ['faculties', 'departments', 'courses', 'instructors',
+                               'genders', 'time_slots', 'locations', 'schedule_entries',
+                               'course_schedules']
+
+            for table in required_tables:
+                cursor.execute("""
+                    SELECT name FROM sqlite_master
+                    WHERE type = 'table' AND name = ?
+                """, (table,))
+
+                result = cursor.fetchone()
+                if not result:
+                    return False
+
+            return True
+        except Exception:
+            return False
+        finally:
+            cursor.close()
+            conn.close()
+
+    def initialize_if_needed(self, force: bool = False) -> bool:
+        """Initialize database tables if they don't exist."""
+        if force or not self.is_initialized():
+            if force:
+                self.drop_all_tables()
+            self.create_tables()
+            return True
+        return False
+
+    def store_courses(self, available_courses: Dict = None, unavailable_courses: Dict = None,
+                      auto_init: bool = True, force_reinit: bool = False):
+        """Store parsed course data to database."""
+        if auto_init:
+            self.initialize_if_needed(force=force_reinit)
+
+        total_courses = 0
+
+        if available_courses:
+            count = self.upsert_courses(available_courses, is_available=True)
+            total_courses += count
+
+        if unavailable_courses:
+            count = self.upsert_courses(unavailable_courses, is_available=False)
+            total_courses += count
+
+        print(f"✓ Total: {total_courses} courses")
+        return total_courses
+
+
+# Singleton pattern
+_instance = None
+
+def get_db(use_api: bool = True, force_local_scrape: bool = False) -> CourseDatabase:
+    """
+    Get the shared singleton database instance.
+
+    Args:
+        use_api: Try API first (only used on first call)
+        force_local_scrape: Force immediate scraping (only used on first call)
+
+    Returns:
+        CourseDatabase singleton instance
+    """
+    global _instance
+    if _instance is None:
+        _instance = CourseDatabase(use_api=use_api, force_local_scrape=force_local_scrape)
+    return _instance
+
+def reset_db():
+    """Reset the singleton instance (useful for testing)."""
+    global _instance
+    _instance = None

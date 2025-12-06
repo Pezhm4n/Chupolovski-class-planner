@@ -10,6 +10,7 @@ from app.data.student_db import StudentDatabase
 from app.scrapers.requests_scraper.parsers import parse_courses_from_xml, parse_student_info, parse_semester_data, extract_semester_ids
 import os
 from app.captcha_solver.predict import predict
+from typing import Optional
 
 class GolestanSession:
     """Manages Golestan session and authentication."""
@@ -522,59 +523,68 @@ def get_student_record(username=None, password=None, db=None):
     finally:
         golestan.session.close()
 
-def get_courses(status='both', username=None, password=None, db=None):
+def scrape_and_store_courses(status: str = 'both', username: Optional[str] = None,
+                             password: Optional[str] = None, db = None):
     """
     Fetch course data from Golestan and store to database.
 
     Args:
-        db: Existing CourseDatabase instance (if None, creates new one)
         status: 'available', 'unavailable', or 'both'
         username: Login username (defaults to env USERNAME)
         password: Login password (defaults to env PASSWORD)
+        db: CourseDatabase instance (if None, uses singleton)
     """
-    from app.data.courses_db import CourseDatabase
+    from app.data.courses_db import get_db
 
-    # Use provided database instance or create new one
     if db is None:
-        db = CourseDatabase()
+        db = get_db()
 
     golestan = GolestanSession()
 
     try:
+        if not username:
+            username = os.getenv('USERNAME')
+        if not password:
+            password = os.getenv('PASSWORD')
+
+        if not username or not password:
+            raise RuntimeError("USERNAME and PASSWORD required")
+
+        print("🔐 Authenticating...")
         if not golestan.authenticate(username, password):
             raise RuntimeError("Authentication failed")
 
+        print(f"📥 Fetching {status} courses...")
         results = golestan.fetch_courses(status)
 
-        # Parse courses
         available_courses = None
         unavailable_courses = None
 
         if 'available' in results:
+            print("📝 Parsing available courses...")
             available_courses = parse_courses_from_xml(results['available'])
-            # Count actual courses (nested in faculty -> department structure)
-            available_count = sum(
+            count = sum(
                 len(courses)
                 for faculty in available_courses.values()
                 for courses in faculty.values()
             )
-            print(f"✓ Parsed {available_count} available courses")
+            print(f"✓ Parsed {count} available courses")
 
         if 'unavailable' in results:
+            print("📝 Parsing unavailable courses...")
             unavailable_courses = parse_courses_from_xml(results['unavailable'])
-            # Count actual courses
-            unavailable_count = sum(
+            count = sum(
                 len(courses)
                 for faculty in unavailable_courses.values()
                 for courses in faculty.values()
             )
-            print(f"✓ Parsed {unavailable_count} unavailable courses")
+            print(f"✓ Parsed {count} unavailable courses")
 
-        # Store to database
+        print("💾 Storing to database...")
         db.store_courses(available_courses, unavailable_courses)
 
-        # Also save to JSON files for backward compatibility
         save_courses_to_json_files(available_courses, unavailable_courses)
+        print("✓ Saved to JSON files")
 
     finally:
         golestan.session.close()
