@@ -93,7 +93,6 @@ def main():
 
     db_init_start = time.time()
     db = CourseDatabase()
-    db.initialize_if_needed()
     db_init_time = time.time() - db_init_start
     if db_init_time > 0.1:
         logger.info(f"Database initialized in {db_init_time:.2f}s")

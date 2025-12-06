@@ -17,7 +17,7 @@ from .logger import setup_logging
 
 logger = setup_logging()
 
-from ..scrapers.requests_scraper.fetch_data import get_courses
+from ..scrapers.requests_scraper.fetch_data import scrape_and_store_courses
 
 COURSE_MAJORS = {}
 
@@ -39,10 +39,10 @@ def fetch_golestan_courses(status='both', username=None, password=None):
         if username is None or password is None or username.strip() == "" or password.strip() == "":
             raise ValueError("Username and password are required to fetch from Golestan")
         
-        from app.data.courses_db import CourseDatabase
-        db = CourseDatabase()
+        from app.data.courses_db import get_db
+        db = get_db()
         
-        get_courses(status=status, username=username, password=password, db=db)
+        scrape_and_store_courses(status=status, username=username, password=password, db=db)
         
         courses = load_courses_from_database(db)
         
@@ -69,7 +69,7 @@ def load_courses_from_database(db):
     try:
         logger.info("Loading courses from database...")
         
-        db_courses = db.get_all_courses(return_hierarchy=True)
+        db_courses = db.get_courses(return_hierarchy=True)
         
         all_courses = {}
         global COURSE_MAJORS
