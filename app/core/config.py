@@ -47,6 +47,17 @@ API_KEYS = {
     'golestan_password': os.getenv('PASSWORD', '')
 }
 
+# Add API_URL setting with default fallback
+api_url_env = os.getenv('API_URL', '')
+if not api_url_env:
+    # If API_URL is not set in environment, default to None to skip API calls
+    API_URL = None
+else:
+    API_URL = api_url_env
+
+# Add database path setting
+DATABASE_PATH = Path(os.getenv('DATABASE_PATH', Path(__file__).parent.parent / 'courses.db'))
+
 APP_DIR = Path(__file__).parent.parent
 USER_DATA_FILE = APP_DIR / 'data' / 'user_data.json'
 USER_ADDED_COURSES_FILE = APP_DIR / 'data' / 'user_added_courses.json'

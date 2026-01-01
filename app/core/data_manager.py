@@ -12,9 +12,11 @@ import json
 import logging
 import glob
 from pathlib import Path
+from typing import Dict, Any, Optional
 
 from .config import COURSES, USER_DATA_FILE, USER_ADDED_COURSES_FILE, COURSES_DATA_FILE, APP_DIR
 from .logger import setup_logging
+from ..data.courses_db import get_db
 
 logger = setup_logging()
 
@@ -74,27 +76,35 @@ def save_user_added_courses():
             print(f"Error saving user-added courses: {e}")
 
 def load_courses_from_json():
-    """Load all courses from Golestan JSON files with enhanced error handling"""
+    """
+    Load courses using the SQLite database, returning data in the legacy JSON-like format
+    expected by the UI (name, code, schedule, instructor, credits, major, ...).
+    """
     global COURSES
     try:
-        from .golestan_integration import load_golestan_data
-        logger.info("Loading courses from Golestan data files...")
-        
-        golestan_courses = load_golestan_data()
-        
+        from app.core.golestan_integration import load_courses_from_database
+
+        # Use the smart database layer that handles API/API fallback
+        db = get_db()
+        db._ensure_fresh_data()  # This will fetch from API if needed
+
+        # Let golestan_integration perform the DB → UI mapping
+        db_courses = load_courses_from_database(db)
+
         COURSES.clear()
-        COURSES.update(golestan_courses)
-        
+        COURSES.update(db_courses)
+
+        # Append user-added courses (kept in JSON)
         load_user_added_courses()
-        
-        logger.info(f"Successfully loaded {len(COURSES)} courses from Golestan data and user data")
+
+        logger.info(f"Successfully loaded {len(COURSES)} courses from database (UI-compatible format)")
         if os.environ.get('DEBUG'):
-            print(f"Loaded {len(COURSES)} courses from Golestan data and user data")
-        
+            print(f"Loaded {len(COURSES)} courses from database (UI-compatible format)")
+
     except Exception as e:
-        logger.error(f"Error loading courses from Golestan data: {e}")
+        logger.error(f"Error loading courses from database: {e}")
         if os.environ.get('DEBUG'):
-            print(f"Error loading courses from Golestan data: {e}")
+            print(f"Error loading courses from database: {e}")
 
 def golestan_data_files_exist():
     """Check if Golestan data files exist in the courses_data directory"""
@@ -167,6 +177,7 @@ def load_user_data():
 def save_user_data(user_data):
     """Save user data to JSON file with backup functionality"""
     try:
+        import datetime
         timestamp = datetime.datetime.now().strftime('%Y%m%d_%H%M%S')
         backup_file = BACKUP_DIR / f"user_data_{timestamp}.json"
         
@@ -330,16 +341,18 @@ def get_backup_history(limit=5):
         logger.error(f"Error getting backup history: {e}")
         return []
 
-_course_database = None
+# Remove the global course database variable as we're using the singleton pattern
+# _course_database = None
 
 def set_course_database(db):
-    """Set the global course database instance"""
-    global _course_database
-    _course_database = db
+    """Set the global course database instance - DEPRECATED"""
+    # This function is deprecated as we're using the singleton pattern
+    logger.warning("set_course_database is deprecated. Using singleton pattern instead.")
+    pass
 
 def get_course_database():
-    """Get the global course database instance"""
-    global _course_database
-    return _course_database
+    """Get the global course database instance - now returns the singleton"""
+    # Return the singleton instance instead of the global variable
+    return get_db()
 
 import datetime

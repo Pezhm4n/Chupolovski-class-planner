@@ -488,6 +488,14 @@ class SchedulerWindow(QtWidgets.QMainWindow):
             
             # Update the global COURSES dictionary
             COURSES.clear()
+            
+            # Ensure 'major' field exists for all courses
+            for course_key, course in db_courses.items():
+                if 'major' not in course or not course.get('major'):
+                    fac = (course.get('faculty') or 'General').strip()
+                    dept = (course.get('department') or '').strip()
+                    course['major'] = f"{fac} - {dept}"
+            
             COURSES.update(db_courses)
             
             # Load user-added courses (these are still in JSON)
@@ -519,25 +527,33 @@ class SchedulerWindow(QtWidgets.QMainWindow):
             load_time = time.time() - load_start_time
             logger.info(f"Course loading completed (with errors) in {load_time:.2f}s")
 
-
-
-    def generate_unique_key(self, course):
-        """Generate a unique key for a course based on its code and other identifiers"""
-        from app.core.data_manager import generate_unique_key
-        code = course.get('code', '')
-        # Create a safe key by replacing problematic characters
-        safe_code = code.replace(' ', '_').replace('-', '_').replace('.', '_')
+    def normalize_text(self, text):
+        """
+        Robust text normalization for comparison.
+        Handles Arabic/Persian characters, whitespace, and invisible characters.
+        """
+        if not text:
+            return ""
         
-        # If the code is empty, generate a unique key
-        if not safe_code:
-            # Use name and instructor as fallback
-            name = course.get('name', 'unknown')
-            instructor = course.get('instructor', 'unknown')
-            safe_code = f"{name}_{instructor}".replace(' ', '_').replace('-', '_').replace('.', '_')
+        import unicodedata
         
-        # Ensure uniqueness using the data manager function
-        return generate_unique_key(safe_code, COURSES)
-
+        # 1. Unicode Normalization (NFKC is best for compatibility)
+        text = unicodedata.normalize('NFKC', str(text))
+        
+        # 2. Standardize Persian/Arabic characters
+        replacements = {
+            'ي': 'ی', 'ك': 'ک', 'ة': 'ه', 'آ': 'ا',
+            '۰': '0', '۱': '1', '۲': '2', '۳': '3', '۴': '4',
+            '۵': '5', '۶': '6', '۷': '7', '۸': '8', '۹': '9',
+            '\u200c': ' ',  # Zero-width non-joiner to space
+            '-': '',        # Remove dashes for comparison
+            ' ': ''         # Remove spaces for strict content comparison
+        }
+        
+        for old, new in replacements.items():
+            text = text.replace(old, new)
+            
+        return text.lower().strip()
 
     def populate_course_list(self, filter_text=None):
         """Populate course list with optional major filtering"""
@@ -590,11 +606,13 @@ class SchedulerWindow(QtWidgets.QMainWindow):
             
             # First, filter by major if selected
             if major_selected:
+                # Use normalize_text for robust comparison of major strings
+                norm_current_major = self.normalize_text(self.current_major_filter)
                 filtered_courses = {
                     key: course for key, course in COURSES.items()
-                    if course.get('major', '').strip() == self.current_major_filter.strip()
+                    if self.normalize_text(course.get('major', '')) == norm_current_major
                 }
-                logger.info(f"Filtered to {len(filtered_courses)} courses for major: '{self.current_major_filter}'")
+                logger.info(f"Filtered to {len(filtered_courses)} courses for major: '{self.current_major_filter}' (normalized: '{norm_current_major}')")
                 is_filtered = True
             else:
                 # If no major selected, start with all courses if searching OR if filters are active
@@ -1730,7 +1748,7 @@ class SchedulerWindow(QtWidgets.QMainWindow):
                 if selected_text == placeholder:
                     self.current_major_filter = ""
                 else:
-                    # Valid major selected
+                    # Valid major selected - use the raw text, normalization will be done during comparison
                     self.current_major_filter = selected_text.strip()
             
             # Refresh the course list with the new filter
