@@ -7,6 +7,7 @@ Handles background search to prevent UI freezing
 
 from PyQt5.QtCore import QThread, pyqtSignal
 from app.core.logger import setup_logging
+from app.data.courses_db import get_db
 
 logger = setup_logging()
 
@@ -188,4 +189,3 @@ class SearchWorker(QThread):
         normalized_filter = gender_mapping.get(gender_filter, gender_filter)
         
         return normalized_course_gender == normalized_filter
-

@@ -2,15 +2,63 @@ import re
 import time
 from random import random
 import requests
-from bs4 import BeautifulSoup
-from dotenv import load_dotenv
+from typing import List, Dict, Any
+from ...core.logger import setup_logging
+from ...core.course_utils import to_minutes
+from ...data.courses_db import get_db
 from requests.cookies import create_cookie
+from bs4 import BeautifulSoup
 from pathlib import Path
-from app.data.student_db import StudentDatabase
-from app.scrapers.requests_scraper.parsers import parse_courses_from_xml, parse_student_info, parse_semester_data, extract_semester_ids
+from dotenv import load_dotenv
 import os
-from app.captcha_solver.predict import predict
-from typing import Optional
+from ...captcha_solver.predict import predict
+from ...scrapers.requests_scraper.parsers import parse_student_info, extract_semester_ids, parse_semester_data
+
+logger = setup_logging()
+
+
+def scrape_and_store_courses(status='both', username=None, password=None) -> List[Dict[str, Any]]:
+    """
+    Scrape course data from the source and store it in the database.
+    This function now uses the singleton database instance.
+    
+    Args:
+        status: 'available', 'unavailable', or 'both' - for compatibility with old API
+        username: Username for authentication - not used in new API architecture
+        password: Password for authentication - not used in new API architecture
+    """
+    try:
+        # Log that we're using the new API architecture
+        logger.info("Using API architecture to fetch courses. Username and password arguments are not used in this mode.")
+        
+        # In the new architecture, the database itself handles API fetching
+        # We'll just return the courses from the database after ensuring they're fresh
+        db = get_db()
+        
+        # The database will handle fetching from API if needed
+        # We just need to make sure the data is fresh
+        db._ensure_fresh_data()
+        
+        # Return all courses after ensuring they're up to date
+        courses = db.get_all_courses()
+        logger.info(f"Successfully retrieved {len(courses)} courses from database")
+        return courses
+    except Exception as e:
+        logger.error(f"Error in scrape_and_store_courses: {e}")
+        # Return empty list if there's an error
+        return []
+
+
+def fetch_courses_from_source() -> List[Dict[str, Any]]:
+    """
+    Fetch courses from the original source (if needed for specific scraping).
+    This is kept for compatibility if direct scraping is needed.
+    """
+    # This would contain the actual scraping logic if needed
+    # For now, we'll rely on the database's API fallback mechanism
+    db = get_db()
+    return db.get_all_courses()
+
 
 class GolestanSession:
     """Manages Golestan session and authentication."""
@@ -306,7 +354,7 @@ class GolestanSession:
         # XML parameters
         xml_pri_prm = """<Root><N UQID="48" id="4" F="" T=""/><N UQID="50" id="8" F="" T=""/><N UQID="52" id="12" F="" T=""/><N UQID="62" id="16" F="" T=""/><N UQID="14" id="18" F="" T=""/><N UQID="16" id="20" F="" T=""/><N UQID="18" id="22" F="" T=""/><N UQID="20" id="24" F="" T=""/><N UQID="22" id="26" F="" T=""/></Root>"""
 
-        xml_pub_prm_template = """<Root><N id="4" F1="4041" T1="4041" F2="" T2="" A="" S="" Q="" B=""/><N id="5" F1="10" T1="10" F2="" T2="" A="0" S="1" Q="1" B="B"/><N id="6" F1="{}" T1="{}" F2="" T2="" A="" S="" Q="" B=""/><N id="12" F1="" T1="" F2="" T2="" A="0" S="1" Q="2" B="B"/><N id="16" F1="" T1="" F2="" T2="" A="0" S="1" Q="3" B="B"/><N id="22" F1="" T1="" F2="" T2="" A="0" S="" Q="6" B="S"/><N id="24" F1="" T1="" F2="" T2="" A="0" S="" Q="7" B="S"/><N id="30" F1="" T1="" F2="" T2="" A="" S="" Q="" B=""/><N id="32" F1="" T1="" F2="" T2="" A="" S="" Q="" B=""/><N id="36" F1="" T1="" F2="" T2="" A="" S="" Q="" B=""/><N id="38" F1="" T1="" F2="" T2="" A="" S="" Q="" B=""/><N id="40" F1="" T1="" F2="" T2="" A="" S="" Q="" B=""/><N id="44" F1="" T1="" F2="" T2="" A="" S="" Q="" B=""/><N id="45" F1="" T1="" F2="" T2="" A="" S="" Q="" B=""/><N id="46" F1="" T1="" F2="" T2="" A="" S="" Q="" B=""/><N id="48" F1="" T1="" F2="" T2="" A="" S="" Q="" B=""/><N id="52" F1="" T1="" F2="" T2="" A="" S="" Q="" B=""/><N id="56" F1="" T1="" F2="" T2="" A="" S="" Q="" B=""/><N id="64" F1="" T1="" F2="" T2="" A="" S="" Q="" B=""/><N id="68" F1="" T1="" F2="" T2="" A="" S="" Q="" B=""/><N id="99" F1="" T1="" F2="" T2="" A="" S="" Q="" B=""/><N id="100" F1="" T1="" F2="" T2="" A="" S="" Q="" B=""/><N id="101" F1="" T1="" F2="" T2="" A="" S="" Q="" B=""/><N id="103" F1="" T1="" F2="" T2="" A="" S="" Q="" B=""/><N id="104" F1="" T1="" F2="" T2="" A="" S="" Q="" B=""/><N id="105" F1="" T1="" F2="" T2="" A="" S="" Q="" B=""/><N id="107" F1="" T1="" F2="" T2="" A="" S="" Q="" B=""/><N id="112" F1="" T1="" F2="" T2="" A="" S="" Q="" B=""/></Root>"""
+        xml_pub_prm_template = """<Root><N id="4" F1="4041" T1="4041" F2="" T2="" A="" S="" Q="" B=""/><N id="5" F1="10" T1="10" F2="" T2="" A="0" S="1" Q="1" B="B"/><N id="6" F1="{}" T1="{}" F2="" T2="" A="" S="" Q="" B=""/><N id="12" F1="" T1="" F2="" T2="" A="0" S="1" Q="2" B="B"/><N id="16" F1="" T1="" F2="" T2="" A="0" S="1" Q="3" B="B"/><N id="22" F1="" T1="" F2="" T2="" A="" S="" Q="6" B="S"/><N id="24" F1="" T1="" F2="" T2="" A="" S="" Q="7" B="S"/><N id="30" F1="" T1="" F2="" T2="" A="" S="" Q="" B=""/><N id="32" F1="" T1="" F2="" T2="" A="" S="" Q="" B=""/><N id="36" F1="" T1="" F2="" T2="" A="" S="" Q="" B=""/><N id="38" F1="" T1="" F2="" T2="" A="" S="" Q="" B=""/><N id="40" F1="" T1="" F2="" T2="" A="" S="" Q="" B=""/><N id="44" F1="" T1="" F2="" T2="" A="" S="" Q="" B=""/><N id="45" F1="" T1="" F2="" T2="" A="" S="" Q="" B=""/><N id="46" F1="" T1="" F2="" T2="" A="" S="" Q="" B=""/><N id="48" F1="" T1="" F2="" T2="" A="" S="" Q="" B=""/><N id="52" F1="" T1="" F2="" T2="" A="" S="" Q="" B=""/><N id="56" F1="" T1="" F2="" T2="" A="" S="" Q="" B=""/><N id="64" F1="" T1="" F2="" T2="" A="" S="" Q="" B=""/><N id="68" F1="" T1="" F2="" T2="" A="" S="" Q="" B=""/><N id="99" F1="" T1="" F2="" T2="" A="" S="" Q="" B=""/><N id="100" F1="" T1="" F2="" T2="" A="" S="" Q="" B=""/><N id="101" F1="" T1="" F2="" T2="" A="" S="" Q="" B=""/><N id="103" F1="" T1="" F2="" T2="" A="" S="" Q="" B=""/><N id="104" F1="" T1="" F2="" T2="" A="" S="" Q="" B=""/><N id="105" F1="" T1="" F2="" T2="" A="" S="" Q="" B=""/><N id="107" F1="" T1="" F2="" T2="" A="" S="" Q="" B=""/><N id="112" F1="" T1="" F2="" T2="" A="" S="" Q="" B=""/></Root>"""
 
         results_data = {}
 
@@ -357,7 +405,7 @@ class GolestanSession:
                 "XmlPriPrm": xml_pri_prm.replace('\n', ''),
                 "XmlPubPrm": xml_pub_prm_template.format(0, 0).replace('\n', ''),
                 "XmlMoredi": "<Root/>",
-                "F9999": "", "HelpCode": "", "Ref1": "", "Ref2": "", "Ref3": "",
+                "F9999": "", "HelpCode": "", "Ref2": "", "Ref3": "",
                 "Ref4": "", "Ref5": "", "NameH": "", "FacNoH": "", "GrpNoH": "",
                 "TicketTextBox": self.report_ticket, "RepSrc": "", "ShowError": "0",
                 "TxtMiddle": "<r/>", "tbExcel": "", "txtuqid": "", "ex": ""
@@ -497,6 +545,7 @@ def get_student_record(username=None, password=None, db=None):
             if db is not None:
                 print(f"⚠️  Student ID mismatch: Database is for '{db.student_id}', "
                       f"creating new instance for '{student.student_id}'")
+            from ...data.student_db import StudentDatabase
             db = StudentDatabase(student.student_id)
 
         # Fetch each semester and add to student
@@ -522,106 +571,3 @@ def get_student_record(username=None, password=None, db=None):
 
     finally:
         golestan.session.close()
-
-def scrape_and_store_courses(status: str = 'both', username: Optional[str] = None,
-                             password: Optional[str] = None, db = None):
-    """
-    Fetch course data from Golestan and store to database.
-
-    Args:
-        status: 'available', 'unavailable', or 'both'
-        username: Login username (defaults to env USERNAME)
-        password: Login password (defaults to env PASSWORD)
-        db: CourseDatabase instance (if None, uses singleton)
-    """
-    from app.data.courses_db import get_db
-
-    if db is None:
-        db = get_db()
-
-    golestan = GolestanSession()
-
-    try:
-        if not username:
-            username = os.getenv('USERNAME')
-        if not password:
-            password = os.getenv('PASSWORD')
-
-        if not username or not password:
-            raise RuntimeError("USERNAME and PASSWORD required")
-
-        print("🔐 Authenticating...")
-        if not golestan.authenticate(username, password):
-            raise RuntimeError("Authentication failed")
-
-        print(f"📥 Fetching {status} courses...")
-        results = golestan.fetch_courses(status)
-
-        available_courses = None
-        unavailable_courses = None
-
-        if 'available' in results:
-            print("📝 Parsing available courses...")
-            available_courses = parse_courses_from_xml(results['available'])
-            count = sum(
-                len(courses)
-                for faculty in available_courses.values()
-                for courses in faculty.values()
-            )
-            print(f"✓ Parsed {count} available courses")
-
-        if 'unavailable' in results:
-            print("📝 Parsing unavailable courses...")
-            unavailable_courses = parse_courses_from_xml(results['unavailable'])
-            count = sum(
-                len(courses)
-                for faculty in unavailable_courses.values()
-                for courses in faculty.values()
-            )
-            print(f"✓ Parsed {count} unavailable courses")
-
-        print("💾 Storing to database...")
-        db.store_courses(available_courses, unavailable_courses)
-
-        save_courses_to_json_files(available_courses, unavailable_courses)
-        print("✓ Saved to JSON files")
-
-    finally:
-        golestan.session.close()
-
-def save_courses_to_json_files(available_courses, unavailable_courses):
-    """
-    Save courses to JSON files for backward compatibility.
-    
-    Args:
-        available_courses: Dictionary of available courses
-        unavailable_courses: Dictionary of unavailable courses
-    """
-    import json
-    import os
-    from pathlib import Path
-    
-    try:
-        # Get the app directory
-        app_dir = Path(__file__).resolve().parent.parent.parent
-        courses_data_dir = app_dir / 'data' / 'courses_data'
-        
-        # Ensure directory exists
-        courses_data_dir.mkdir(parents=True, exist_ok=True)
-        
-        # Save available courses
-        if available_courses:
-            available_file = courses_data_dir / 'available_courses.json'
-            with open(available_file, 'w', encoding='utf-8') as f:
-                json.dump(available_courses, f, ensure_ascii=False, indent=2)
-            print(f"✓ Saved available courses to {available_file}")
-        
-        # Save unavailable courses
-        if unavailable_courses:
-            unavailable_file = courses_data_dir / 'unavailable_courses.json'
-            with open(unavailable_file, 'w', encoding='utf-8') as f:
-                json.dump(unavailable_courses, f, ensure_ascii=False, indent=2)
-            print(f"✓ Saved unavailable courses to {unavailable_file}")
-            
-    except Exception as e:
-        print(f"⚠ Warning: Failed to save courses to JSON files: {e}")

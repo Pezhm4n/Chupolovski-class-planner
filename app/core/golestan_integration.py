@@ -42,7 +42,8 @@ def fetch_golestan_courses(status='both', username=None, password=None):
         from app.data.courses_db import get_db
         db = get_db()
         
-        scrape_and_store_courses(status=status, username=username, password=password, db=db)
+        # Call the new function name without the db parameter since it handles it internally
+        scrape_and_store_courses()
         
         courses = load_courses_from_database(db)
         
@@ -59,39 +60,43 @@ def fetch_golestan_courses(status='both', username=None, password=None):
 def load_courses_from_database(db):
     """
     Load courses from the database and convert to the format expected by the UI
-    
+
     Args:
         db: CourseDatabase instance
-        
+
     Returns:
         dict: Courses in internal format compatible with COURSES structure
     """
     try:
         logger.info("Loading courses from database...")
-        
-        db_courses = db.get_courses(return_hierarchy=True)
-        
+
+        # Flat list of courses from the DB (already partially normalized by CourseDatabase)
+        db_courses = db.get_all_courses()
+
         all_courses = {}
         global COURSE_MAJORS
         COURSE_MAJORS = {}
-        
+
         course_count = 0
-        
-        for faculty_name, departments in db_courses.items():
-            for department_name, courses in departments.items():
-                major_identifier = f"{faculty_name} - {department_name}"
-                
-                for course in courses:
-                    course_key = generate_course_key_from_db(course)
-                    converted_course = convert_db_course_format(course)
-                    converted_course['major'] = major_identifier
-                    all_courses[course_key] = converted_course
-                    COURSE_MAJORS[course_key] = major_identifier
-                    course_count += 1
-        
+
+        # Process the flat list of courses returned by get_all_courses()
+        for course in db_courses:
+            course_key = generate_course_key_from_db(course)
+            converted_course = convert_db_course_format(course)
+
+            # Compute major as "Faculty - Department" to match old JSON / UI expectations
+            faculty = (course.get('faculty') or 'General').strip()
+            department = (course.get('department') or '').strip()
+            major = f"{faculty} - {department}" if department else faculty
+            converted_course['major'] = major
+
+            all_courses[course_key] = converted_course
+            COURSE_MAJORS[course_key] = major
+            course_count += 1
+
         logger.info(f"Successfully loaded {course_count} courses from database")
         return all_courses
-        
+
     except Exception as e:
         logger.error(f"Error loading courses from database: {e}")
         raise
@@ -181,27 +186,28 @@ def process_golestan_faculty_data(faculty_data: Dict, all_courses: Dict, course_
 def generate_course_key_from_db(course: Dict) -> str:
     """
     Generate a unique key for a course based on its code from database
-    
+
     Args:
         course: Course data from database
-        
+
     Returns:
         str: Unique course key
     """
-    code = course.get('code', '')
+    # Prefer normalized `code`, but fall back to raw `course_code` from the DB
+    code = course.get('code') or course.get('course_code', '')
     safe_code = code.replace(' ', '_').replace('-', '_').replace('.', '_')
-    
+
     if not safe_code:
         name = course.get('name', 'unknown')
         instructor = course.get('instructor', 'unknown')
         safe_code = f"{name}_{instructor}".replace(' ', '_').replace('-', '_').replace('.', '_')
-    
+
     base_key = safe_code
     counter = 1
     while base_key in COURSES:
         base_key = f"{safe_code}_{counter}"
         counter += 1
-    
+
     return base_key
 
 def generate_course_key(course: Dict) -> str:
@@ -236,49 +242,55 @@ def generate_course_key(course: Dict) -> str:
 
 def convert_db_course_format(course: Dict) -> Dict:
     """
-    Convert course data from database format to internal format
-    
+    Convert course data from database format to internal (UI) format.
+
     Args:
         course: Course data from database
-        
+
     Returns:
-        dict: Course in internal format
+        dict: Course in internal format (mimicking the old JSON structure)
     """
     try:
-        # Extract location from first schedule session if exists
-        schedule = course.get('schedule', [])
-        course_location = ''
-        
-        if schedule:
+        # Prefer normalized schedule, fall back to raw time_slots if needed
+        schedule = course.get('schedule') or course.get('time_slots') or []
+        if not isinstance(schedule, list):
+            schedule = []
+
+        # Extract location from first schedule session if it exists
+        course_location = course.get('location', '') or ''
+        if not course_location and schedule:
             for session in schedule:
-                if session.get('location'):
+                if isinstance(session, dict) and session.get('location'):
                     course_location = session['location']
                     break
-        
+
         converted = {
-            'code': course.get('code', ''),
-            'name': course.get('name', ''),
-            'credits': int(course.get('credits', 0)),
+            'code': course.get('code') or course.get('course_code', ''),
+            'name': course.get('name') or course.get('course_name', ''),
+            'credits': int(course.get('credits') or 0),
             'instructor': course.get('instructor', 'Faculty Group Instructors'),
             'schedule': schedule,
             'location': course_location,
-            'description': '',
+            # Legacy JSON fields that may not exist in DB – default them
+            'description': course.get('description', ''),
             'exam_time': course.get('exam_time', ''),
             'capacity': course.get('capacity', ''),
-            'gender_restriction': course.get('gender', ''),
+            'gender_restriction': course.get('gender_restriction', course.get('gender', '')),
             'enrollment_conditions': course.get('enrollment_conditions', ''),
-            'is_available': course.get('is_available', True)
+            'is_available': course.get('is_available', True),
         }
-        
-        converted['instructor'] = converted['instructor'].replace('<BR>', '').strip()
-        
+
+        # Clean HTML artifacts from instructor if present
+        if isinstance(converted['instructor'], str):
+            converted['instructor'] = converted['instructor'].replace('<BR>', '').strip()
+
         return converted
-        
+
     except Exception as e:
         logger.error(f"Error converting database course format: {e}")
         return {
-            'code': course.get('code', ''),
-            'name': course.get('name', ''),
+            'code': course.get('code') or course.get('course_code', ''),
+            'name': course.get('name') or course.get('course_name', ''),
             'credits': 0,
             'instructor': 'Faculty Group Instructors',
             'schedule': [],
@@ -288,7 +300,7 @@ def convert_db_course_format(course: Dict) -> Dict:
             'capacity': '',
             'gender_restriction': '',
             'enrollment_conditions': '',
-            'is_available': True
+            'is_available': True,
         }
 
 def convert_golestan_course_format(course: Dict, is_available: bool) -> Dict:

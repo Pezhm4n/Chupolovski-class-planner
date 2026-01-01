@@ -1,30 +1,26 @@
-#!/usr/bin/env python3
-# -*- coding: utf-8 -*-
-"""
-Loading Worker Thread for initial data loading
-Handles background loading of courses and user data
-"""
-
 import time
 from PyQt5.QtCore import QThread, pyqtSignal
 from app.core.logger import setup_logging
+from app.data.courses_db import get_db
 
 logger = setup_logging()
 
-
 class InitialLoadWorker(QThread):
-    """Worker thread for initial data loading"""
+    """
+    Worker thread that loads courses DIRECTLY from the database.
+    Bypasses all legacy JSON caching logic to ensure data consistency.
+    """
     
-    # Signals
-    progress = pyqtSignal(str)  # Progress message
-    courses_loaded = pyqtSignal(int)  # Number of courses loaded
-    finished = pyqtSignal(object)  # Result or exception
-    cache_hit = pyqtSignal(bool)  # Whether cache was used
+    # Signals matching the original interface
+    progress = pyqtSignal(str)
+    courses_loaded = pyqtSignal(int)
+    finished = pyqtSignal(bool)
+    cache_hit = pyqtSignal(bool)
     
-    def __init__(self, db, use_cache=True):
+    def __init__(self, db=None, use_cache=True):
         super().__init__()
-        self.db = db
-        self.use_cache = use_cache
+        self.db = db if db is not None else get_db()
+        self.use_cache = False # Force disable cache logic
         self.start_time = None
         self.end_time = None
     
@@ -32,90 +28,37 @@ class InitialLoadWorker(QThread):
         """Execute the loading in background thread"""
         try:
             self.start_time = time.time()
-            
-            # Check cache first
-            from app.core.cache_manager import load_cached_courses, save_cached_courses
+            self.progress.emit("در حال خواندن مستقیم از دیتابیس...")
+
+            # 1. Fetch all courses from DB and convert them to the UI/legacy format
+            from app.core.golestan_integration import load_courses_from_database
             from app.core.config import COURSES
-            from pathlib import Path
-            
-            cached_courses = None
-            if self.use_cache:
-                self.progress.emit("در حال بررسی cache...")
-                source_files = [
-                    Path('app/data/courses_data/available_courses.json'),
-                    Path('app/data/courses_data/unavailable_courses.json'),
-                    Path('app/data/courses_data.json')
-                ]
-                cached_courses = load_cached_courses(source_files)
-                
-                if cached_courses:
-                    self.cache_hit.emit(True)
-                    self.progress.emit("بارگذاری از cache...")
-                    COURSES.clear()
-                    COURSES.update(cached_courses)
-                    self.end_time = time.time()
-                    load_time = self.end_time - self.start_time
-                    logger.info(f"Loaded {len(COURSES)} courses from cache in {load_time:.2f}s")
-                    self.courses_loaded.emit(len(COURSES))
-                    self.finished.emit(True)
-                    return
-            
-            self.cache_hit.emit(False)
-            
-            # Load from database or JSON
-            if self.db is not None:
-                self.progress.emit("در حال بارگذاری از دیتابیس...")
-                from app.core.golestan_integration import load_courses_from_database
-                db_courses = load_courses_from_database(self.db)
-                
-                if db_courses:
-                    COURSES.clear()
-                    COURSES.update(db_courses)
-                    
-                    # Load user-added courses
-                    from app.core.data_manager import load_user_added_courses
-                    load_user_added_courses()
-                    
-                    # Save to cache
-                    if self.use_cache:
-                        from pathlib import Path
-                        source_files = [
-                            Path('app/data/courses_data/available_courses.json'),
-                            Path('app/data/courses_data/unavailable_courses.json')
-                        ]
-                        save_cached_courses(COURSES, source_files)
-                    
-                    self.end_time = time.time()
-                    load_time = self.end_time - self.start_time
-                    logger.info(f"Loaded {len(COURSES)} courses from database in {load_time:.2f}s")
-                    self.courses_loaded.emit(len(COURSES))
-                    self.finished.emit(True)
-                    return
-            
-            # Fallback to JSON
-            self.progress.emit("در حال بارگذاری از فایل‌های JSON...")
-            from app.core.data_manager import load_courses_from_json
-            load_courses_from_json()
-            
-            # Save to cache
-            if self.use_cache and COURSES:
-                from pathlib import Path
-                source_files = [
-                    Path('app/data/courses_data/available_courses.json'),
-                    Path('app/data/courses_data/unavailable_courses.json'),
-                    Path('app/data/courses_data.json')
-                ]
-                save_cached_courses(COURSES, source_files)
-            
+            from app.core.data_manager import load_user_added_courses
+
+            courses_dict = load_courses_from_database(self.db)
+
+            # 2. Update the global COURSES variable
+            COURSES.clear()
+            COURSES.update(courses_dict)
+
+            # 3. Load user-added courses (if any)
+            try:
+                load_user_added_courses()
+            except Exception as e:
+                logger.warning(f"Failed to load user courses: {e}")
+
+            # 4. Report success
+            count = len(COURSES)
             self.end_time = time.time()
-            load_time = self.end_time - self.start_time
-            logger.info(f"Loaded {len(COURSES)} courses from JSON in {load_time:.2f}s")
-            self.courses_loaded.emit(len(COURSES))
+            duration = self.end_time - self.start_time
+
+            logger.info(f"✅ DIRECT DB LOAD: Loaded {count} courses in {duration:.2f}s")
+
+            self.courses_loaded.emit(count)
             self.finished.emit(True)
-            
+
         except Exception as e:
-            logger.error(f"Error in InitialLoadWorker: {e}")
+            logger.error(f"❌ Error in Direct DB Loader: {e}")
             import traceback
             traceback.print_exc()
-            self.finished.emit(e)
-
+            self.finished.emit(False)
