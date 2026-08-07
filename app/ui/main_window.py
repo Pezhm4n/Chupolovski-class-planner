@@ -2313,7 +2313,8 @@ class SchedulerWindow(QtWidgets.QMainWindow):
             return
         
         # Import the dual course widget creator and parity compatibility checker
-        from .enhanced_main_window import create_dual_course_widget, check_odd_even_compatibility
+        from .simple_dual_widget import create_dual_course_widget
+        from .dual_course_utils import check_odd_even_compatibility
         
         placements = []
         for sess in course['schedule']:

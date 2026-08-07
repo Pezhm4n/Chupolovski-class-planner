@@ -365,3 +365,6 @@ def create_simple_dual_widget(odd_course_data, even_course_data, parent):
     - Stable and crash-free
     """
     return SimpleDualCourseWidget(odd_course_data, even_course_data, parent)
+
+
+create_dual_course_widget = create_simple_dual_widget
