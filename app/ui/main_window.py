@@ -76,6 +76,27 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         # Store the database instance
         self.db = db
         
+        # Initialize Services
+        from app.core.services.golestan_service import GolestanService
+        self.golestan_service = GolestanService(logger)
+        from app.core.services.backup_service import BackupService
+        self.backup_service = BackupService(logger)
+        from app.ui.dialog_coordinator import DialogCoordinator
+        self.dialog_coordinator = DialogCoordinator(self, logger)
+        from app.ui.builders.menu_builder import MenuBuilder
+        from app.ui.controllers.course_search_controller import CourseSearchController
+        from app.ui.controllers.schedule_table_controller import ScheduleTableController
+        from app.ui.controllers.status_bar_controller import StatusBarController
+        from app.ui.controllers.auto_select_controller import AutoSelectListController
+
+        self.course_search_controller = CourseSearchController(logger)
+        self.schedule_table_controller = ScheduleTableController(logger)
+        self.status_bar_controller = StatusBarController(logger)
+        self.auto_select_controller = AutoSelectListController(logger)
+
+        from app.core.services.auto_scheduler_service import AutoSchedulerService
+        self.auto_scheduler = AutoSchedulerService(logger)
+        
         # Get the directory of this file
         ui_dir = os.path.dirname(os.path.abspath(__file__))
         main_ui_file = os.path.join(ui_dir, 'main_window.ui')
@@ -308,77 +329,45 @@ class SchedulerWindow(QtWidgets.QMainWindow):
             self.schedule_table.setHorizontalHeaderLabels(headers)
             
             # Configure table appearance
-            self.schedule_table.verticalHeader().setVisible(False)
-            self.schedule_table.horizontalHeader().setDefaultAlignment(
-                QtCore.Qt.AlignCenter | QtCore.Qt.AlignVCenter
-            )
-            self.schedule_table.setShowGrid(False)
-            self.schedule_table.setSelectionMode(QtWidgets.QAbstractItemView.NoSelection)
-            self.schedule_table.setEditTriggers(QtWidgets.QAbstractItemView.NoEditTriggers)
-            self.schedule_table.horizontalHeader().setSectionResizeMode(
-                QtWidgets.QHeaderView.Stretch
-            )
-            self.schedule_table.setVerticalHeaderItem(
-                0, QtWidgets.QTableWidgetItem("7:00–8:00")
-            )
-            self.schedule_table.setVerticalHeaderItem(
-                1, QtWidgets.QTableWidgetItem("8:00–9:00")
-            )
-            self.schedule_table.setVerticalHeaderItem(
-                2, QtWidgets.QTableWidgetItem("9:00–10:00")
-            )
-            self.schedule_table.setVerticalHeaderItem(
-                3, QtWidgets.QTableWidgetItem("10:00–11:00")
-            )
-            self.schedule_table.setVerticalHeaderItem(
-                4, QtWidgets.QTableWidgetItem("11:00–12:00")
-            )
-            self.schedule_table.setVerticalHeaderItem(
-                5, QtWidgets.QTableWidgetItem("12:00–13:00")
-            )
-            self.schedule_table.setVerticalHeaderItem(
-                6, QtWidgets.QTableWidgetItem("13:00–14:00")
-            )
-            self.schedule_table.setVerticalHeaderItem(
-                7, QtWidgets.QTableWidgetItem("14:00–15:00")
-            )
-            self.schedule_table.setVerticalHeaderItem(
-                8, QtWidgets.QTableWidgetItem("15:00–16:00")
-            )
-            self.schedule_table.setVerticalHeaderItem(
-                9, QtWidgets.QTableWidgetItem("16:00–17:00")
-            )
-            self.schedule_table.setVerticalHeaderItem(
-                10, QtWidgets.QTableWidgetItem("17:00–18:00")
-            )
-            self.schedule_table.setVerticalHeaderItem(
-                11, QtWidgets.QTableWidgetItem("18:00–19:00")
-            )
-
-            # Add hover effect to cells
-            self.schedule_table.cellEntered.connect(self.on_cell_entered)
-            self.schedule_table.cellExited.connect(self.on_cell_exited)
-        
-
-            # Set cell alignment
-            self.schedule_table.horizontalHeader().setDefaultAlignment(
-                QtCore.Qt.AlignCenter | QtCore.Qt.AlignVCenter
-            )
-
-            # Set cell alignment
-            for i in range(self.schedule_table.rowCount()):
-                for j in range(self.schedule_table.columnCount()):
-                    item = self.schedule_table.item(i, j)
-                    if item is None:
-                        item = QtWidgets.QTableWidgetItem()
-                        self.schedule_table.setItem(i, j, item)
-                    item.setTextAlignment(QtCore.Qt.AlignCenter | QtCore.Qt.AlignVCenter)
-
+            self.schedule_table.setAlternatingRowColors(True)
+            self.schedule_table.verticalHeader().setVisible(True)
+            
+            # Generate Persian time labels for vertical header
+            time_labels = []
+            for i in range(len(EXTENDED_TIME_SLOTS) - 1):
+                start_time = EXTENDED_TIME_SLOTS[i]
+                end_time = EXTENDED_TIME_SLOTS[i + 1]
+                
+                # Convert to Persian numerals
+                start_persian = self.convert_to_persian_numerals(start_time)
+                end_persian = self.convert_to_persian_numerals(end_time)
+                
+                # Format as dual-line: start_time - end_time
+                time_labels.append(f"{start_persian}\n{end_persian}")
+            
+            # Set vertical header labels
+            self.schedule_table.setVerticalHeaderLabels(time_labels)
+            
+            # Configure vertical header appearance
+            vertical_header = self.schedule_table.verticalHeader()
+            vertical_header.setFixedWidth(80)
+            vertical_header.setDefaultSectionSize(35)
+            
+            # Set row heights
+            for row in range(len(EXTENDED_TIME_SLOTS) - 1):
+                self.schedule_table.setRowHeight(row, 35)
+            
+            # All styling is now handled by styles.qss file
+            pass
+            
+            logger.info(f"Schedule table initialized with {len(EXTENDED_TIME_SLOTS) - 1} rows and {len(DAYS)} columns")
+            logger.info(f"Headers: {headers}")
+            
         except Exception as e:
             logger.error(f"Failed to initialize schedule table: {e}")
-            QtWidgets.QMessageBox.critical(self, "خطا", humanize_error(e, "امکان ایجاد جدول زمان‌بندی وجود ندارد: "))
-            pass  # Gracefully keep app running
-    
+            import traceback
+            logger.error("Unexpected error occurred", exc_info=True)
+
     def load_courses_from_database(self):
         """Load courses from database instead of JSON files"""
         try:
@@ -430,61 +419,7 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         return generate_unique_key(safe_code, COURSES)
 
     def populate_major_dropdown(self):
-        """Populate the major dropdown with unique categories from courses"""
-        try:
-            # If no database instance, fallback to JSON loading
-            if self.db is None:
-                from app.core.data_manager import load_courses_from_json
-                load_courses_from_json()
-            else:
-                # Load courses from database if not already loaded
-                if not COURSES:
-                    self.load_courses_from_database()
-
-            # Use database method to get faculties with departments
-            if self.db is not None:
-                # Get faculties with departments from database
-                faculties_with_departments = self.db.get_faculties_with_departments()
-                
-                # Build major categories from database data
-                self.major_categories = []
-                for faculty, departments in faculties_with_departments.items():
-                    for department in departments:
-                        major_identifier = f"{faculty} - {department}"
-                        if major_identifier not in self.major_categories:
-                            self.major_categories.append(major_identifier)
-                
-                # Sort the categories
-                self.major_categories.sort()
-            else:
-                # Fallback to using COURSES dictionary
-                self.major_categories = sorted(
-                    set(course.get('major', 'دروس عمومی') for course in COURSES.values())
-                )
-            
-            # Add "دروس اضافه‌شده توسط کاربر" category at the beginning
-            user_added_category = "دروس اضافه‌شده توسط کاربر"
-            if user_added_category not in self.major_categories:
-                self.major_categories.insert(0, user_added_category)
-            else:
-                # Move it to the beginning if it already exists
-                self.major_categories.remove(user_added_category)
-                self.major_categories.insert(0, user_added_category)
-
-            # Clear and populate the combobox
-            self.comboBox.clear()
-            self.comboBox.addItem("انتخاب رشته")  # Default option
-            self.comboBox.addItems(self.major_categories)
-
-            # Set default selection
-            self.comboBox.setCurrentIndex(0)
-
-            # Connect signal for filtering courses
-            self.comboBox.currentIndexChanged.connect(self.on_major_selection_changed)
-
-        except Exception as e:
-            logger.error(f"Failed to populate major dropdown: {e}")
-            QtWidgets.QMessageBox.critical(self, "خطا", humanize_error(e, "امکان پر کردن فیلتر رشته وجود ندارد: "))
+        self.course_search_controller.populate_major_dropdown()
 
     def populate_course_list_deprecated(self):
         """Deprecated method - use populate_course_list() instead"""
@@ -552,32 +487,13 @@ class SchedulerWindow(QtWidgets.QMainWindow):
             pass  # Gracefully keep app running
 
     def load_saved_combos_ui(self):
-        """Load saved combos from user data and display them"""
-        try:
-            # If no database instance, fallback to JSON loading
-            if self.db is None:
-                from app.core.data_manager import load_courses_from_json
-                load_courses_from_json()
-            else:
-                # Load courses from database if not already loaded
-                if not COURSES:
-                    self.load_courses_from_database()
-
-            # Load saved combos from user data
-            saved_combos = self.user_data.get('saved_combos', [])
-
-            # Add saved combos to the combo box
-            for combo in saved_combos:
-                combo_str = ', '.join(combo)
-                self.saved_combo_box.addItem(combo_str)
-
-            # Connect signal for loading saved combos
-            self.saved_combo_box.currentIndexChanged.connect(self.on_saved_combo_changed)
-
-        except Exception as e:
-            logger.error(f"Failed to load saved combos: {e}")
-            QtWidgets.QMessageBox.critical(self, "خطا", humanize_error(e, "امکان بارگذاری ترکیبات ذخیره شده وجود ندارد: "))
-            pass  # Gracefully keep app running
+        """Load saved combinations into the UI"""
+        self.saved_combos_list.clear()
+        for sc in self.user_data.get('saved_combos', []):
+            name = sc.get('name', 'بدون نام')
+            item = QtWidgets.QListWidgetItem(name)
+            item.setData(QtCore.Qt.UserRole, sc)
+            self.saved_combos_list.addItem(item)
 
     def on_saved_combo_changed(self, index):
         """Handle saved combo change"""
@@ -736,73 +652,13 @@ class SchedulerWindow(QtWidgets.QMainWindow):
             pass  # Gracefully keep app running
 
     def start_pulse_animation(self, row, col):
-        """Start pulse animation for a cell"""
-        try:
-            item = self.schedule_table.item(row, col)
-
-            if item:
-                course_key = item.data(QtCore.Qt.UserRole)
-
-                if course_key in self._pulse_timers:
-                    return
-
-                # Create a pulse animation
-                pulse_timer = QtCore.QTimer(self)
-                pulse_timer.setInterval(100)  # 100 ms
-                pulse_timer.timeout.connect(lambda: self.pulse_cell(item))
-
-                # Store the pulse timer
-                self._pulse_timers[course_key] = pulse_timer
-
-                # Start the pulse animation
-                pulse_timer.start()
-
-        except Exception as e:
-            logger.error(f"Failed to start pulse animation: {e}")
-            QtWidgets.QMessageBox.critical(self, "خطا", humanize_error(e, "امکان شروع انیمیشن پولس وجود ندارد: "))
-            pass  # Gracefully keep app running
+        self.schedule_table_controller.start_pulse_animation(row, col)
 
     def stop_pulse_animation(self, row, col):
-        """Stop pulse animation for a cell"""
-        try:
-            item = self.schedule_table.item(row, col)
-
-            if item:
-                course_key = item.data(QtCore.Qt.UserRole)
-
-                if course_key in self._pulse_timers:
-                    pulse_timer = self._pulse_timers[course_key]
-
-                    # Stop the pulse animation
-                    pulse_timer.stop()
-
-                    # Remove the pulse timer
-                    del self._pulse_timers[course_key]
-
-        except Exception as e:
-            logger.error(f"Failed to stop pulse animation: {e}")
-            QtWidgets.QMessageBox.critical(self, "خطا", humanize_error(e, "امکان متوقف کردن انیمیشن پولس وجود ندارد: "))
-            pass  # Gracefully keep app running
+        self.schedule_table_controller.stop_pulse_animation(row, col)
 
     def pulse_cell(self, item):
-        """Pulse a cell"""
-        try:
-            current_color = item.background().color()
-            r, g, b, a = current_color.getRgb()
-
-            # Increase or decrease alpha value for pulsing effect
-            if a < 255:
-                a += 10
-            else:
-                a -= 10
-
-            # Set the new background color
-            item.setBackground(QtGui.QColor(r, g, b, a))
-
-        except Exception as e:
-            logger.error(f"Failed to pulse cell: {e}")
-            QtWidgets.QMessageBox.critical(self, "خطا", humanize_error(e, "امکان انیمیشن پولس وجود ندارد: "))
-            pass  # Gracefully keep app running
+        self.schedule_table_controller.pulse_cell(item)
 
     def show_detailed_info_window(self, course_key):
         """Show detailed info window for a course"""
@@ -833,18 +689,7 @@ class SchedulerWindow(QtWidgets.QMainWindow):
             pass  # Gracefully keep app running
 
     def update_status(self):
-        """Update the status bar with the number of selected courses"""
-        try:
-            # Get the number of selected courses
-            num_courses = len(self.courses)
-
-            # Update the status bar
-            self.status_bar.showMessage(f"تعداد دروس انتخاب شده: {num_courses}")
-
-        except Exception as e:
-            logger.error(f"Failed to update status: {e}")
-            QtWidgets.QMessageBox.critical(self, "خطا", humanize_error(e, "امکان به‌روزرسانی وضعیت وجود ندارد: "))
-            pass  # Gracefully keep app running
+        self.status_bar_controller.update_status()
 
     def update_stats_panel_deprecated(self):
         """Deprecated method - use update_stats_panel() instead"""
@@ -863,41 +708,74 @@ class SchedulerWindow(QtWidgets.QMainWindow):
             pass  # Gracefully keep app running
 
     def setup_responsive_layout(self):
-        """Setup responsive layout"""
+        """Setup responsive layout and sizing with reduced margins and spacing"""
         try:
-            # Create a stacked widget to hold the central widget
-            self.stacked_widget = QtWidgets.QStackedWidget(self)
-
-            # Set the stacked widget as the central widget
-            self.setCentralWidget(self.stacked_widget)
-
-            # Create a responsive layout
-            self.responsive_layout = QtWidgets.QVBoxLayout()
-
-            # Add the stacked widget to the responsive layout
-            self.responsive_layout.addWidget(self.stacked_widget)
-
-            # Set the responsive layout as the main layout
-            self.setLayout(self.responsive_layout)
-
+            # Set main splitter ratios
+            if hasattr(self, 'main_splitter'):
+                # Reduce handle width for splitter
+                self.main_splitter.setHandleWidth(4)
+                
+                # Set initial sizes based on window width
+                window_width = self.width()
+                left_width = int(window_width * 0.25)   # 25%
+                center_width = int(window_width * 0.50)  # 50%
+                right_width = int(window_width * 0.25)   # 25%
+                
+                self.main_splitter.setSizes([left_width, center_width, right_width])
+                
+                # Set stretch factors
+                self.main_splitter.setStretchFactor(0, 0)  # Left panel - fixed
+                self.main_splitter.setStretchFactor(1, 1)  # Center panel - expandable
+                self.main_splitter.setStretchFactor(2, 0)  # Right panel - fixed
+            
+            # Configure schedule table for responsive behavior
+            self.setup_table_responsive()
+            
+            # Reduce margins and spacing in all layouts
+            self.reduce_layout_margins()
+            
+            # Set minimum height for course list
+            if hasattr(self, 'course_list'):
+                self.course_list.setMinimumHeight(200)
+            
+            logger.info("Responsive layout configured")
+            
         except Exception as e:
             logger.error(f"Failed to setup responsive layout: {e}")
-            QtWidgets.QMessageBox.critical(self, "خطا", humanize_error(e, "امکان تنظیم طرح بندی واکنش‌گرا وجود ندارد: "))
-            pass  # Gracefully keep app running
 
     def eventFilter(self, obj, event):
-        """Handle events"""
-        try:
-            if event.type() == QtCore.QEvent.Resize:
-                self.on_resize(event)
-
-            return super().eventFilter(obj, event)
-
-        except Exception as e:
-            logger.error(f"Failed to handle event: {e}")
-            QtWidgets.QMessageBox.critical(self, "خطا", humanize_error(e, "امکان مدیریت رویداد وجود ندارد: "))
-            pass  # Gracefully keep app running
-
+        """Handle hover events for course preview with improved position mapping and responsive design"""
+        # Check if course_list exists and is not None before accessing it
+        if hasattr(self, 'course_list') and self.course_list is not None and (obj == self.course_list.viewport() or obj == self.course_list):
+            if event.type() == QtCore.QEvent.MouseMove:
+                # Map position correctly whether from viewport or list widget
+                if obj == self.course_list:
+                    # Map global position to viewport coordinates
+                    global_pos = obj.mapToGlobal(event.pos())
+                    pos = self.course_list.viewport().mapFromGlobal(global_pos)
+                else:
+                    pos = event.pos()
+                
+                item = self.course_list.itemAt(pos)
+                if item:
+                    key = item.data(QtCore.Qt.UserRole)
+                    if key and getattr(self, 'last_hover_key', None) != key:
+                        self.last_hover_key = key
+                        self.clear_preview()
+                        self.preview_course(key)
+                else:
+                    # Clear preview when not hovering over an item
+                    if hasattr(self, 'last_hover_key') and self.last_hover_key:
+                        self.last_hover_key = None
+                        self.clear_preview()
+            elif event.type() == QtCore.QEvent.Leave:
+                # Clear preview when mouse leaves the course list entirely
+                if hasattr(self, 'last_hover_key') and self.last_hover_key:
+                    self.last_hover_key = None
+                    self.clear_preview()
+        
+        return super().eventFilter(obj, event)
+    
     def on_resize(self, event):
         """Handle resize event"""
         try:
@@ -919,23 +797,59 @@ class SchedulerWindow(QtWidgets.QMainWindow):
             pass  # Gracefully keep app running
 
     def create_search_clear_button(self):
-        """Create search clear button and add it to the search box"""
+        """Create and position the search clear button inside the search box"""
         try:
-            # Create a search clear button
-            self.search_clear_button = QtWidgets.QToolButton(self.search_box)
-            self.search_clear_button.setIcon(QtGui.QIcon(":/icons/clear_icon.png"))
-            self.search_clear_button.setCursor(QtGui.QCursor(QtCore.Qt.ArrowCursor))
-            self.search_clear_button.setStyleSheet("border: none;")
-            self.search_clear_button.clicked.connect(self.clear_search_box)
-
-            # Add the search clear button to the search box
-            self.search_box.setClearButtonEnabled(True)
-
+            if hasattr(self, 'search_box'):
+                # Create the clear button
+                self.search_clear_button = QtWidgets.QPushButton("✖")
+                self.search_clear_button.setObjectName("search_clear_button")
+                self.search_clear_button.setFixedSize(20, 20)
+                self.search_clear_button.setCursor(QtCore.Qt.ArrowCursor)
+                
+                # Set button properties
+                self.search_clear_button.setStyleSheet("""
+                    QPushButton {
+                        background: transparent;
+                        border: none;
+                        color: #95a5a6;
+                        font-weight: bold;
+                        font-size: 12px;
+                    }
+                    QPushButton:hover {
+                        color: #7f8c8d;
+                        background: rgba(0, 0, 0, 0.05);
+                        border-radius: 10px;
+                    }
+                """)
+                
+                # Position the button inside the search box
+                frame_width = self.search_box.style().pixelMetric(QtWidgets.QStyle.PM_DefaultFrameWidth)
+                button_size = self.search_clear_button.sizeHint()
+                
+                # For RTL layout, position on the left side
+                self.search_clear_button.move(
+                    frame_width + 2,  # Small offset from the left edge
+                    (self.search_box.height() - button_size.height()) // 2
+                )
+                
+                # Make the button a child of the search box
+                self.search_clear_button.setParent(self.search_box)
+                
+                # Connect the button to clear the search
+                self.search_clear_button.clicked.connect(self.clear_search)
+                
+                # Show/hide button based on text
+                self.search_box.textChanged.connect(self.toggle_search_clear_button)
+                
+                # Initially hide the button
+                self.search_clear_button.hide()
+                
+                # Update button visibility
+                self.toggle_search_clear_button("")
+                
         except Exception as e:
             logger.error(f"Failed to create search clear button: {e}")
-            QtWidgets.QMessageBox.critical(self, "خطا", humanize_error(e, "امکان ایجاد دکمه پاک کردن جستجو وجود ندارد: "))
-            pass  # Gracefully keep app running
-
+            
     def clear_search_box(self):
         """Clear the search box"""
         try:
@@ -953,384 +867,183 @@ class SchedulerWindow(QtWidgets.QMainWindow):
             pass  # Gracefully keep app running
 
     def load_and_apply_styles(self):
-        """Load and apply styles"""
+        """Load styles from external QSS file"""
         try:
-            # Get the directory of this file
             ui_dir = os.path.dirname(os.path.abspath(__file__))
-            style_file = os.path.join(ui_dir, 'styles.qss')
-
-            # Load the style file
-            with open(style_file, 'r') as f:
-                style = f.read()
-
-            # Apply the style
-            self.setStyleSheet(style)
-
+            qss_file = os.path.join(ui_dir, 'styles.qss')
+            with open(qss_file, 'r', encoding='utf-8') as f:
+                self.setStyleSheet(f.read())
+        except FileNotFoundError:
+            logger.warning("Warning: styles.qss file not found")
         except Exception as e:
-            logger.error(f"Failed to load and apply styles: {e}")
-            QtWidgets.QMessageBox.critical(self, "خطا", humanize_error(e, "امکان بارگذاری و اعمال استایل‌ها وجود ندارد: "))
-            pass  # Gracefully keep app running
-
+            logger.warning(f"Warning: Could not load styles: {e}")
+            
     def load_latest_backup(self):
-        """Load latest backup on startup"""
+        """Load the latest backup on application startup"""
         try:
-            backup_dir = os.path.join(os.path.expanduser("~"), ".schedule_planner", "backups")
-
-            if os.path.exists(backup_dir):
-                # Get the list of backup files
-                backup_files = sorted(
-                    [f for f in os.listdir(backup_dir) if f.endswith('.bak')],
-                    reverse=True
-                )
-
-                if backup_files:
-                    # Load the latest backup
-                    latest_backup = os.path.join(backup_dir, backup_files[0])
-                    with open(latest_backup, 'r') as f:
-                        backup_data = f.read()
-
-                    # Load the backup data
-                    self.user_data = load_user_data(backup_data)
-
-                    # Update the status bar
-                    self.update_status()
-
-                    # Save user data
-                    save_user_data(self.user_data)
-
+            result = self.backup_service.get_latest_backup_data()
+            if result.success:
+                self.user_data = result.data['backup_data']
+                
+                current_schedule = self.user_data.get('current_schedule', [])
+                for course_key in current_schedule:
+                    if course_key in COURSES:
+                        self.add_course_to_table(course_key, ask_on_conflict=False)
+                
+                self.update_status()
+                self.update_stats_panel()
+                self.update_detailed_info_if_open()
+                logger.info(f"Loaded latest backup: {result.data['file_path']}")
+            else:
+                logger.info(result.message or result.error)
         except Exception as e:
-            logger.error(f"Failed to load latest backup: {e}")
-            QtWidgets.QMessageBox.critical(self, "خطا", humanize_error(e, "امکان بارگذاری آخرین پشتیبان وجود ندارد: "))
-            pass  # Gracefully keep app running
+            logger.error(f"Error loading latest backup: {e}")
 
     def connect_signals(self):
-        """Connect signals"""
+        """Connect UI signals to their respective slots"""
         try:
-            # Connect signal for adding courses
-            self.add_course_button.clicked.connect(self.add_course)
-
-            # Connect signal for editing courses
-            self.edit_course_button.clicked.connect(self.edit_course)
-
-            # Connect signal for removing courses
-            self.remove_course_button.clicked.connect(self.remove_course)
-
-            # Connect signal for generating combinations
-            self.generate_combinations_button.clicked.connect(self.generate_combinations)
-
-            # Connect signal for generating greedy schedule
-            self.generate_greedy_schedule_button.clicked.connect(self.generate_greedy_schedule)
-
-            # Connect signal for generating alternative schedule
-            self.generate_alternative_schedule_button.clicked.connect(self.generate_alternative_schedule)
-
-            # Connect signal for showing detailed info window
-            self.show_detailed_info_button.clicked.connect(self.show_detailed_info)
-
-            # Connect signal for showing exam schedule window
-            self.show_exam_schedule_button.clicked.connect(self.show_exam_schedule)
-
-        except Exception as e:
-            logger.error(f"Failed to connect signals: {e}")
-            QtWidgets.QMessageBox.critical(self, "خطا", humanize_error(e, "امکان اتصال سیگنال‌ها وجود ندارد: "))
-            pass  # Gracefully keep app running
-
-    def add_course(self):
-        """Add a new course"""
-        try:
-            # Create and show the add course dialog
-            dialog = AddCourseDialog(self)
-            if dialog.exec_():
-                course = dialog.get_course_data()
-                if course:
-                    # Add the course to custom courses in user data
-                    if 'custom_courses' not in self.user_data:
-                        self.user_data['custom_courses'] = []
-                    
-                    # Check if course with same code already exists
-                    existing_course = next((c for c in self.user_data['custom_courses'] if c['code'] == course['code']), None)
-                    if existing_course:
-                        # Update existing course
-                        index = self.user_data['custom_courses'].index(existing_course)
-                        self.user_data['custom_courses'][index] = course
-                    else:
-                        # Add new course
-                        self.user_data['custom_courses'].append(course)
-                    
-                    # Also add to global COURSES dictionary with proper key
-                    from app.core.config import COURSES
-                    course_key = course['code']
-                    course['key'] = course_key
-                    course['major'] = 'دروس اضافه‌شده توسط کاربر'  # Ensure correct category
-                    COURSES[course_key] = course
-                    
-                    # Save user data and user-added courses
-                    from app.core.data_manager import save_user_data, save_user_added_courses
-                    save_user_data(self.user_data)
-                    save_user_added_courses()  # Save to dedicated file
-                    
-                    # Refresh UI to show the new course immediately
-                    self.refresh_ui()
-                    
-                    # Show confirmation message in Persian with exact required text
-                    QtWidgets.QMessageBox.information(
-                        self, 
-                        'عملیات موفق', 
-                        'درس با موفقیت اضافه شد و در دسته «دروس اضافه‌شده توسط کاربر» نمایش داده شد.'
-                    )
-
-        except Exception as e:
-            logger.error(f"Failed to add course: {e}")
-            QtWidgets.QMessageBox.critical(self, "خطا", humanize_error(e, "امکان اضافه کردن درس وجود ندارد: "))
-            pass  # Gracefully keep app running
-
-    def edit_course(self):
-        """Edit a selected course"""
-        try:
-            # Get the selected course
-            selected_courses = self.course_list_widget.getSelectedCourses()
-
-            if selected_courses:
-                course_key = selected_courses[0]
-
-                # Get the course details
-                course = next((c for c in COURSES if c['key'] == course_key), None)
-
-                if course:
-                    # Create and show the edit course dialog
-                    dialog = EditCourseDialog(course, self)
-                    if dialog.exec_():
-                        updated_course = dialog.get_course()
-
-                        # Update the course in the list of selected courses
-                        for i, c in enumerate(self.courses):
-                            if c['key'] == course_key:
-                                self.courses[i] = updated_course
-
-                        # Update the status bar
-                        self.update_status()
-
-                        # Save user data
-                        save_user_data(self.user_data)
-
-        except Exception as e:
-            logger.error(f"Failed to edit course: {e}")
-            QtWidgets.QMessageBox.critical(self, "خطا", humanize_error(e, "امکان ویرایش درس وجود ندارد: "))
-            pass  # Gracefully keep app running
-
-    def remove_course(self):
-        """Remove a selected course"""
-        try:
-            # Get the selected course
-            selected_courses = self.course_list_widget.getSelectedCourses()
-
-            if selected_courses:
-                course_key = selected_courses[0]
-
-                # Remove the course from the list of selected courses
-                self.courses = [c for c in self.courses if c['key'] != course_key]
-
-                # Update the status bar
-                self.update_status()
-
-                # Save user data
-                save_user_data(self.user_data)
-
-        except Exception as e:
-            logger.error(f"Failed to remove course: {e}")
-            QtWidgets.QMessageBox.critical(self, "خطا", humanize_error(e, "امکان حذف درس وجود ندارد: "))
-            pass  # Gracefully keep app running
-
-    def generate_combinations(self):
-        """Generate all possible combinations of selected courses"""
-        try:
-            # Generate all possible combinations
-            self.combinations = list(itertools.combinations(self.courses, len(self.courses)))
-
-            # Update the status bar
-            self.update_status()
-
-            # Save user data
-            save_user_data(self.user_data)
-
-        except Exception as e:
-            logger.error(f"Failed to generate combinations: {e}")
-            QtWidgets.QMessageBox.critical(self, "خطا", humanize_error(e, "امکان ایجاد تمام ترکیبات وجود ندارد: "))
-            pass  # Gracefully keep app running
-
-    def generate_greedy_schedule(self):
-        """Generate a greedy schedule for selected courses"""
-        try:
-            # Generate a greedy schedule
-            schedule = create_greedy_schedule(self.courses)
-
-            # Load and display the schedule
-            self.load_combo(schedule)
-
-            # Update the status bar
-            self.update_status()
-
-            # Save user data
-            save_user_data(self.user_data)
-
-        except Exception as e:
-            logger.error(f"Failed to generate greedy schedule: {e}")
-            QtWidgets.QMessageBox.critical(self, "خطا", humanize_error(e, "امکان ایجاد برنامه زمانی متعادل وجود ندارد: "))
-            pass  # Gracefully keep app running
-
-    def generate_alternative_schedule(self):
-        """Generate an alternative schedule for selected courses"""
-        try:
-            # Generate an alternative schedule
-            schedule = create_alternative_schedule(self.courses)
-
-            # Load and display the schedule
-            self.load_combo(schedule)
-
-            # Update the status bar
-            self.update_status()
-
-            # Save user data
-            save_user_data(self.user_data)
-
-        except Exception as e:
-            logger.error(f"Failed to generate alternative schedule: {e}")
-            QtWidgets.QMessageBox.critical(self, "خطا", humanize_error(e, "امکان ایجاد برنامه زمانی جایگزین وجود ندارد: "))
-            pass  # Gracefully keep app running
-
-    def show_detailed_info(self):
-        """Show detailed info window for selected course"""
-        try:
-            # Get the selected course
-            selected_courses = self.course_list_widget.getSelectedCourses()
-
-            if selected_courses:
-                course_key = selected_courses[0]
-
-                # Show detailed info window
-                self.show_detailed_info_window(course_key)
-
-        except Exception as e:
-            logger.error(f"Failed to show detailed info: {e}")
-            QtWidgets.QMessageBox.critical(self, "خطا", humanize_error(e, "امکان نمایش اطلاعات دقیق وجود ندارد: "))
-            pass  # Gracefully keep app running
-
-    def show_exam_schedule(self):
-        """Show exam schedule window"""
-        try:
-            # Show exam schedule window
-            self.show_exam_schedule_window()
-
-        except Exception as e:
-            logger.error(f"Failed to show exam schedule: {e}")
-            QtWidgets.QMessageBox.critical(self, "خطا", humanize_error(e, "امکان نمایش برنامه زمانی امتحانات وجود ندارد: "))
-            pass  # Gracefully keep app running
-
-    def create_menu_bar(self):
-        """Create the application menu bar with data and usage history options"""
-        try:
-            # Use the menu bar from the UI file if available
-            if hasattr(self, 'menubar'):
-                menubar = self.menubar
-            else:
-                # Create menu bar if not available in UI
-                menubar = self.menuBar()
+            # Search functionality
+            if hasattr(self, 'search_box'):
+                self.search_box.textChanged.connect(self.on_search_text_changed)
             
-            # Use the data menu from the UI file if available
-            if hasattr(self, 'menu_data'):
-                data_menu = self.menu_data
-                
-                # Connect the reset Golestan credentials action if it exists in the UI
-                if hasattr(self, 'action_reset_golestan_credentials'):
-                    # Disconnect any existing connections first to prevent duplicates
-                    try:
-                        self.action_reset_golestan_credentials.triggered.disconnect(self.reset_golestan_credentials)
-                    except TypeError:
-                        # No existing connection, that's fine
-                        pass
-                    self.action_reset_golestan_credentials.triggered.connect(self.reset_golestan_credentials)
-                
-                # Connect the fetch Golestan action if it exists in the UI
-                if hasattr(self, 'action_fetch_golestan'):
-                    # Disconnect any existing connections first to prevent duplicates
-                    try:
-                        self.action_fetch_golestan.triggered.disconnect(self.fetch_from_golestan)
-                    except TypeError:
-                        # No existing connection, that's fine
-                        pass
-                    self.action_fetch_golestan.triggered.connect(self.fetch_from_golestan)
-                    
-                # Connect the manual fetch action if it exists in the UI
-                if hasattr(self, 'action_manual_fetch'):
-                    # Disconnect any existing connections first to prevent duplicates
-                    try:
-                        self.action_manual_fetch.triggered.disconnect(self.manual_fetch_from_golestan)
-                    except TypeError:
-                        # No existing connection, that's fine
-                        pass
-                    self.action_manual_fetch.triggered.connect(self.manual_fetch_from_golestan)
+            # Search clear button
+            if hasattr(self, 'pushButton'):
+                self.pushButton.clicked.connect(self.clear_search)
             
-            # Add Student Profile menu item
-            if hasattr(self, 'action_student_profile'):
-                logger.debug("DEBUG: Connecting action_student_profile")
+            # Add Golestan fetch actions
+            if hasattr(self, 'action_fetch_golestan'):
                 # Disconnect any existing connections first to prevent duplicates
                 try:
-                    self.action_student_profile.triggered.disconnect(self.show_student_profile)
+                    self.action_fetch_golestan.triggered.disconnect(self.fetch_from_golestan)
                 except TypeError:
                     # No existing connection, that's fine
                     pass
-                self.action_student_profile.triggered.connect(self.show_student_profile)
-                logger.debug("DEBUG: action_student_profile connected successfully")
-            else:
-                logger.debug("DEBUG: Creating new student profile action")
-                # Add Student Profile menu item
-                student_profile_action = QtWidgets.QAction('پروفایل دانشجو', self)
-                student_profile_action.triggered.connect(self.show_student_profile)
-                menubar.addAction(student_profile_action)
+                self.action_fetch_golestan.triggered.connect(self.fetch_from_golestan)
             
-            # Create "Backup History" menu
-            history_menu = menubar.addMenu('نسخه‌های پشتیبان')
+            if hasattr(self, 'action_manual_fetch'):
+                # Disconnect any existing connections first to prevent duplicates
+                try:
+                    self.action_manual_fetch.triggered.disconnect(self.manual_fetch_from_golestan)
+                except TypeError:
+                    # No existing connection, that's fine
+                    pass
+                self.action_manual_fetch.triggered.connect(self.manual_fetch_from_golestan)
             
-            # Add date to menu title
-            current_date = datetime.datetime.now().strftime('%Y/%m/%d')
-            history_menu.setTitle(f'نسخه‌های پشتیبان ({current_date})')
+            # Add exam schedule actions
+            if hasattr(self, 'action_show_exam_schedule'):
+                self.action_show_exam_schedule.triggered.connect(self.on_show_exam_schedule)
             
-            # Connect menu to populate with backup history when clicked
-            history_menu.aboutToShow.connect(self.populate_backup_history_menu)
+            if hasattr(self, 'action_export_exam_schedule'):
+                self.action_export_exam_schedule.triggered.connect(self.on_export_exam_schedule)
             
-            # ── Phase 10: Add Online Services Menu ────────────────────
-            cloud_menu = menubar.addMenu("🌐 خدمات آنلاین")
-
-            act_cloud_auth = QtWidgets.QAction("🔑 ورود / ایجاد حساب کاربری...", self)
-            act_cloud_auth.triggered.connect(self.show_cloud_account_dialog)
-            cloud_menu.addAction(act_cloud_auth)
-
-            act_cloud_sync = QtWidgets.QAction("☁️ پشتیبان‌گیری و بازیابی آنلاین...", self)
-            act_cloud_sync.triggered.connect(self.show_cloud_schedule_dialog)
-            cloud_menu.addAction(act_cloud_sync)
-
-            act_prof_review = QtWidgets.QAction("👨‍🏫 نظرسنجی و مقایسه اساتید...", self)
-            act_prof_review.triggered.connect(self.show_professor_review_dialog)
-            cloud_menu.addAction(act_prof_review)
-
-            # ── Phase 10: Add Academic Services Menu ──────────────────
-            acad_menu = menubar.addMenu("🎓 خدمات تحصیلی")
-
-            act_academic = QtWidgets.QAction("🎓 شناسنامه، کارنامه و پیشرفت تحصیلی (گزارش ۲۷۲)...", self)
-            act_academic.triggered.connect(self.show_academic_center_dialog)
-            acad_menu.addAction(act_academic)
-
-            # ── Phase 10: Add Settings Menu ───────────────────────────
-            sett_menu = menubar.addMenu("⚙️ تنظیمات")
-
-            act_settings = QtWidgets.QAction("⚙️ تنظیمات برنامه...", self)
-            act_settings.triggered.connect(self.show_settings_dialog)
-            sett_menu.addAction(act_settings)
-
+            # Major selection dropdown
+            if hasattr(self, 'comboBox'):
+                self.comboBox.currentIndexChanged.connect(self.on_major_selection_changed)
+            
+            # Course list
+            if hasattr(self, 'course_list'):
+                self.course_list.itemClicked.connect(self.on_course_clicked)
+            
+            # Buttons
+            if hasattr(self, 'success_btn'):
+                self.success_btn.clicked.connect(self.on_add_course)
+                
+            if hasattr(self, 'detailed_info_btn'):
+                # Connect save button to save table image method
+                self.detailed_info_btn.clicked.connect(self.save_table_image)
+                
+            if hasattr(self, 'clear_schedule_btn'):
+                self.clear_schedule_btn.clicked.connect(self.on_clear_schedule)
+                
+            if hasattr(self, 'optimal_schedule_btn'):
+                self.optimal_schedule_btn.clicked.connect(self.on_generate_optimal_from_auto_list)
+                
+            if hasattr(self, 'showExamPagebtn'):
+                # Connect exam button to show exam schedule method
+                self.showExamPagebtn.clicked.connect(self.on_show_exam_schedule)
+            
+            # Auto-select list buttons
+            if hasattr(self, 'add_to_auto_btn'):
+                self.add_to_auto_btn.clicked.connect(self.on_add_to_auto)
+                
+            if hasattr(self, 'remove_from_auto_btn'):
+                self.remove_from_auto_btn.clicked.connect(self.on_remove_from_auto)
+            
+            # Table interactions
+            if hasattr(self, 'schedule_table'):
+                self.schedule_table.cellClicked.connect(self.on_table_cell_clicked)
+            
+            # Saved combinations list
+            if hasattr(self, 'saved_combos_list'):
+                self.saved_combos_list.itemClicked.connect(self.on_saved_combo_clicked)
+            
+            # Auto-select list drag & drop
+            if hasattr(self, 'auto_select_list'):
+                self.setup_auto_select_list()
+                # Enable keyboard shortcuts for auto-select list
+                self.auto_select_list.keyPressEvent = self.auto_select_list_key_press_event
+            
+            logger.info("All UI signals connected successfully")
+            
         except Exception as e:
-            logger.error(f"Error creating menu bar: {e}")
-            import traceback
-            logger.error("Unexpected error occurred", exc_info=True)
+            logger.error(f"Failed to connect signals: {e}")
+
+    def add_course(self):
+        """Add a new course (delegated to DialogCoordinator)"""
+        self.open_add_course_dialog()
+
+    def edit_course(self):
+        """Edit a selected course (delegated to DialogCoordinator)"""
+        self.open_edit_course_dialog()
+
+    def remove_course(self):
+        """Remove a selected course"""
+        selected = self.course_list.selectedItems()
+        if selected:
+            course_key = selected[0].data(QtCore.Qt.UserRole)
+            self.remove_course_from_schedule(course_key)
+
+    def generate_combinations(self):
+        """Generate course combinations (delegated to AutoScheduler)"""
+        self.generate_optimal_schedule()
+
+    def generate_greedy_schedule(self):
+        """Generate greedy schedule (delegated to AutoScheduler)"""
+        self.generate_optimal_schedule()
+
+    def generate_alternative_schedule(self):
+        """Generate alternative schedule (delegated to AutoScheduler)"""
+        self.generate_optimal_schedule()
+
+    def show_detailed_info(self):
+        """Show detailed info window (delegated to DialogCoordinator)"""
+        self.open_detailed_info_window()
+
+    def show_exam_schedule(self):
+        """Show exam schedule window (delegated to DialogCoordinator)"""
+        self.on_show_exam_schedule()
+
+    def create_menu_bar(self):
+        """Create the application menu bar using MenuBuilder"""
+        from app.ui.builders.menu_builder import MenuBuilder
+        menus, actions = MenuBuilder.build_menu_bar(self, logger)
+        
+        # Wire actions
+        if 'student_profile' in actions:
+            actions['student_profile'].triggered.connect(self.show_student_profile)
+        if 'cloud_auth' in actions:
+            actions['cloud_auth'].triggered.connect(self.show_cloud_account_dialog)
+        if 'cloud_sync' in actions:
+            actions['cloud_sync'].triggered.connect(self.show_cloud_schedule_dialog)
+        if 'prof_review' in actions:
+            actions['prof_review'].triggered.connect(self.show_professor_review_dialog)
+        if 'academic' in actions:
+            actions['academic'].triggered.connect(self.show_academic_center_dialog)
+        if 'settings' in actions:
+            actions['settings'].triggered.connect(self.show_settings_dialog)
+            
+        if 'history_menu' in menus:
+            menus['history_menu'].aboutToShow.connect(self.populate_backup_history_menu)
 
     def show_student_profile(self):
         """Show the student profile dialog."""
@@ -1391,35 +1104,39 @@ class SchedulerWindow(QtWidgets.QMainWindow):
             pass  # Gracefully keep app running
 
     def debug_stats_widget(self):
-        """Debug stats widget"""
-        try:
-            # Get the directory of this file
-            ui_dir = os.path.dirname(os.path.abspath(__file__))
-            stats_widget_ui_file = os.path.join(ui_dir, 'stats_widget.ui')
-
-            # Load UI from external file
-            try:
-                uic.loadUi(stats_widget_ui_file, self.stats_widget)
-            except FileNotFoundError:
-                QtWidgets.QMessageBox.critical(self, "خطا", f"فایل UI یافت نشد: {stats_widget_ui_file}")
-                pass  # Gracefully keep app running
-            except Exception as e:
-                QtWidgets.QMessageBox.critical(self, "خطا", humanize_error(e, "خطا در بارگذاری UI: "))
-                pass  # Gracefully keep app running
-
-            # Set layout direction
-            self.stats_widget.setLayoutDirection(QtCore.Qt.RightToLeft)
-
-            # Add the stats widget to the main window
-            self.setCentralWidget(self.stats_widget)
-
-            # Update the stats panel
-            self.update_stats_panel()
-
-        except Exception as e:
-            logger.error(f"Failed to debug stats widget: {e}")
-            QtWidgets.QMessageBox.critical(self, "خطا", humanize_error(e, "امکان اجرای تست بر روی ویجت آمار وجود ندارد: "))
-            pass  # Gracefully keep app running
+        """Debug method to find the correct stats widget name"""
+        # Only run in debug mode
+        if not os.environ.get('DEBUG'):
+            return None
+            
+        logger.debug("=== Debug Stats Widget ===")
+        
+        # پیدا کردن تمام label های موجود
+        labels = self.findChildren(QtWidgets.QLabel)
+        for label in labels:
+            if hasattr(label, 'objectName'):
+                name = label.objectName()
+                text = label.text()[:50] + "..." if len(label.text()) > 50 else label.text()
+                logger.debug(f"Label: {name} -> {text}")
+        
+        # تست مستقیم
+        widgets_to_test = [
+            'stats_label',
+            'statsLabel', 
+            'statistics_label',
+            'stat_label',
+            'program_stats_label'
+        ]
+        
+        for widget_name in widgets_to_test:
+            widget = getattr(self, widget_name, None)
+            if widget:
+                logger.debug(f"✅ Found widget: {widget_name}")
+                return widget
+            else:
+                logger.debug(f"❌ Widget not found: {widget_name}")
+        
+        return None
 
     def get_course_priority(self, course_key):
         """
@@ -1440,63 +1157,6 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         # Default priority if not found in auto-select list
         return 999
 
-    def initialize_schedule_table(self):
-        """Initialize the schedule table with days and time slots"""
-        try:
-            from app.core.config import DAYS, EXTENDED_TIME_SLOTS
-
-            
-            # Clear the table completely first
-            self.schedule_table.clear()
-            
-            # Set table dimensions - 6 days with time rows (7:00 to 19:00)
-            self.schedule_table.setRowCount(len(EXTENDED_TIME_SLOTS) - 1)  # -1 because we show time ranges
-            self.schedule_table.setColumnCount(len(DAYS))
-            
-            # Set headers with correct order: [شنبه][یکشنبه][دوشنبه][سه‌شنبه][چهارشنبه][پنج‌شنبه]
-            headers = DAYS
-            self.schedule_table.setHorizontalHeaderLabels(headers)
-            
-            # Configure table appearance
-            self.schedule_table.setAlternatingRowColors(True)
-            self.schedule_table.verticalHeader().setVisible(True)
-            
-            # Generate Persian time labels for vertical header
-            time_labels = []
-            for i in range(len(EXTENDED_TIME_SLOTS) - 1):
-                start_time = EXTENDED_TIME_SLOTS[i]
-                end_time = EXTENDED_TIME_SLOTS[i + 1]
-                
-                # Convert to Persian numerals
-                start_persian = self.convert_to_persian_numerals(start_time)
-                end_persian = self.convert_to_persian_numerals(end_time)
-                
-                # Format as dual-line: start_time - end_time
-                time_labels.append(f"{start_persian}\n{end_persian}")
-            
-            # Set vertical header labels
-            self.schedule_table.setVerticalHeaderLabels(time_labels)
-            
-            # Configure vertical header appearance
-            vertical_header = self.schedule_table.verticalHeader()
-            vertical_header.setFixedWidth(80)
-            vertical_header.setDefaultSectionSize(35)
-            
-            # Set row heights
-            for row in range(len(EXTENDED_TIME_SLOTS) - 1):
-                self.schedule_table.setRowHeight(row, 35)
-            
-            # All styling is now handled by styles.qss file
-            pass
-            
-            logger.info(f"Schedule table initialized with {len(EXTENDED_TIME_SLOTS) - 1} rows and {len(DAYS)} columns")
-            logger.info(f"Headers: {headers}")
-            
-        except Exception as e:
-            logger.error(f"Failed to initialize schedule table: {e}")
-            import traceback
-            logger.error("Unexpected error occurred", exc_info=True)
-
     def convert_to_persian_numerals(self, time_str):
         """Convert English numerals in time string to Persian numerals"""
         english_to_persian = {
@@ -1508,42 +1168,6 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         for char in time_str:
             result += english_to_persian.get(char, char)
         return result
-
-    def setup_responsive_layout(self):
-        """Setup responsive layout and sizing with reduced margins and spacing"""
-        try:
-            # Set main splitter ratios
-            if hasattr(self, 'main_splitter'):
-                # Reduce handle width for splitter
-                self.main_splitter.setHandleWidth(4)
-                
-                # Set initial sizes based on window width
-                window_width = self.width()
-                left_width = int(window_width * 0.25)   # 25%
-                center_width = int(window_width * 0.50)  # 50%
-                right_width = int(window_width * 0.25)   # 25%
-                
-                self.main_splitter.setSizes([left_width, center_width, right_width])
-                
-                # Set stretch factors
-                self.main_splitter.setStretchFactor(0, 0)  # Left panel - fixed
-                self.main_splitter.setStretchFactor(1, 1)  # Center panel - expandable
-                self.main_splitter.setStretchFactor(2, 0)  # Right panel - fixed
-            
-            # Configure schedule table for responsive behavior
-            self.setup_table_responsive()
-            
-            # Reduce margins and spacing in all layouts
-            self.reduce_layout_margins()
-            
-            # Set minimum height for course list
-            if hasattr(self, 'course_list'):
-                self.course_list.setMinimumHeight(200)
-            
-            logger.info("Responsive layout configured")
-            
-        except Exception as e:
-            logger.error(f"Failed to setup responsive layout: {e}")
 
     def reduce_layout_margins(self):
         """Reduce margins and spacing in all layouts to minimize gaps"""
@@ -1635,225 +1259,11 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         except Exception as e:
             logger.error(f"Error in resizeEvent: {e}")
 
-    def update_status(self):
-        """Update status bar with accurate Persian date and time"""
-        try:
-            import jdatetime
-            
-            # تنظیم locale برای فارسی
-            jdatetime.set_locale(jdatetime.FA_LOCALE)
-            
-            # گرفتن تاریخ و زمان فعلی شمسی
-            now = jdatetime.datetime.now()
-            
-            # نام‌های روزهای هفته به فارسی
-            # Fix: jdatetime weekday uses Saturday=0, but we need to map correctly
-            persian_weekdays = {
-                0: 'شنبه',    # Saturday
-                1: 'یکشنبه',  # Sunday
-                2: 'دوشنبه',  # Monday
-                3: 'سه‌شنبه', # Tuesday
-                4: 'چهارشنبه',# Wednesday
-                5: 'پنج‌شنبه',# Thursday
-                6: 'جمعه'     # Friday
-            }
-            
-            # نام‌های ماه‌های شمسی
-            persian_months = {
-                1: 'فروردین', 2: 'اردیبهشت', 3: 'خرداد',
-                4: 'تیر', 5: 'مرداد', 6: 'شهریور',
-                7: 'مهر', 8: 'آبان', 9: 'آذر',
-                10: 'دی', 11: 'بهمن', 12: 'اسفند'
-            }
-            
-            # گرفتن اجزای تاریخ
-            persian_year = now.year
-            persian_month = now.month
-            persian_day = now.day
-            weekday = now.weekday()
-            
-            # فرمت زمان
-            time_str = now.strftime('%H:%M')
-            
-            # نام روز و ماه
-            weekday_name = persian_weekdays.get(weekday, '')
-            month_name = persian_months.get(persian_month, '')
-            
-            # ساخت متن تاریخ شمسی کامل
-            persian_date_str = f'{persian_day} {month_name} {persian_year}'
-            
-            # متن کامل status bar
-            status_text = f'🗓️ {weekday_name} - {persian_date_str} - ⏰ {time_str}'
-            
-            # نمایش در status bar
-            self.status_bar.showMessage(status_text)
-            
-            # تنظیم فونت زیبا
-            status_font = QtGui.QFont('IRANSans UI', 11, QtGui.QFont.Bold)
-            self.status_bar.setFont(status_font)
-                
-        except ImportError:
-            # در صورت عدم وجود jdatetime، fallback به روش قبلی
-            self.update_status_fallback()
-        except Exception as e:
-            logger.debug(f"خطا در به‌روزرسانی وضعیت: {e}")
-            self.update_status_fallback()
-
-    def debug_stats_widget(self):
-        """Debug method to find the correct stats widget name"""
-        # Only run in debug mode
-        if not os.environ.get('DEBUG'):
-            return None
-            
-        logger.debug("=== Debug Stats Widget ===")
-        
-        # پیدا کردن تمام label های موجود
-        labels = self.findChildren(QtWidgets.QLabel)
-        for label in labels:
-            if hasattr(label, 'objectName'):
-                name = label.objectName()
-                text = label.text()[:50] + "..." if len(label.text()) > 50 else label.text()
-                logger.debug(f"Label: {name} -> {text}")
-        
-        # تست مستقیم
-        widgets_to_test = [
-            'stats_label',
-            'statsLabel', 
-            'statistics_label',
-            'stat_label',
-            'program_stats_label'
-        ]
-        
-        for widget_name in widgets_to_test:
-            widget = getattr(self, widget_name, None)
-            if widget:
-                logger.debug(f"✅ Found widget: {widget_name}")
-                return widget
-            else:
-                logger.debug(f"❌ Widget not found: {widget_name}")
-        
-        return None
-
     def update_stats_panel(self):
-        """Update the stats panel with current schedule information - FORCED VERSION"""
-        # Only show debug log if in debug mode
-        if os.environ.get('DEBUG'):
-            logger.debug("🔄 update_stats_panel called")
-        
-        try:
-            # پیدا کردن widget صحیح
-            stats_widget = None
-            widget_candidates = [
-                getattr(self, 'stats_label', None),
-                getattr(self, 'statsLabel', None),
-                getattr(self, 'statistics_label', None),
-                self.findChild(QtWidgets.QLabel, 'stats_label'),
-                self.findChild(QtWidgets.QLabel, 'statsLabel'),
-            ]
-            
-            for widget in widget_candidates:
-                if widget:
-                    stats_widget = widget
-                    if os.environ.get('DEBUG'):
-                        logger.debug(f"✅ Found stats widget: {type(widget)}")
-                    break
-            
-            if not stats_widget:
-                if os.environ.get('DEBUG'):
-                    logger.debug("❌ No stats widget found!")
-                # جستجو در کل UI
-                all_labels = self.findChildren(QtWidgets.QLabel)
-                for label in all_labels:
-                    if 'آمار' in label.text() or 'stats' in label.objectName().lower():
-                        stats_widget = label
-                        if os.environ.get('DEBUG'):
-                            logger.debug(f"🔍 Found by search: {label.objectName()}")
-                        break
-            
-            if not stats_widget:
-                if os.environ.get('DEBUG'):
-                    logger.debug("❌ Still no stats widget found!")
-                return
-                
-            # محاسبه آمار
-            if hasattr(self, 'placed') and self.placed:
-                # Collect currently placed course keys
-                # Handle both single and dual courses correctly
-                keys = []
-                for info in self.placed.values():
-                    if info.get('type') == 'dual':
-                        # For dual courses, add both courses
-                        keys.extend(info.get('courses', []))
-                    else:
-                        # For single courses, add the course key
-                        keys.append(info.get('course'))
-
-                # Remove duplicates while preserving order
-                seen = set()
-                unique_keys = []
-                for key in keys:
-                    if key not in seen:
-                        seen.add(key)
-                        unique_keys.append(key)
-                keys = unique_keys
-                
-                # Update user data with current schedule
-                self.user_data['current_schedule'] = keys
-                
-                if os.environ.get('DEBUG'):
-                    logger.debug(f"📊 Found {len(keys)} courses")
-                
-                # محاسبه واحدها
-                total_units = 0
-                total_sessions = len(self.placed)
-                days_used = set()
-                
-                for course_key in keys:
-                    course = COURSES.get(course_key, {})
-                    units = course.get('credits', 0)
-                    total_units += units
-                    if os.environ.get('DEBUG'):
-                        logger.debug(f"  - {course.get('name', course_key)}: {units} واحد")
-                    
-                    # گرفتن روزها
-                    for session in course.get('schedule', []):
-                        days_used.add(session.get('day', ''))
-                
-                # متن آمار
-                stats_text = f"""📊 آمار برنامه فعلی
-
-📚 تعداد دروس: {len(keys)}
-🎯 واحدها: {total_units}
-⏰ جلسات: {total_sessions}
-📅 روزها: {len(days_used)}
-✅ وضعیت: فعال"""
-
-                if os.environ.get('DEBUG'):
-                    logger.debug(f"📝 Setting stats text: {stats_text[:100]}...")
-                stats_widget.setText(stats_text)
-                
-            else:
-                if os.environ.get('DEBUG'):
-                    logger.debug("📭 No courses placed")
-                stats_widget.setText("""📊 آمار برنامه
-
-هنوز هیچ درسی انتخاب نشده است
-
-💡 روی دروس کلیک کنید""")
-                
-            # فورس refresh
-            stats_widget.update()
-            stats_widget.repaint()
-            
-        except Exception as e:
-            logger.error(f"❌ Error in update_stats_panel: {e}")
-            if os.environ.get('DEBUG'):
-                import traceback
-                logger.error("Unexpected error occurred", exc_info=True)
+        self.status_bar_controller.update_stats_panel()
 
     def updatestatspanel(self):
-        """Alias for update_stats_panel"""
-        self.update_stats_panel()
+        self.status_bar_controller.update_stats_panel()
 
     def update_status_fallback(self):
         """Fallback method if jdatetime is not available"""
@@ -2065,18 +1475,7 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         )
         
     def clear_table_silent(self):
-        """Clear table without confirmation dialog (for internal use)"""
-        # Clear all placed courses
-        for (srow, scol), info in list(self.placed.items()):
-            span = info['rows']
-            self.schedule_table.removeCellWidget(srow, scol)
-            for r in range(srow, srow + span):
-                self.schedule_table.setItem(r, scol, QtWidgets.QTableWidgetItem(''))
-            self.schedule_table.setSpan(srow, scol, 1, 1)
-        self.placed.clear()
-        
-        # Clear any preview cells
-        self.clear_preview()
+        self.schedule_table_controller.clear_table_silent()
 
     def clear_table(self):
         """Clear all courses from the table"""
@@ -2118,39 +1517,6 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         QtWidgets.QMessageBox.information(self, 'پاک شد', 'تمام دروس از جدول حذف شدند.')
 
     # ---------------------- eventFilter for hover ----------------------
-    def eventFilter(self, obj, event):
-        """Handle hover events for course preview with improved position mapping and responsive design"""
-        # Check if course_list exists and is not None before accessing it
-        if hasattr(self, 'course_list') and self.course_list is not None and (obj == self.course_list.viewport() or obj == self.course_list):
-            if event.type() == QtCore.QEvent.MouseMove:
-                # Map position correctly whether from viewport or list widget
-                if obj == self.course_list:
-                    # Map global position to viewport coordinates
-                    global_pos = obj.mapToGlobal(event.pos())
-                    pos = self.course_list.viewport().mapFromGlobal(global_pos)
-                else:
-                    pos = event.pos()
-                
-                item = self.course_list.itemAt(pos)
-                if item:
-                    key = item.data(QtCore.Qt.UserRole)
-                    if key and getattr(self, 'last_hover_key', None) != key:
-                        self.last_hover_key = key
-                        self.clear_preview()
-                        self.preview_course(key)
-                else:
-                    # Clear preview when not hovering over an item
-                    if hasattr(self, 'last_hover_key') and self.last_hover_key:
-                        self.last_hover_key = None
-                        self.clear_preview()
-            elif event.type() == QtCore.QEvent.Leave:
-                # Clear preview when mouse leaves the course list entirely
-                if hasattr(self, 'last_hover_key') and self.last_hover_key:
-                    self.last_hover_key = None
-                    self.clear_preview()
-        
-        return super().eventFilter(obj, event)
-    
     def calculate_empty_time(self, course_keys):
         """Calculate the empty time (gaps) for a combination of courses"""
         return calculate_empty_time_for_combo(course_keys)
@@ -2947,135 +2313,17 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         self.preview_cells.clear()
 
     def open_edit_course_dialog(self):
-        """Open dialog to edit an existing course (legacy method)"""
-        # First, let user select which course to edit
-        selected_items = self.course_list.selectedItems()
-        if not selected_items:
-            QtWidgets.QMessageBox.information(
-                self, 'انتخاب درس', 
-                'لطفا ابتدا درسی را از لیست انتخاب کنید.'
-            )
-            return
-            
-        selected_item = selected_items[0]
-        course_key = selected_item.data(QtCore.Qt.UserRole)
-        self.open_edit_course_dialog_for_course(course_key)
-        
+        """Open dialog to edit an existing course (delegated to DialogCoordinator)"""
+        self.dialog_coordinator.open_edit_course_dialog()
+
     def open_edit_course_dialog_for_course(self, course_key):
-        """Open dialog to edit a specific course by course key"""
-        if not course_key or course_key not in COURSES:
-            QtWidgets.QMessageBox.warning(
-                self, 'خطا', 
-                'درس انتخابی یافت نشد.'
-            )
-            return
-            
-        course = COURSES[course_key]
-        
-        # Check if it's a built-in course
-        if not self.is_editable_course(course_key):
-            QtWidgets.QMessageBox.warning(
-                self, 'غیر قابل ویرایش', 
-                'دروس پیش‌فرض قابل ویرایش نیستند. فقط دروس سفارشی را می‌توان ویرایش کرد.'
-            )
-            return
-            
-        # Open edit dialog with pre-filled data
-        dlg = EditCourseDialog(course, self)
-        if dlg.exec_() != QtWidgets.QDialog.Accepted:
-            return
-            
-        updated_course = dlg.get_course_data()
-        if not updated_course:
-            return
-            
-        # Update the course
-        COURSES[course_key] = updated_course
-        
-        # Save courses to JSON
-        save_courses_to_json()
-        
-        # Update user_data
-        custom_courses = self.user_data.get('custom_courses', [])
-        for i, c in enumerate(custom_courses):
-            if c.get('code') == course.get('code'):
-                custom_courses[i] = updated_course
-                break
-        
-        save_user_data(self.user_data)
-        
-        # Remove from schedule if placed
-        self.remove_course_from_schedule(course_key)
-        
-        # Refresh UI
-        self.populate_course_list()
-        self.update_course_info_panel()
-        self.update_status()
-        
-        QtWidgets.QMessageBox.information(
-            self, 'ویرایر شد', 
-            f'درس "{updated_course["name"]}" با موفقیت ویرایش شد.'
-        )
-        
+        """Open dialog to edit a specific course (delegated to DialogCoordinator)"""
+        self.dialog_coordinator.open_edit_course_dialog_for_course(course_key)
+
     def show_course_details(self, course_key):
-        """Show detailed course information in a dialog"""
-        course = COURSES.get(course_key, {})
-        if not course:
-            return
-            
-        details_dialog = QtWidgets.QDialog(self)
-        details_dialog.setWindowTitle(f'جزییات درس: {course.get("name", "نامشخص")}')
-        details_dialog.setModal(True)
-        details_dialog.resize(500, 400)
-        details_dialog.setLayoutDirection(QtCore.Qt.RightToLeft)
-        
-        layout = QtWidgets.QVBoxLayout(details_dialog)
-        
-        # Course information
-        info_text = f"""
-        <h2 style="color: #2c3e50; font-family: 'Nazanin', 'Tahoma', sans-serif;">{course.get('name', 'نامشخص')}</h2>
-        <p style="font-family: 'Nazanin', 'Tahoma', sans-serif;"><b>کد درس:</b> {course.get('code', 'نامشخص')}</p>
-        <p style="font-family: 'Nazanin', 'Tahoma', sans-serif;"><b>استاد:</b> {course.get('instructor', 'نامشخص')}</p>
-        <p style="font-family: 'Nazanin', 'Tahoma', sans-serif;"><b>تعداد واحد:</b> {course.get('credits', 0)}</p>
-        <p style="font-family: 'Nazanin', 'Tahoma', sans-serif;"><b>مکان برگزاری:</b> {course.get('location', 'نامشخص')}</p>
-        <p style="font-family: 'Nazanin', 'Tahoma', sans-serif;"><b>زمان امتحان:</b> {course.get('exam_time', 'اعلام نشده')}</p>
-        
-        <h3 style="font-family: 'Nazanin', 'Tahoma', sans-serif;">جلسات درس:</h3>
-        """
-        
-        for sess in course.get('schedule', []):
-            parity = ''
-            if sess.get('parity') == 'ز':
-                parity = ' (زوج) - <span style="color: #2ed573; font-weight: bold;">ز</span>'
-            elif sess.get('parity') == 'ف':
-                parity = ' (فرد) - <span style="color: #3742fa; font-weight: bold;">ف</span>'
-            info_text += f"<p style='font-family: \"Nazanin\", \"Tahoma\", sans-serif;'>• {sess['day']} {sess['start']}-{sess['end']}{parity}</p>"
-        
-        info_text += f"""
-        <h3 style="font-family: 'Nazanin', 'Tahoma', sans-serif;">توضیحات درس:</h3>
-        <p style="background: #f8f9fa; padding: 10px; border-radius: 5px; font-family: 'Nazanin', 'Tahoma', sans-serif;">{course.get('description', 'توضیحی ارائه نشده')}</p>
-        """
-        
-        text_widget = QtWidgets.QTextEdit()
-        text_widget.setHtml(info_text)
-        text_widget.setReadOnly(True)
-        text_widget.setObjectName("course_details")
-        layout.addWidget(text_widget)
-        
-        # Copy course code button
-        copy_button = QtWidgets.QPushButton(f'📋 کپی کد درس: {course.get("code", "")}')
-        copy_button.clicked.connect(lambda: self.copy_to_clipboard(course.get('code', '')))
-        copy_button.setObjectName("copy_code")
-        layout.addWidget(copy_button)
-        
-        # Close button
-        close_button = QtWidgets.QPushButton('بستن')
-        close_button.clicked.connect(details_dialog.close)
-        close_button.setObjectName("dialog_close")
-        layout.addWidget(close_button)
-        
-        details_dialog.exec_()
-        
+        """Show detailed course information in a dialog (delegated to DialogCoordinator)"""
+        self.dialog_coordinator.show_course_details(course_key)
+
     def highlight_course_sessions(self, course_key):
         """Highlight all sessions of a course with a smooth red border animation"""
         # Make sure QtWidgets is available in this scope
@@ -3149,8 +2397,6 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         
     def _pulse_highlight(self):
         """Pulse animation for highlighted course sessions"""
-        # Make sure QtWidgets is available in this scope
-        
         timer = self.sender()
         if not timer:
             return
@@ -3176,27 +2422,21 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         green_value = 76 + int((100 - 76) * intensity)
         blue_value = 60 + int((100 - 60) * intensity)
         
-        # Update the border color for pulsing effect
-        widget.setStyleSheet("QWidget#course-cell { border: 3px solid rgb(" + str(red_value) + ", " + str(green_value) + ", " + str(blue_value) + ") !important; border-radius: 8px !important; background-color: rgba(231, 76, 60, 0.2) !important; } QWidget#course-cell[conflict=\"true\"] { border: 3px solid rgb(" + str(red_value) + ", " + str(green_value) + ", " + str(blue_value) + ") !important; border-radius: 8px !important; background-color: rgba(231, 76, 60, 0.3) !important; }")
+        # Update the border color for pulsing effect based on widget type
+        if widget.objectName() == 'dual-course-cell':
+            # For dual course widgets
+            widget.setStyleSheet("QWidget#dual-course-cell { border: 3px solid rgb(" + str(red_value) + ", " + str(green_value) + ", " + str(blue_value) + ") !important; border-radius: 8px !important; background-color: rgba(231, 76, 60, 0.2) !important; }")
+        else:
+            # For regular course widgets
+            widget.setStyleSheet("QWidget#course-cell { border: 3px solid rgb(" + str(red_value) + ", " + str(green_value) + ", " + str(blue_value) + ") !important; border-radius: 8px !important; background-color: rgba(231, 76, 60, 0.2) !important; } QWidget#course-cell[conflict=\"true\"] { border: 3px solid rgb(" + str(red_value) + ", " + str(green_value) + ", " + str(blue_value) + ") !important; border-radius: 8px !important; background-color: rgba(231, 76, 60, 0.3) !important; }")
         
     def open_detailed_info_window(self):
-        """Open the detailed information window"""
-        # Create window if it doesn't exist or was closed
-        if not self.detailed_info_window or not self.detailed_info_window.isVisible():
-            self.detailed_info_window = ExamScheduleWindow(self)
-            
-        # Show and raise the window
-        self.detailed_info_window.show()
-        self.detailed_info_window.raise_()
-        self.detailed_info_window.activateWindow()
-        
-        # Update content with latest data
-        self.detailed_info_window.update_content()
+        """Open the detailed information window (delegated to DialogCoordinator)"""
+        self.dialog_coordinator.open_detailed_info_window()
 
     def update_detailed_info_if_open(self):
-        """Update the detailed info window if it's currently open"""
-        if self.detailed_info_window and self.detailed_info_window.isVisible():
-            self.detailed_info_window.update_content()
+        """Update the detailed info window if it's open (delegated to DialogCoordinator)"""
+        self.dialog_coordinator.update_detailed_info_if_open()
 
     def update_item_size_hint(self, item, widget):
         """Update the size hint for a QListWidgetItem based on its widget"""
@@ -3204,352 +2444,27 @@ class SchedulerWindow(QtWidgets.QMainWindow):
             item.setSizeHint(widget.sizeHint())
             
     def populate_course_list(self, filter_items=None):
-        """Populate the course list with all available courses.
-        
-        Args:
-            filter_items: Can be None (no filter), a dict (pre-filtered courses),
-                        or a string (text to filter by)
-        """
-        try:
-            from app.core.config import COURSES
-
-            if not hasattr(self, 'course_list'):
-                logger.error("course_list widget not found")
-                return
-                
-            self.course_list.clear()
-            
-            # Clear widget cache to prevent deleted widget issues
-            if hasattr(self, '_course_widgets_cache'):
-                self._course_widgets_cache.clear()
-            else:
-                self._course_widgets_cache = {}
-            
-            # Initialize variables
-            courses_to_show = {}
-            filter_text = ""
-            
-            # Handle filter_items parameter
-            if filter_items is None:
-                # No filter - start with all courses
-                courses_to_show = dict(COURSES)
-            elif isinstance(filter_items, dict):
-                # Pre-filtered dictionary
-                courses_to_show = filter_items
-            elif isinstance(filter_items, str):
-                # Text filter
-                filter_text = filter_items.strip()
-                courses_to_show = dict(COURSES)
-            else:
-                # Invalid filter type
-                logger.warning(f"Invalid filter_items type: {type(filter_items)}")
-                courses_to_show = dict(COURSES)
-
-            # If no major is selected and no filter, show placeholder
-                if self.current_major_filter is None and not filter_text.strip():
-                    placeholder_item = QtWidgets.QListWidgetItem()
-                    placeholder_widget = QtWidgets.QWidget()
-                    placeholder_layout = QtWidgets.QVBoxLayout(placeholder_widget)
-                    placeholder_layout.setContentsMargins(10, 10, 10, 10)
-                    
-                    placeholder_label = QtWidgets.QLabel("برای مشاهده دروس، ابتدا رشته را انتخاب کنید.")
-                    placeholder_label.setAlignment(QtCore.Qt.AlignCenter)
-                    placeholder_label.setStyleSheet("color: #666; font-size: 14px; font-weight: bold;")
-                    
-                    placeholder_layout.addWidget(placeholder_label)
-                    placeholder_widget.setLayout(placeholder_layout)
-                    
-                    placeholder_item.setSizeHint(placeholder_widget.sizeHint())
-                    self.course_list.addItem(placeholder_item)
-                    self.course_list.setItemWidget(placeholder_item, placeholder_widget)
-                    return
-                
-                # Filter courses by major if major is selected
-                if self.current_major_filter:
-                    for key, course in COURSES.items():
-                        course_major = self.extract_course_major(key, course)
-                        if course_major == self.current_major_filter:
-                            courses_to_show[key] = course
-                else:
-                    courses_to_show = COURSES.copy()
-                
-                # Apply text filter if provided
-                if filter_text.strip():
-                    normalized_filter = self.normalize_persian_text(filter_text.strip()).lower()
-                    courses_to_show = {
-                        key: course for key, course in courses_to_show.items()
-                        if (normalized_filter in self.normalize_persian_text(course.get('name', '')).lower() or
-                            normalized_filter in self.normalize_persian_text(course.get('code', '')).lower() or
-                            normalized_filter in self.normalize_persian_text(course.get('instructor', '')).lower())
-                    }
-                
-            # Process courses and create widgets
-            used = 0
-            
-            # Pre-sort courses by name for consistent ordering
-            sorted_courses = sorted(courses_to_show.items(), key=lambda x: x[1].get('name', ''))
-            
-            for key, course in sorted_courses:
-                try:
-                    # Validate course data before creating widget
-                    if not isinstance(course, dict):
-                        logger.warning(f"Invalid course data for {key}: not a dictionary")
-                        continue
-                        
-                    required_fields = ['code', 'name', 'credits', 'instructor', 'schedule']
-                    missing_fields = [field for field in required_fields if field not in course]
-                    if missing_fields:
-                        logger.warning(f"Course {key} missing required fields: {missing_fields}")
-                        continue
-                    
-                    # Create list item
-                    item = QtWidgets.QListWidgetItem()
-                    item.setData(QtCore.Qt.UserRole, key)
-                    
-                    # Set background color
-                    color = COLOR_MAP[used % len(COLOR_MAP)]
-                    item.setBackground(QtGui.QBrush(color))
-                    
-                    # Create tooltip with detailed info
-                    tooltip = f"نام: {course['name']}\nکد: {course['code']}\nاستاد: {course.get('instructor', 'نامشخص')}\nمحل: {course.get('location', 'نامشخص')}\nواحد: {course.get('credits', 'نامشخص')}"
-                    if course.get('schedule'):
-                        tooltip += "\nجلسات:"
-                        for sess in course['schedule']:
-                            parity_text = ''
-                            if sess.get('parity') == 'ز':
-                                parity_text = ' (زوج)'
-                            elif sess.get('parity') == 'ف':
-                                parity_text = ' (فرد)'
-                            tooltip += f"\n  {sess['day']}: {sess['start']}-{sess['end']}{parity_text}"
-                    
-                    item.setToolTip(tooltip)
-                    
-                    # Add item to list first
-                    self.course_list.addItem(item)
-                    
-                    # Create new custom widget for this item (no caching to avoid deleted widget issues)
-                    course_widget = CourseListWidget(key, course, self.course_list, self)
-                    # Set background color using QSS class
-                    color_index = used % len(COLOR_MAP)
-                    course_widget.setProperty('colorIndex', color_index)
-                    
-                    # Set the custom widget for this item with proper sizing
-                    item.setSizeHint(course_widget.sizeHint())
-                    self.course_list.setItemWidget(item, course_widget)
-                    
-                    # Force update the size hint after widget is added
-                    QtCore.QTimer.singleShot(0, lambda itm=item, widget=course_widget: self.update_item_size_hint(itm, widget))
-                    
-                    # Cache tooltip only (not the widget)
-                    tooltip_key = f"{key}_tooltip"
-                    self._course_widgets_cache[tooltip_key] = tooltip
-                    
-                    used += 1
-                    
-                except Exception as e:
-                    logger.error(f"Error creating widget for course {key}: {e}", exc_info=True)
-                    logger.warning(f"Warning: Could not create widget for course {key}: {e}")
-                    continue
-                
-            # Update spacing between items
-            self.course_list.setSpacing(3)
-            
-            # Update status with count
-            total_courses = len(COURSES)
-            shown_courses = len(courses_to_show)
-            if filter_text.strip():
-                # Update status bar to show filtered results
-                search_status = f"نمایش {shown_courses} از {total_courses} درس (فیلتر: '{filter_text}')"
-                self.status_bar.showMessage(search_status)
-            else:
-                # Regular status update
-                self.update_status()
-                self.update_stats_panel()
-                
-            logger.info(f"Populated course list with {shown_courses} courses (filtered: {bool(filter_text.strip())})")
-            
-        except Exception as e:
-            logger.error(f"Failed to populate course list: {e}")
-
-
+        """Populate the course list with courses (delegated to CourseSearchController)"""
+        self.course_search_controller.populate_course_list(filter_items)
 
 
 
     def on_major_selection_changed(self, index):
-        """Handle major selection change"""
-        try:
-            if index == 0:  # Default "انتخاب رشته" option
-                self.current_major_filter = None
-                # Don't show all courses when selecting default option
-                self.course_list.clear()  # Clear the list instead of showing all courses
-            else:
-                selected_major = self.comboBox.currentText()
-                self.current_major_filter = selected_major
-                
-                # If we have a database instance, filter courses by department
-                if self.db is not None and selected_major != "دروس اضافه‌شده توسط کاربر":
-                    # Extract department name from major identifier (faculty - department)
-                    if " - " in selected_major:
-                        department_name = selected_major.split(" - ", 1)[1]  # Get department part
-                        logger.debug(f"Filtering courses by department: {department_name}")
-                        
-                        # Get courses for this department from database
-                        department_courses = self.db.get_courses_by_department(
-                            department_name, 
-                            availability='both',
-                            return_hierarchy=False
-                        )
-                        
-                        # Update COURSES dictionary with only courses from this department
-                        global COURSES
-                        # Keep user-added courses
-                        user_courses = {k: v for k, v in COURSES.items() if v.get('major') == 'دروس اضافه‌شده توسط کاربر'}
-                        
-                        # Clear and repopulate with department courses
-                        COURSES.clear()
-                        
-                        # Convert database courses to the format expected by the UI
-                        from app.core.golestan_integration import convert_db_course_format, generate_course_key_from_db
-                        for course in department_courses:
-                            course_key = generate_course_key_from_db(course)
-                            converted_course = convert_db_course_format(course)
-                            # Add major information
-                            converted_course['major'] = selected_major
-                            COURSES[course_key] = converted_course
-                        
-                        # Add back user-added courses
-                        COURSES.update(user_courses)
-                
-                # Repopulate course list with new filter
-                self.populate_course_list()
-            
-        except Exception as e:
-            logger.error(f"Error handling major selection change: {e}")
-
-    def connect_signals(self):
-        """Connect UI signals to their respective slots"""
-        try:
-            # Search functionality
-            if hasattr(self, 'search_box'):
-                self.search_box.textChanged.connect(self.on_search_text_changed)
-            
-            # Search clear button
-            if hasattr(self, 'pushButton'):
-                self.pushButton.clicked.connect(self.clear_search)
-            
-            # Add Golestan fetch actions
-            if hasattr(self, 'action_fetch_golestan'):
-                # Disconnect any existing connections first to prevent duplicates
-                try:
-                    self.action_fetch_golestan.triggered.disconnect(self.fetch_from_golestan)
-                except TypeError:
-                    # No existing connection, that's fine
-                    pass
-                self.action_fetch_golestan.triggered.connect(self.fetch_from_golestan)
-            
-            if hasattr(self, 'action_manual_fetch'):
-                # Disconnect any existing connections first to prevent duplicates
-                try:
-                    self.action_manual_fetch.triggered.disconnect(self.manual_fetch_from_golestan)
-                except TypeError:
-                    # No existing connection, that's fine
-                    pass
-                self.action_manual_fetch.triggered.connect(self.manual_fetch_from_golestan)
-            
-            # Add exam schedule actions
-            if hasattr(self, 'action_show_exam_schedule'):
-                self.action_show_exam_schedule.triggered.connect(self.on_show_exam_schedule)
-            
-            if hasattr(self, 'action_export_exam_schedule'):
-                self.action_export_exam_schedule.triggered.connect(self.on_export_exam_schedule)
-            
-            # Major selection dropdown
-            if hasattr(self, 'comboBox'):
-                self.comboBox.currentIndexChanged.connect(self.on_major_selection_changed)
-            
-            # Course list
-            if hasattr(self, 'course_list'):
-                self.course_list.itemClicked.connect(self.on_course_clicked)
-            
-            # Buttons
-            if hasattr(self, 'success_btn'):
-                self.success_btn.clicked.connect(self.on_add_course)
-                
-            if hasattr(self, 'detailed_info_btn'):
-                # Connect save button to save table image method
-                self.detailed_info_btn.clicked.connect(self.save_table_image)
-                
-            if hasattr(self, 'clear_schedule_btn'):
-                self.clear_schedule_btn.clicked.connect(self.on_clear_schedule)
-                
-            if hasattr(self, 'optimal_schedule_btn'):
-                self.optimal_schedule_btn.clicked.connect(self.on_generate_optimal_from_auto_list)
-                
-            if hasattr(self, 'showExamPagebtn'):
-                # Connect exam button to show exam schedule method
-                self.showExamPagebtn.clicked.connect(self.on_show_exam_schedule)
-            
-            # Auto-select list buttons
-            if hasattr(self, 'add_to_auto_btn'):
-                self.add_to_auto_btn.clicked.connect(self.on_add_to_auto)
-                
-            if hasattr(self, 'remove_from_auto_btn'):
-                self.remove_from_auto_btn.clicked.connect(self.on_remove_from_auto)
-            
-            # Table interactions
-            if hasattr(self, 'schedule_table'):
-                self.schedule_table.cellClicked.connect(self.on_table_cell_clicked)
-            
-            # Saved combinations list
-            if hasattr(self, 'saved_combos_list'):
-                self.saved_combos_list.itemClicked.connect(self.on_saved_combo_clicked)
-            
-            # Auto-select list drag & drop
-            if hasattr(self, 'auto_select_list'):
-                self.setup_auto_select_list()
-                # Enable keyboard shortcuts for auto-select list
-                self.auto_select_list.keyPressEvent = self.auto_select_list_key_press_event
-            
-            logger.info("All UI signals connected successfully")
-            
-        except Exception as e:
-            logger.error(f"Failed to connect signals: {e}")
+        self.course_search_controller.on_major_selection_changed(index)
 
     def on_search_text_changed(self, text):
-        """Handle search box text changes with debouncing for performance"""
-        search_text = text.strip()
-        
-        # Use a timer to debounce search for better performance
-        if hasattr(self, '_search_timer'):
-            self._search_timer.stop()
-        
-        self._search_timer = QtCore.QTimer()
-        self._search_timer.timeout.connect(lambda: self.populate_course_list(search_text))
-        self._search_timer.setSingleShot(True)
-        self._search_timer.start(50)  # 50ms delay for even more responsive search
+        self.course_search_controller.on_search_text_changed(text)
 
     def clear_search(self):
-        """Clear the search box and reset the course list"""
-        self.search_box.clear()
-        self.populate_course_list()
-        self.update_stats_panel()
-        
-        # Hide the clear button after clearing
-        if hasattr(self, 'search_clear_button'):
-            self.search_clear_button.hide()
+        self.course_search_controller.clear_search()
 
     def auto_save_user_data(self):
         """Auto-save user data without user interaction - DISABLED for backup-on-exit only"""
-        # DISABLED: Backup system now only creates backups on app exit, not after table edits
         pass
-            
+
     def _cleanup_old_backups(self):
         """Clean up old backup files, keeping only the last 5"""
-        try:
-            from app.core.data_manager import cleanup_old_backups
-            cleanup_old_backups()
-        except Exception as e:
-            logger.error(f"Backup cleanup failed: {e}")
+        self.backup_service.cleanup_old_backups()
 
     def load_user_schedule(self):
         """Load previously saved user schedule on application startup"""
@@ -3575,141 +2490,28 @@ class SchedulerWindow(QtWidgets.QMainWindow):
             # Don't show error to user to keep startup smooth
 
     def generate_optimal_schedule(self):
-        """Generate optimal schedule combinations with enhanced algorithm"""
-        # Get all available courses
+        """Generate optimal schedule combinations with conflict handling"""
         all_courses = list(COURSES.keys())
         
-        if not all_courses:
-            QtWidgets.QMessageBox.information(self, 'هیچ درسی', 'هیچ درسی برای برنامه‌ریزی وجود ندارد.')
-            return
-            
-        # Show progress dialog
         progress = QtWidgets.QProgressDialog('در حال تولید بهترین ترکیبات...', 'لغو', 0, 100, self)
         progress.setWindowModality(QtCore.Qt.WindowModal)
         progress.show()
+        QtWidgets.QApplication.processEvents()
         
         try:
-            # Generate best combinations
-            combos = generate_best_combinations_for_groups(all_courses)
-            progress.setValue(50)
-            
-            if not combos:
-                QtWidgets.QMessageBox.warning(
-                    self, 'نتیجه', 
-                    'هیچ ترکیب بدون تداخل پیدا نشد.'
-                )
-                return
-            
-            # Display results in a dialog
-            self.show_optimal_schedule_results(combos)
+            result = self.auto_scheduler.generate_optimal_schedule(all_courses)
             progress.setValue(100)
             
-        except Exception as e:
-            QtWidgets.QMessageBox.critical(
-                self, 'خطا', 
-                f'خطا در تولید ترکیبات:\n{str(e)}'
-            )
-            logger.error(f"Error in generate_optimal_schedule: {e}")
+            if result.success:
+                self.show_optimal_schedule_results(result.data['combinations'])
+            else:
+                QtWidgets.QMessageBox.information(self, 'پیام', result.message or result.error)
         finally:
             progress.close()
 
     def show_optimal_schedule_results(self, combos):
-        """Show optimal schedule results in a dialog"""
-        dialog = QtWidgets.QDialog(self)
-        dialog.setWindowTitle('ترکیب‌های بهینه پیشنهادی')
-        dialog.resize(600, 400)
-        dialog.setLayoutDirection(QtCore.Qt.RightToLeft)
-        
-        layout = QtWidgets.QVBoxLayout(dialog)
-        
-        # Title
-        title_label = QtWidgets.QLabel('ترکیب‌های بهینه پیشنهادی')
-        title_label.setStyleSheet("font-size: 16px; font-weight: bold; color: #2c3e50; margin: 10px;")
-        title_label.setAlignment(QtCore.Qt.AlignCenter)
-        layout.addWidget(title_label)
-        
-        # Info label
-        if combos:
-            info_label = QtWidgets.QLabel('بهترین ترکیب‌ها براساس حداقل روزهای حضور و حداقل فاصله بین جلسات')
-        else:
-            info_label = QtWidgets.QLabel('هیچ ترکیب بهینه‌ای بدون تداخل پیدا نشد. ترکیب‌هایی با تداخل نشان داده نمی‌شوند.')
-        info_label.setStyleSheet("color: #7f8c8d; margin-bottom: 10px;")
-        info_label.setAlignment(QtCore.Qt.AlignCenter)
-        layout.addWidget(info_label)
-        
-        # Results list
-        results_list = QtWidgets.QListWidget()
-        layout.addWidget(results_list)
-        
-        # Add combinations to list
-        if combos:
-            for i, combo in enumerate(combos[:10]):  # Show top 10
-                # Create item widget
-                item_widget = QtWidgets.QWidget()
-                item_layout = QtWidgets.QVBoxLayout(item_widget)
-                item_layout.setContentsMargins(10, 10, 10, 10)
-                
-                # Header with rank and stats
-                header_layout = QtWidgets.QHBoxLayout()
-                
-                rank_label = QtWidgets.QLabel(f'#{i+1}')
-                rank_label.setStyleSheet("font-weight: bold; color: #1976D2; font-size: 14px;")
-                rank_label.setFixedWidth(30)
-                
-                stats_label = QtWidgets.QLabel(f'روزها: {combo["days"]} | فاصله: {combo["empty"]:.1f}h | امتیاز: {combo["score"]:.1f}')
-                stats_label.setStyleSheet("color: #7f8c8d;")
-                
-                apply_btn = QtWidgets.QPushButton('اعمال')
-                apply_btn.setObjectName("success_btn")
-                apply_btn.setFixedWidth(80)
-                apply_btn.clicked.connect(lambda checked, c=combo: self.apply_optimal_combo(c, dialog))
-                
-                header_layout.addWidget(rank_label)
-                header_layout.addWidget(stats_label)
-                header_layout.addStretch()
-                header_layout.addWidget(apply_btn)
-                
-                item_layout.addLayout(header_layout)
-                
-                # Course list
-                course_list = QtWidgets.QListWidget()
-                course_list.setMaximumHeight(100)
-                course_list.setStyleSheet("border: 1px solid #d5dbdb; border-radius: 5px;")
-                
-                for course_key in combo['courses']:
-                    if course_key in COURSES:
-                        course = COURSES[course_key]
-                        course_item = QtWidgets.QListWidgetItem(
-                            f"{course['name']} - {course['code']} - {course.get('instructor', 'نامشخص')}"
-                        )
-                        course_list.addItem(course_item)
-                
-                item_layout.addWidget(course_list)
-                
-                # Add item to list
-                list_item = QtWidgets.QListWidgetItem()
-                list_item.setSizeHint(item_widget.sizeHint())
-                results_list.addItem(list_item)
-                results_list.setItemWidget(list_item, item_widget)
-        else:
-            # Show a message when no combinations are found
-            no_results_label = QtWidgets.QLabel('هیچ ترکیبی برای نمایش وجود ندارد.')
-            no_results_label.setAlignment(QtCore.Qt.AlignCenter)
-            no_results_label.setStyleSheet("color: #95a5a6; font-style: italic; padding: 20px;")
-            item_widget = QtWidgets.QWidget()
-            item_layout = QtWidgets.QVBoxLayout(item_widget)
-            item_layout.addWidget(no_results_label)
-            list_item = QtWidgets.QListWidgetItem()
-            list_item.setSizeHint(item_widget.sizeHint())
-            results_list.addItem(list_item)
-            results_list.setItemWidget(list_item, item_widget)
-        
-        # Close button
-        close_btn = QtWidgets.QPushButton('بستن')
-        close_btn.clicked.connect(dialog.close)
-        layout.addWidget(close_btn)
-        
-        dialog.exec_()
+        """Show optimal schedule results in a dialog (delegated)"""
+        self.dialog_coordinator.show_optimal_schedule_results(combos)
 
     def apply_optimal_combo_from_auto_list(self, combo, dialog):
         """Apply an optimal combination from auto-list to the schedule with priority-based conflict resolution"""
@@ -3791,15 +2593,6 @@ class SchedulerWindow(QtWidgets.QMainWindow):
             self, 'اعمال شد', 
             f'ترکیب بهینه با {combo["days"]} روز حضور و {combo["empty"]:.1f} ساعت فاصله اعمال شد.'
         )
-
-    def load_saved_combos_ui(self):
-        """Load saved combinations into the UI"""
-        self.saved_combos_list.clear()
-        for sc in self.user_data.get('saved_combos', []):
-            name = sc.get('name', 'بدون نام')
-            item = QtWidgets.QListWidgetItem(name)
-            item.setData(QtCore.Qt.UserRole, sc)
-            self.saved_combos_list.addItem(item)
 
     def save_current_combo(self):
         """Save the current combination of courses"""
@@ -3894,188 +2687,6 @@ class SchedulerWindow(QtWidgets.QMainWindow):
             
             return
         
-    def _pulse_highlight(self):
-        """Pulse animation for highlighted course sessions"""
-        timer = self.sender()
-        if not timer:
-            return
-            
-        # Get the widget and course key
-        widget = getattr(timer, 'widget', None)
-        course_key = getattr(timer, 'course_key', None)
-        
-        if not widget or not course_key:
-            timer.stop()
-            return
-            
-        # Update the pulse step
-        step = getattr(timer, 'step', 0)
-        step = (step + 1) % 20
-        timer.step = step
-        
-        # Calculate pulse intensity (0 to 1 and back to 0)
-        intensity = abs(step - 10) / 10.0
-        
-        # Calculate colors based on intensity
-        red_value = 231 + int((255 - 231) * intensity)
-        green_value = 76 + int((100 - 76) * intensity)
-        blue_value = 60 + int((100 - 60) * intensity)
-        
-        # Update the border color for pulsing effect based on widget type
-        if widget.objectName() == 'dual-course-cell':
-            # For dual course widgets
-            widget.setStyleSheet("QWidget#dual-course-cell { border: 3px solid rgb(" + str(red_value) + ", " + str(green_value) + ", " + str(blue_value) + ") !important; border-radius: 8px !important; background-color: rgba(231, 76, 60, 0.2) !important; }")
-        else:
-            # For regular course widgets
-            widget.setStyleSheet("QWidget#course-cell { border: 3px solid rgb(" + str(red_value) + ", " + str(green_value) + ", " + str(blue_value) + ") !important; border-radius: 8px !important; background-color: rgba(231, 76, 60, 0.2) !important; } QWidget#course-cell[conflict=\"true\"] { border: 3px solid rgb(" + str(red_value) + ", " + str(green_value) + ", " + str(blue_value) + ") !important; border-radius: 8px !important; background-color: rgba(231, 76, 60, 0.3) !important; }")
-        
-    def open_detailed_info_window(self):
-        """Open the detailed information window"""
-        # Create window if it doesn't exist or was closed
-        if not self.detailed_info_window or not self.detailed_info_window.isVisible():
-            self.detailed_info_window = ExamScheduleWindow(self)
-            
-        # Show and raise the window
-        self.detailed_info_window.show()
-        self.detailed_info_window.raise_()
-        self.detailed_info_window.activateWindow()
-        
-        # Update content with latest data
-        self.detailed_info_window.update_content()
-
-    def update_detailed_info_if_open(self):
-        """Update the detailed info window if it's currently open"""
-        # Make sure QtWidgets is available in this scope
-        
-        if self.detailed_info_window and self.detailed_info_window.isVisible():
-            self.detailed_info_window.update_content()
-
-    def update_item_size_hint(self, item, widget):
-        """Update the size hint for a QListWidgetItem based on its widget"""
-        if item and widget:
-            item.setSizeHint(widget.sizeHint())
-            
-    def populate_course_list(self, filter_items=None):
-        """
-        Populate the course list with courses.
-        filter_items can be either a filter text string or a pre-filtered dictionary of courses
-        """
-        try:
-            # If no database instance, fallback to JSON loading
-            if self.db is None:
-                from app.core.data_manager import load_courses_from_json
-                load_courses_from_json()
-            else:
-                # Load courses from database if not already loaded
-                if not COURSES:
-                    self.load_courses_from_database()
-
-            # Clear the course list
-            self.course_list.clear()
-            
-            # Determine base course list to show
-            if isinstance(filter_items, dict):
-                courses_to_show = filter_items
-                filter_text = ""
-            else:
-                # Filter courses based on current major filter first
-                courses_to_show = COURSES
-                if self.current_major_filter and self.current_major_filter != "دروس اضافه‌شده توسط کاربر":
-                    courses_to_show = {
-                        key: course for key, course in COURSES.items()
-                        if course.get('major') == self.current_major_filter
-                    }
-                elif self.current_major_filter == "دروس اضافه‌شده توسط کاربر":
-                    courses_to_show = {
-                        key: course for key, course in COURSES.items()
-                        if course.get('major') == "دروس اضافه‌شده توسط کاربر"
-                    }
-                filter_text = str(filter_items).strip().lower() if isinstance(filter_items, str) else ""
-
-            # Apply search query text filter across selected courses
-            if filter_text:
-                courses_to_show = {
-                    key: course for key, course in courses_to_show.items()
-                    if (
-                        filter_text in (course.get('name') or course.get('course_name') or '').lower() or
-                        filter_text in str(course.get('code') or course.get('course_code') or '').lower() or
-                        filter_text in (course.get('instructor') or '').lower() or
-                        filter_text in (course.get('department') or '').lower() or
-                        filter_text in (course.get('faculty') or '').lower()
-                    )
-                }
-
-
-
-            # Process courses and create widgets
-            used = 0
-            
-            # Pre-sort courses by name for consistent ordering
-            sorted_courses = sorted(courses_to_show.items(), key=lambda x: x[1].get('name', ''))
-            
-            for key, course in sorted_courses:
-                try:
-                    # Validate course data before creating widget
-                    if not isinstance(course, dict):
-                        logger.warning(f"Invalid course data for {key}: not a dictionary")
-                        continue
-                        
-                    required_fields = ['code', 'name', 'credits', 'instructor', 'schedule']
-                    missing_fields = [field for field in required_fields if field not in course]
-                    if missing_fields:
-                        logger.warning(f"Course {key} missing required fields: {missing_fields}")
-                        continue
-                
-                    # Create list item
-                    item = QtWidgets.QListWidgetItem()
-                    item.setData(QtCore.Qt.UserRole, key)
-                    
-                    # Set background color
-                    color = COLOR_MAP[used % len(COLOR_MAP)]
-                    item.setBackground(QtGui.QBrush(color))
-                    
-                    # Create tooltip with course details
-                    tooltip = f"کد: {course['code']}\n"
-                    tooltip += f"نام: {course['name']}\n"
-                    tooltip += f"استاد: {course['instructor']}\n"
-                    tooltip += f"واحد: {course['credits']}\n"
-                    if course.get('schedule'):
-                        tooltip += "\nجلسات:"
-                        for sess in course['schedule']:
-                            parity_text = ''
-                            if sess.get('parity') == 'ز':
-                                parity_text = ' (زوج)'
-                            elif sess.get('parity') == 'ف':
-                                parity_text = ' (فرد)'
-                            tooltip += f"\n  {sess['day']}: {sess['start']}-{sess['end']}{parity_text}"
-                    
-                    item.setToolTip(tooltip)
-                    
-                    # Add item to list first
-                    self.course_list.addItem(item)
-                    
-                    # Create new custom widget for this item (no caching to avoid deleted widget issues)
-                    course_widget = CourseListWidget(key, course, self.course_list, self)
-                    # Set background color using QSS class
-                    color_index = used % len(COLOR_MAP)
-                    course_widget.setProperty('colorIndex', color_index)
-                    
-                    # Set the custom widget for this item with proper sizing
-                    item.setSizeHint(course_widget.sizeHint())
-                    self.course_list.setItemWidget(item, course_widget)
-                    used += 1
-                    
-                except Exception as e:
-                    logger.error(f"Error creating course widget for {key}: {e}")
-                    continue
-            
-            logger.info(f"Populated course list with {used} courses")
-            
-        except Exception as e:
-            logger.error(f"Failed to populate course list: {e}")
-            QtWidgets.QMessageBox.critical(self, "خطا", humanize_error(e, "امکان پر کردن فهرست دروس وجود ندارد: "))
-
-
     def load_saved_combo(self, item):
         """Load a saved schedule combination"""
         sc = item.data(QtCore.Qt.UserRole)
@@ -4128,40 +2739,10 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         self.delete_saved_combo(combo_name)
 
     def setup_auto_select_list(self):
-        """Setup drag and drop functionality for auto-select list"""
-        if hasattr(self, 'auto_select_list'):
-            # Enable drag and drop
-            self.auto_select_list.setDragDropMode(QtWidgets.QAbstractItemView.InternalMove)
-            self.auto_select_list.setDefaultDropAction(QtCore.Qt.MoveAction)
-            
-            # Enable context menu
-            self.auto_select_list.setContextMenuPolicy(QtCore.Qt.CustomContextMenu)
-            self.auto_select_list.customContextMenuRequested.connect(self.show_auto_list_context_menu)
-            
-            # Connect signal for handling reordering
-            self.auto_select_list.model().rowsMoved.connect(self.on_auto_list_reordered)
+        self.auto_select_controller.setup_auto_select_list()
 
     def on_auto_list_reordered(self, parent, start, end, destination, row):
-        """Handle reordering of auto-select list items"""
-        try:
-            # Update priorities based on new positions
-            for i in range(self.auto_select_list.count()):
-                item = self.auto_select_list.item(i)
-                if item:
-                    # Priority = position + 1 (first item = priority 1)
-                    priority = i + 1
-                    item.setData(QtCore.Qt.UserRole + 1, priority)
-                    
-                    # Update display text to show priority
-                    course_key = item.data(QtCore.Qt.UserRole)
-                    if course_key in COURSES:
-                        course = COURSES[course_key]
-                        course_name = course.get('name', course_key)
-                        item.setText(f"({priority}) {course_name}")
-            
-            logger.info("Auto-select list priorities updated")
-        except Exception as e:
-            logger.error(f"Error reordering auto list: {e}")
+        self.auto_select_controller.on_auto_list_reordered(parent, start, end, destination, row)
 
     def on_generate_optimal_from_auto_list(self):
         """Handle generate optimal schedule from auto-select list button click"""
@@ -4172,7 +2753,6 @@ class SchedulerWindow(QtWidgets.QMainWindow):
 
     def generate_optimal_schedule_from_auto_list(self):
         """Generate schedules that respect user priority order"""
-        # Extract courses IN PRIORITY ORDER from auto-select list
         ordered_course_keys = []
         for i in range(self.auto_select_list.count()):
             item = self.auto_select_list.item(i)
@@ -4180,263 +2760,26 @@ class SchedulerWindow(QtWidgets.QMainWindow):
                 course_key = item.data(QtCore.Qt.UserRole)
                 if course_key in COURSES:
                     ordered_course_keys.append(course_key)
-        
-        if not ordered_course_keys:
-            QtWidgets.QMessageBox.information(self, "اطلاع", "لیست اولویت خالی است.")
-            return
-        
-        # Show progress dialog
+                    
         progress = QtWidgets.QProgressDialog('در حال تولید بهترین ترکیبات...', 'لغو', 0, 100, self)
         progress.setWindowModality(QtCore.Qt.WindowModal)
         progress.show()
+        QtWidgets.QApplication.processEvents()
         
         try:
-            # Use priority-aware algorithm instead of combinations
-            schedules = generate_priority_based_schedules(ordered_course_keys)
-            progress.setValue(50)
-            
-            # Always proceed even if no perfect combinations found
-            # Display results in a dialog
-            self.show_priority_aware_results(schedules, ordered_course_keys)
+            result = self.auto_scheduler.generate_priority_aware_schedule(ordered_course_keys)
             progress.setValue(100)
             
-        except Exception as e:
-            QtWidgets.QMessageBox.critical(
-                self, 'خطا', 
-                f'خطا در تولید ترکیبات:\n{str(e)}'
-            )
-            logger.error(f"Error in generate_optimal_schedule_from_auto_list: {e}")
+            if result.success:
+                self.show_priority_aware_results(result.data['schedules'], ordered_course_keys)
+            else:
+                QtWidgets.QMessageBox.information(self, 'پیام', result.message or result.error)
         finally:
             progress.close()
-
-    def generate_optimal_schedule(self):
-        """Generate optimal schedule combinations with conflict handling"""
-        # Get all available courses
-        all_courses = list(COURSES.keys())
-        
-        if not all_courses:
-            QtWidgets.QMessageBox.information(self, 'هیچ درسی', 'هیچ درسی برای برنامه‌ریزی وجود ندارد.')
-            return
-            
-        # Show progress dialog
-        progress = QtWidgets.QProgressDialog('در حال تولید بهترین ترکیبات...', 'لغو', 0, 100, self)
-        progress.setWindowModality(QtCore.Qt.WindowModal)
-        progress.show()
-        
-        try:
-            # Generate best combinations
-            combos = generate_best_combinations_for_groups(all_courses)
-            progress.setValue(50)
-            
-            # Always proceed even if no perfect combinations found
-            # Display results in a dialog
-            self.show_optimal_schedule_results(combos)
-            progress.setValue(100)
-            
-        except Exception as e:
-            QtWidgets.QMessageBox.critical(
-                self, 'خطا', 
-                f'خطا در تولید ترکیبات:\n{str(e)}'
-            )
-            logger.error(f"Error in generate_optimal_schedule: {e}")
-        finally:
-            progress.close()
-
-    def show_optimal_schedule_results(self, combos):
-        """Show optimal schedule results in a dialog"""
-        dialog = QtWidgets.QDialog(self)
-        dialog.setWindowTitle('ترکیب‌های بهینه پیشنهادی')
-        dialog.resize(600, 400)
-        dialog.setLayoutDirection(QtCore.Qt.RightToLeft)
-        
-        layout = QtWidgets.QVBoxLayout(dialog)
-        
-        # Title
-        title_label = QtWidgets.QLabel('ترکیب‌های بهینه پیشنهادی')
-        title_label.setStyleSheet("font-size: 16px; font-weight: bold; color: #2c3e50; margin: 10px;")
-        title_label.setAlignment(QtCore.Qt.AlignCenter)
-        layout.addWidget(title_label)
-        
-        # Info label
-        if combos:
-            info_label = QtWidgets.QLabel('بهترین ترکیب‌ها بر اساس حداقل روزهای حضور و حداقل فاصله بین جلسات')
-        else:
-            info_label = QtWidgets.QLabel('هیچ ترکیب بهینه‌ای بدون تداخل پیدا نشد. ترکیب‌هایی با تداخل نشان داده نمی‌شوند.')
-        info_label.setStyleSheet("color: #7f8c8d; margin-bottom: 10px;")
-        info_label.setAlignment(QtCore.Qt.AlignCenter)
-        layout.addWidget(info_label)
-        
-        # Results list
-        results_list = QtWidgets.QListWidget()
-        layout.addWidget(results_list)
-        
-        # Add combinations to list
-        if combos:
-            for i, combo in enumerate(combos[:10]):  # Show top 10
-                # Create item widget
-                item_widget = QtWidgets.QWidget()
-                item_layout = QtWidgets.QVBoxLayout(item_widget)
-                item_layout.setContentsMargins(10, 10, 10, 10)
-                
-                # Header with rank and stats
-                header_layout = QtWidgets.QHBoxLayout()
-                
-                rank_label = QtWidgets.QLabel(f'#{i+1}')
-                rank_label.setStyleSheet("font-weight: bold; color: #1976D2; font-size: 14px;")
-                rank_label.setFixedWidth(30)
-                
-                stats_label = QtWidgets.QLabel(f'روزها: {combo["days"]} | فاصله: {combo["empty"]:.1f}h | امتیاز: {combo["score"]:.1f}')
-                stats_label.setStyleSheet("color: #7f8c8d;")
-                
-                apply_btn = QtWidgets.QPushButton('اعمال')
-                apply_btn.setObjectName("success_btn")
-                apply_btn.setFixedWidth(80)
-                apply_btn.clicked.connect(lambda checked, c=combo: self.apply_optimal_combo(c, dialog))
-                
-                header_layout.addWidget(rank_label)
-                header_layout.addWidget(stats_label)
-                header_layout.addStretch()
-                header_layout.addWidget(apply_btn)
-                
-                item_layout.addLayout(header_layout)
-                
-                # Course list
-                course_list = QtWidgets.QListWidget()
-                course_list.setMaximumHeight(100)
-                course_list.setStyleSheet("border: 1px solid #d5dbdb; border-radius: 5px;")
-                
-                for course_key in combo['courses']:
-                    if course_key in COURSES:
-                        course = COURSES[course_key]
-                        course_item = QtWidgets.QListWidgetItem(
-                            f"{course['name']} - {course['code']} - {course.get('instructor', 'نامشخص')}"
-                        )
-                        course_list.addItem(course_item)
-                
-                item_layout.addWidget(course_list)
-                
-                # Add item to list
-                list_item = QtWidgets.QListWidgetItem()
-                list_item.setSizeHint(item_widget.sizeHint())
-                results_list.addItem(list_item)
-                results_list.setItemWidget(list_item, item_widget)
-        else:
-            # Show a message when no combinations are found
-            no_results_label = QtWidgets.QLabel('هیچ ترکیبی برای نمایش وجود ندارد.')
-            no_results_label.setAlignment(QtCore.Qt.AlignCenter)
-            no_results_label.setStyleSheet("color: #95a5a6; font-style: italic; padding: 20px;")
-            item_widget = QtWidgets.QWidget()
-            item_layout = QtWidgets.QVBoxLayout(item_widget)
-            item_layout.addWidget(no_results_label)
-            list_item = QtWidgets.QListWidgetItem()
-            list_item.setSizeHint(item_widget.sizeHint())
-            results_list.addItem(list_item)
-            results_list.setItemWidget(list_item, item_widget)
-        
-        # Close button
-        close_btn = QtWidgets.QPushButton('بستن')
-        close_btn.clicked.connect(dialog.close)
-        layout.addWidget(close_btn)
-        
-        dialog.exec_()
-
-
 
     def show_priority_aware_results(self, schedules, original_priority_order):
-        """Show results with clear priority information"""
-        if not schedules:
-            QtWidgets.QMessageBox.information(
-                self, "نتیجه", 
-                "با توجه به اولویت‌های تعیین شده و تداخل‌های زمانی، برنامه‌ای قابل ساخت نیست."
-            )
-            return
-        
-        dialog = QtWidgets.QDialog(self)
-        dialog.setWindowTitle("برنامه‌های پیشنهادی با اولویت")
-        dialog.setModal(True)
-        dialog.resize(700, 500)
-        dialog.setLayoutDirection(QtCore.Qt.RightToLeft)
-        
-        layout = QtWidgets.QVBoxLayout(dialog)
-        
-        # Description label
-        info_label = QtWidgets.QLabel(f"{len(schedules)} برنامه پیشنهادی یافت شد. روی یکی کلیک کنید:")
-        layout.addWidget(info_label)
-        
-        # Clickable list
-        schedule_list = QtWidgets.QListWidget()
-        schedule_list.setSelectionMode(QtWidgets.QAbstractItemView.SingleSelection)
-        
-        # Process schedules to add priority information
-        for i, schedule in enumerate(schedules):
-            # Calculate priority information
-            included_priorities = []
-            skipped_priorities = []
-            
-            for j, course_key in enumerate(original_priority_order):
-                priority_num = j + 1
-                course_name = COURSES[course_key].get('name', course_key)
-                
-                if course_key in schedule['courses']:
-                    included_priorities.append(f"P{priority_num}: {course_name}")
-                else:
-                    skipped_priorities.append(f"P{priority_num}: {course_name}")
-            
-            # Create display information
-            schedule['display_info'] = {
-                'included': included_priorities,
-                'skipped': skipped_priorities,
-                'priority_success_rate': len(included_priorities) / len(original_priority_order) if original_priority_order else 0
-            }
-            
-            # Create item text with priority information
-            method_text = schedule.get('method', 'Unknown Method')
-            course_count = len(schedule['courses'])
-            days = schedule.get('days', 0)
-            empty_time = schedule.get('empty', 0.0)
-            
-            schedule_text = f"{method_text}: {course_count} درس - {days} روز - {empty_time:.1f} ساعت خالی"
-            
-            item = QtWidgets.QListWidgetItem(schedule_text)
-            item.setData(QtCore.Qt.UserRole, schedule)  # Store complete schedule
-            schedule_list.addItem(item)
-        
-        layout.addWidget(schedule_list)
-        
-        # Buttons
-        button_layout = QtWidgets.QHBoxLayout()
-        
-        apply_btn = QtWidgets.QPushButton("اعمال برنامه")
-        cancel_btn = QtWidgets.QPushButton("انصراف")
-        
-        button_layout.addWidget(apply_btn)
-        button_layout.addWidget(cancel_btn)
-        layout.addLayout(button_layout)
-        
-        # Connect signals
-        def on_apply():
-            selected_items = schedule_list.selectedItems()
-            if selected_items:
-                schedule = selected_items[0].data(QtCore.Qt.UserRole)
-                self.apply_priority_aware_schedule(schedule, dialog)
-            else:
-                QtWidgets.QMessageBox.warning(dialog, "هشدار", "لطفاً یک برنامه انتخاب کنید.")
-        
-        def on_item_double_click(item):
-            schedule = item.data(QtCore.Qt.UserRole)
-            self.apply_priority_aware_schedule(schedule, dialog)
-        
-        def on_item_click(item):
-            # Show detailed information about the selected schedule
-            schedule = item.data(QtCore.Qt.UserRole)
-            self.show_schedule_details(schedule)
-        
-        apply_btn.clicked.connect(on_apply)
-        cancel_btn.clicked.connect(dialog.close)
-        schedule_list.itemDoubleClicked.connect(on_item_double_click)
-        schedule_list.itemClicked.connect(on_item_click)
-        
-        dialog.exec_()
+        """Show results with clear priority information (delegated)"""
+        self.dialog_coordinator.show_priority_aware_results(schedules, original_priority_order)
 
     def show_schedule_details(self, schedule):
         """Show detailed information about a schedule"""
@@ -4496,56 +2839,11 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         pass
 
     def show_auto_list_context_menu(self, position):
-        """Show context menu for auto-select list items"""
-        item = self.auto_select_list.itemAt(position)
-        
-        menu = QtWidgets.QMenu()
-        
-        # If an item is right-clicked, show delete option
-        if item:
-            # Delete action
-            delete_action = menu.addAction("حذف از لیست")
-        
-        # Always show clear all option if there are items in the list
-        if self.auto_select_list.count() > 0:
-            clear_all_action = menu.addAction("پاک کردن همه")
-        
-        action = menu.exec_(self.auto_select_list.mapToGlobal(position))
-        
-        if 'delete_action' in locals() and action == delete_action:
-            row = self.auto_select_list.row(item)
-            self.auto_select_list.takeItem(row)
-        elif 'clear_all_action' in locals() and action == clear_all_action:
-            # Confirm clear all
-            reply = QtWidgets.QMessageBox.question(
-                self, 'پاک کردن همه', 
-                f'آیا مطمئن هستید که می‌خواهید همه {self.auto_select_list.count()} درس را از لیست حذف کنید؟',
-                QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
-                QtWidgets.QMessageBox.No
-            )
-            
-            if reply == QtWidgets.QMessageBox.Yes:
-                self.auto_select_list.clear()
+        self.auto_select_controller.show_auto_list_context_menu(position)
 
     def auto_select_list_key_press_event(self, event):
-        """Handle key press events for auto-select list"""
-        # Handle Delete key
-        if event.key() in (QtCore.Qt.Key_Delete, QtCore.Qt.Key_Backspace):
-            selected_items = self.auto_select_list.selectedItems()
-            if selected_items:
-                # Remove selected items (in reverse order to maintain indices)
-                for item in reversed(selected_items):
-                    row = self.auto_select_list.row(item)
-                    self.auto_select_list.takeItem(row)
-                return
-        
-        # Handle Ctrl+A for select all
-        if event.key() == QtCore.Qt.Key_A and event.modifiers() == QtCore.Qt.ControlModifier:
-            self.auto_select_list.selectAll()
-            return
-            
-        # Call the original event handler for other keys
-        QtWidgets.QListWidget.keyPressEvent(self.auto_select_list, event)
+        self.auto_select_controller.auto_select_list_key_press_event(event)
+
     def delete_saved_combo(self, combo_name):
         """Delete a saved combination by name"""
         # Confirm deletion
@@ -4594,34 +2892,8 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         return False
 
     def open_add_course_dialog(self):
-        """Open dialog to add a new custom course"""
-        dlg = AddCourseDialog(self)
-        if dlg.exec_() != QtWidgets.QDialog.Accepted:
-            return
-        course = dlg.get_course_data()
-        if not course:
-            return
-        
-        # Mark as user-added
-        course['is_user_added'] = True
-        course['custom'] = True
-        course['major'] = 'دروس اضافه‌شده توسط کاربر'
-
-        # generate key and store
-        key = generate_unique_key(course['code'], COURSES)
-        COURSES[key] = course
-
-        # Save courses to JSON
-        save_courses_to_json()
-        
-        # save to user data
-        self.user_data.setdefault('custom_courses', []).append(course)
-        save_user_data(self.user_data)
-        
-        # refresh list and info panel
-        self.populate_course_list()
-        self.update_course_info_panel()  # Update info panel
-        QtWidgets.QMessageBox.information(self, 'افزودن درس', f'درس "{course["name"]}" با موفقیت اضافه شد و ذخیره شد.')
+        """Open dialog to add a new custom course (delegated to DialogCoordinator)"""
+        self.dialog_coordinator.open_add_course_dialog()
 
     def update_course_info_panel(self):
         """Update the course information panel"""
@@ -4635,22 +2907,7 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         pass
 
     def filter_course_list(self, text):
-        """Filter course list based on search text"""
-        self.populate_course_list(text)
-
-    def clear_search(self):
-        """Clear search box and show all courses"""
-        if hasattr(self, 'search_box'):
-            self.search_box.clear()
-        self.populate_course_list(None)
-
-    def on_search_text_changed(self, text):
-        """Handle search text change"""
-        try:
-            # Filter course list based on search text
-            self.filter_course_list(text)
-        except Exception as e:
-            logger.error(f"Error in search: {e}")
+        self.course_search_controller.filter_course_list(text)
 
     def on_clear_schedule(self):
         """Clear all courses from schedule table"""
@@ -4671,13 +2928,8 @@ class SchedulerWindow(QtWidgets.QMainWindow):
             logger.error(f"Error clearing schedule: {e}")
 
     def on_show_exam_schedule(self):
-        """Show exam schedule window"""
-        try:
-            from ui.dialogs import ExamScheduleWindow
-            exam_window = ExamScheduleWindow(self)
-            exam_window.show()
-        except Exception as e:
-            logger.error(f"Error showing exam schedule: {e}")
+        """Show exam schedule window (delegated to DialogCoordinator)"""
+        self.dialog_coordinator.on_show_exam_schedule()
 
     def on_add_course(self):
         """Handle add course button click"""
@@ -4701,57 +2953,8 @@ class SchedulerWindow(QtWidgets.QMainWindow):
             logger.error(f"Error generating optimal schedule: {e}")
 
     def on_add_to_auto(self):
-        """Handle add to auto select list button click"""
-        try:
-            # Get selected items from course_list
-            selected_items = self.course_list.selectedItems()
-            if not selected_items:
-                QtWidgets.QMessageBox.information(self, 'انتخاب درس', 'لطفا ابتدا درسی را از لیست انتخاب کنید.')
-                return
-            
-            # Add selected courses to auto_select_list
-            for item in selected_items:
-                # Check if item already exists in auto_select_list
-                exists = False
-                for i in range(self.auto_select_list.count()):
-                    if self.auto_select_list.item(i).data(QtCore.Qt.UserRole) == item.data(QtCore.Qt.UserRole):
-                        exists = True
-                        break
-                
-                if not exists:
-                    # Create new item with course data
-                    course_key = item.data(QtCore.Qt.UserRole)
-                    course = COURSES.get(course_key)
-                    if course:
-                        position = self.auto_select_list.count() + 1
-                        new_item = QtWidgets.QListWidgetItem(f"({position}) {course['name']} - {course.get('instructor', 'نامشخص')}")
-                        new_item.setData(QtCore.Qt.UserRole, course_key)
-                        # Set position as priority (first item = priority 1)
-                        new_item.setData(QtCore.Qt.UserRole + 1, position)
-                        self.auto_select_list.addItem(new_item)
-            
-            # Save user data
-            self.save_auto_select_list()
-            
-        except Exception as e:
-            logger.error(f"Error adding to auto list: {e}")
-            QtWidgets.QMessageBox.critical(self, 'خطا', humanize_error(e, "خطا در افزودن به لیست انتخاب توسط سیستم: "))
-
-    def on_search_text_changed(self, text):
-        """Handle search text change with debouncing"""
-        try:
-            # Use QTimer to debounce the search (delay for 300ms)
-            if hasattr(self, '_search_timer'):
-                self._search_timer.stop()
-            else:
-                self._search_timer = QtCore.QTimer(self)
-                self._search_timer.setSingleShot(True)
-                self._search_timer.timeout.connect(self._apply_search_filter)
-            
-            # Start the timer with 300ms delay
-            self._search_timer.start(300)
-        except Exception as e:
-            logger.error(f"Error in search: {e}")
+        """Handle add to auto select list button click (delegated)"""
+        self.auto_select_controller.on_add_to_auto()
 
     def _apply_search_filter(self):
         """Apply the search text from the search box"""
@@ -4759,155 +2962,16 @@ class SchedulerWindow(QtWidgets.QMainWindow):
             self.filter_course_list(self.search_box.text())
 
     def normalize_persian_text(self, text):
-        """Normalize Persian text for search and comparison"""
-        if not isinstance(text, str):
-            text = str(text) if text is not None else ""
-        
-        # Replace Arabic letters with Persian equivalents  
-        replacements = {
-            'ي': 'ی',  # Arabic Ya -> Persian Ya
-            'ك': 'ک',  # Arabic Kaf -> Persian Kaf
-            '۰': '0', '۱': '1', '۲': '2', '۳': '3', '۴': '4',
-            '۵': '5', '۶': '6', '۷': '7', '۸': '8', '۹': '9'
-        }
-        normalized = text
-        for arabic, persian in replacements.items():
-            normalized = normalized.replace(arabic, persian)
-            
-        # Remove diacritics (harakat)
-        diacritics = ['ً', 'ٌ', 'ٍ', 'َ', 'ُ', 'ِ', 'ّ', 'ْ', 'ٔ']
-        for diacritic in diacritics:
-            normalized = normalized.replace(diacritic, '')
-            
-        # Normalize whitespace
-        normalized = ' '.join(normalized.split())
-        
-        return normalized.strip()
-
-    def filter_course_list(self, filter_text):
-        """Filter course list based on normalized search text"""
-        try:
-            # Normalize the search text
-            normalized_filter = self.normalize_persian_text(filter_text).lower()
-            
-            # Filter courses using normalized comparison
-            filtered_courses = {}
-            for key, course in COURSES.items():
-                if self.current_major_filter and course.get('major') != self.current_major_filter:
-                    continue
-                    
-                # Normalize course fields for comparison
-                course_name = self.normalize_persian_text(course.get('name', course.get('course_name', ''))).lower()
-                course_code = self.normalize_persian_text(course.get('code', course.get('course_code', ''))).lower()
-                course_instructor = self.normalize_persian_text(course.get('instructor', '')).lower()
-                course_department = self.normalize_persian_text(course.get('department', '')).lower()
-                course_faculty = self.normalize_persian_text(course.get('faculty', '')).lower()
-                
-                # Check if filter matches any part
-                if not normalized_filter or \
-                   normalized_filter in course_name or \
-                   normalized_filter in course_code or \
-                   normalized_filter in course_instructor or \
-                   normalized_filter in course_department or \
-                   normalized_filter in course_faculty:
-                    filtered_courses[key] = course
-
-            # Update course list with filtered courses
-            self.populate_course_list(filtered_courses)
-            
-        except Exception as e:
-            logger.error(f"Error filtering course list: {e}")
+        return self.course_search_controller.normalize_persian_text(text)
 
     def on_remove_from_auto(self):
-        """Handle remove from auto select list button click"""
-        try:
-            # Get selected items from auto_select_list
-            selected_items = self.auto_select_list.selectedItems()
-            if not selected_items:
-                QtWidgets.QMessageBox.information(self, 'حذف درس', 'لطفا ابتدا درسی را از لیست انتخاب کنید.')
-                return
-            
-            # Remove selected items (in reverse order to maintain indices)
-            for item in reversed(selected_items):
-                row = self.auto_select_list.row(item)
-                self.auto_select_list.takeItem(row)
-                
-            logger.info(f"Removed {len(selected_items)} courses from auto select list")
-            
-        except Exception as e:
-            logger.error(f"Error removing from auto select list: {e}")
+        """Handle remove from auto select list button click (delegated)"""
+        self.auto_select_controller.on_remove_from_auto()
 
-    def load_and_apply_styles(self):
-        """Load styles from external QSS file"""
-        try:
-            ui_dir = os.path.dirname(os.path.abspath(__file__))
-            qss_file = os.path.join(ui_dir, 'styles.qss')
-            with open(qss_file, 'r', encoding='utf-8') as f:
-                self.setStyleSheet(f.read())
-        except FileNotFoundError:
-            logger.warning("Warning: styles.qss file not found")
-        except Exception as e:
-            logger.warning(f"Warning: Could not load styles: {e}")
-            
-    def create_search_clear_button(self):
-        """Create and position the search clear button inside the search box"""
-        try:
-            if hasattr(self, 'search_box'):
-                # Create the clear button
-                self.search_clear_button = QtWidgets.QPushButton("✖")
-                self.search_clear_button.setObjectName("search_clear_button")
-                self.search_clear_button.setFixedSize(20, 20)
-                self.search_clear_button.setCursor(QtCore.Qt.ArrowCursor)
-                
-                # Set button properties
-                self.search_clear_button.setStyleSheet("""
-                    QPushButton {
-                        background: transparent;
-                        border: none;
-                        color: #95a5a6;
-                        font-weight: bold;
-                        font-size: 12px;
-                    }
-                    QPushButton:hover {
-                        color: #7f8c8d;
-                        background: rgba(0, 0, 0, 0.05);
-                        border-radius: 10px;
-                    }
-                """)
-                
-                # Position the button inside the search box
-                frame_width = self.search_box.style().pixelMetric(QtWidgets.QStyle.PM_DefaultFrameWidth)
-                button_size = self.search_clear_button.sizeHint()
-                
-                # For RTL layout, position on the left side
-                self.search_clear_button.move(
-                    frame_width + 2,  # Small offset from the left edge
-                    (self.search_box.height() - button_size.height()) // 2
-                )
-                
-                # Make the button a child of the search box
-                self.search_clear_button.setParent(self.search_box)
-                
-                # Connect the button to clear the search
-                self.search_clear_button.clicked.connect(self.clear_search)
-                
-                # Show/hide button based on text
-                self.search_box.textChanged.connect(self.toggle_search_clear_button)
-                
-                # Initially hide the button
-                self.search_clear_button.hide()
-                
-                # Update button visibility
-                self.toggle_search_clear_button("")
-                
-        except Exception as e:
-            logger.error(f"Failed to create search clear button: {e}")
-            
+
     def toggle_search_clear_button(self, text):
-        """Show/hide the search clear button based on search text"""
-        if hasattr(self, 'search_clear_button'):
-            self.search_clear_button.setVisible(bool(text))
-            
+        self.course_search_controller.toggle_search_clear_button(text)
+
     def save_table_image(self):
         """Save table as image (table only, not entire window) with high DPI support and improved quality"""
         path, _ = QtWidgets.QFileDialog.getSaveFileName(self, "ذخیره تصویر", "schedule_table.png", "PNG Files (*.png)")
@@ -4939,19 +3003,6 @@ class SchedulerWindow(QtWidgets.QMainWindow):
             else:
                 QtWidgets.QMessageBox.warning(self, "خطا", "خطا در ذخیره تصویر.")
 
-    def on_show_exam_schedule(self):
-        """Show the exam schedule window"""
-        try:
-            # Create and show exam schedule window
-            self.exam_schedule_window = ExamScheduleWindow(self)
-            self.exam_schedule_window.show()
-        except Exception as e:
-            logger.error(f"Error showing exam schedule: {e}")
-            QtWidgets.QMessageBox.critical(
-                self, 'خطا', 
-                f'خطا در نمایش برنامه امتحانات:\n{str(e)}'
-            )
-
     def on_export_exam_schedule(self):
         """Export the exam schedule"""
         try:
@@ -4966,214 +3017,47 @@ class SchedulerWindow(QtWidgets.QMainWindow):
             )
 
     def reset_golestan_credentials(self):
-        """Reset Golestan credentials - delete saved credentials file and show confirmation"""
+        """Reset Golestan credentials"""
         try:
-            from app.core.credentials import LOCAL_CREDENTIALS_FILE, delete_local_credentials
-            
-            # Delete the local credentials file
-            if delete_local_credentials():
-                # Show confirmation message in Persian
-                QtWidgets.QMessageBox.information(
-                    self, 
-                    "موفقیت", 
-                    "اطلاعات ذخیره‌شده گلستان حذف شد. دفعه بعد هنگام دریافت خودکار دروس، دوباره اطلاعات ورود درخواست می‌شود."
-                )
-                logger.info("Golestan credentials file deleted successfully")
+            result = self.golestan_service.delete_credentials()
+            if result.success:
+                QtWidgets.QMessageBox.information(self, "موفقیت", result.message)
             else:
-                logger.error("Failed to delete Golestan credentials file")
-                QtWidgets.QMessageBox.critical(
-                    self, 
-                    "خطا", 
-                    "خطا در حذف اطلاعات ذخیره‌شده گلستان."
-                )
+                QtWidgets.QMessageBox.critical(self, "خطا", result.error)
         except Exception as e:
             logger.error(f"Error in reset golestan credentials: {e}")
-            QtWidgets.QMessageBox.critical(
-                self, 
-                "خطا", 
-                f"خطا در حذف اطلاعات ذخیره‌شده گلستان:\n{str(e)}"
-            )
+            QtWidgets.QMessageBox.critical(self, "خطا", f"خطا در حذف اطلاعات ذخیره‌شده گلستان:\n{str(e)}")
 
     def fetch_from_golestan(self):
-        """Fetch courses from Golestan system automatically"""
-        logger.debug("DEBUG: fetch_from_golestan called - COUNT TRACKER")
-        if not hasattr(self, '_fetch_call_count'):
-            self._fetch_call_count = 0
-        self._fetch_call_count += 1
-        logger.debug(f"DEBUG: fetch_from_golestan call count: {self._fetch_call_count}")
-        try:
-            from app.core.golestan_integration import update_courses_from_golestan
-            from app.core.credentials import load_local_credentials
-            from .credentials_dialog import GolestanCredentialsDialog
-            
-            # Check if credentials dialog is already open
-            if hasattr(self, 'credentials_dialog_open') and self.credentials_dialog_open:
-                logger.debug("DEBUG: credentials_dialog_open is True, returning early")
-                return
-            logger.debug("DEBUG: Setting credentials_dialog_open = True")
-            self.credentials_dialog_open = True
-            
-            try:
-                logger.debug("DEBUG: Checking for local credentials")
-                # Check if local credentials exist
-                credentials = load_local_credentials()
-                
-                # If credentials don't exist, prompt user
-                if credentials is None:
-                    logger.debug("DEBUG: No local credentials found, prompting user")
-                    # Check if a dialog is already open
-                    if hasattr(self, '_golestan_dialog') and self._golestan_dialog is not None and self._golestan_dialog.isVisible():
-                        # Bring existing dialog to front
-                        logger.debug("DEBUG: Dialog already visible, bringing to front")
-                        self._golestan_dialog.raise_()
-                        self._golestan_dialog.activateWindow()
-                        return
-                    
-                    # Create and show dialog to get credentials
-                    logger.debug("DEBUG: Creating GolestanCredentialsDialog")
-                    self._golestan_dialog = GolestanCredentialsDialog(self)
-                    logger.debug("DEBUG: Calling get_credentials()")
-                    result = self._golestan_dialog.get_credentials()
-                    logger.debug(f"DEBUG: get_credentials() returned: {result}")
-                    
-                    # Clean up reference
-                    self._golestan_dialog = None
-                    
-                    # If user cancelled or failed to provide credentials, stop the process
-                    if result[0] is None or result[1] is None:
-                        logger.error("DEBUG: User cancelled or failed to provide credentials")
-                        return  # User cancelled, stop the process
-                    
-                    student_number, password, remember = result
-                    
-                    # Save credentials if user requested
-                    if remember:
-                        logger.debug("DEBUG: Saving credentials")
-                        from app.core.credentials import save_local_credentials
-                        save_local_credentials(student_number, password, remember)
-                    
-                    # Use provided credentials for this fetch
-                    credentials = {
-                        'student_number': student_number,
-                        'password': password
-                    }
-                else:
-                    logger.debug("DEBUG: Using existing local credentials")
-                    # Use existing credentials
-                    student_number = credentials['student_number']
-                    password = credentials['password']
-                
-                # Show progress dialog
-                logger.debug("DEBUG: Showing progress dialog")
-                progress = QtWidgets.QProgressDialog('در حال دریافت اطلاعات از گلستان...', 'لغو', 0, 0, self)
-                progress.setWindowModality(QtCore.Qt.WindowModal)
-                progress.show()
-                
-                QtWidgets.QApplication.processEvents()  # Update UI
-                
-                # Fetch courses from Golestan with credentials
-                logger.debug("DEBUG: Fetching courses from Golestan")
-                update_courses_from_golestan(username=student_number, password=password)
-                
-                # Close progress dialog
-                progress.close()
-                
-                # Refresh UI to show the new courses immediately
-                self.refresh_ui()
-                
-                QtWidgets.QMessageBox.information(
-                    self, 'موفقیت', 
-                    'اطلاعات دروس با موفقیت از سامانه گلستان دریافت شد.'
-                )
-                
-            finally:
-                # Always reset the dialog open flag
-                logger.debug("DEBUG: Setting credentials_dialog_open = False in finally block")
-                self.credentials_dialog_open = False
-                
-        except Exception as e:
-            # Reset the dialog open flag in case of error
-            if hasattr(self, 'credentials_dialog_open'):
-                logger.debug(f"DEBUG: Setting credentials_dialog_open = False in exception handler: {e}")
-                self.credentials_dialog_open = False
-            logger.error(f"Error fetching from Golestan: {e}")
-            QtWidgets.QMessageBox.critical(
-                self, 'خطا', 
-                f'خطا در دریافت اطلاعات از گلستان:\n{str(e)}'
-            )
+        """Fetch courses from Golestan (delegated to GolestanService)"""
+        result = self.golestan_service.fetch_courses()
+        if result.success:
+            self.refresh_ui()
+            QtWidgets.QMessageBox.information(self, "موفقیت", result.message)
+        else:
+            if result.error:
+                QtWidgets.QMessageBox.critical(self, "خطا", result.error)
 
     def manual_fetch_from_golestan(self):
-        """Fetch courses from Golestan system with manual credentials"""
-        try:
-            from app.core.golestan_integration import update_courses_from_golestan
-            
-            # Get credentials from user
-            username, ok1 = QtWidgets.QInputDialog.getText(
-                self, 'ورود به گلستان', 'نام کاربری:')
-            if not ok1 or not username:
-                return
-                
-            password, ok2 = QtWidgets.QInputDialog.getText(
-                self, 'ورود به گلستان', 'رمز عبور:', QtWidgets.QLineEdit.Password)
-            if not ok2 or not password:
-                return
-            
-            # Show progress dialog
-            progress = QtWidgets.QProgressDialog('در حال دریافت اطلاعات از گلستان...', 'لغو', 0, 0, self)
-            progress.setWindowModality(QtCore.Qt.WindowModal)
-            progress.show()
-            
-            QtWidgets.QApplication.processEvents()  # Update UI
-            
-            # Fetch courses from Golestan with provided credentials
-            update_courses_from_golestan(username=username, password=password)
-            
-            # Close progress dialog
-            progress.close()
-            
-            # Refresh UI to show the new courses immediately
+        """Manual fetch from Golestan (delegated to GolestanService)"""
+        result = self.golestan_service.manual_fetch_courses()
+        if result.success:
             self.refresh_ui()
-            
-            QtWidgets.QMessageBox.information(
-                self, 'موفقیت', 
-                'اطلاعات دروس با موفقیت از سامانه گلستان دریافت شد.'
-            )
-            
-        except Exception as e:
-            logger.error(f"Error manual fetching from Golestan: {e}")
-            QtWidgets.QMessageBox.critical(
-                self, 'خطا', 
-                f'خطا در دریافت اطلاعات از گلستان:\n{str(e)}'
-            )
+            QtWidgets.QMessageBox.information(self, "موفقیت", result.message)
+        else:
+            if result.error:
+                QtWidgets.QMessageBox.critical(self, "خطا", result.error)
 
     def manage_golestan_credentials(self):
         """Manage Golestan credentials - view (masked) or remove saved credentials"""
         try:
-            from app.core.credentials import LOCAL_CREDENTIALS_FILE, load_local_credentials, delete_local_credentials
+            result = self.golestan_service.get_masked_student_number()
             
-            # Check if credentials file exists
-            if not LOCAL_CREDENTIALS_FILE.exists():
-                QtWidgets.QMessageBox.information(
-                    self, 
-                    "اطلاعات ورود گلستان", 
-                    "هیچ اطلاعات ورودی ذخیره‌شده‌ای یافت نشد."
-                )
+            if not result.success:
+                QtWidgets.QMessageBox.information(self, "اطلاعات ورود گلستان", "هیچ اطلاعات ورودی ذخیره‌شده‌ای یافت نشد.")
                 return
-            
-            # Load credentials to show masked info
-            creds = load_local_credentials()
-            if not creds:
-                QtWidgets.QMessageBox.warning(
-                    self, 
-                    "خطا", 
-                    "خطا در خواندن اطلاعات ورود ذخیره‌شده."
-                )
-                return
-            
-            # Show credential info (masked)
-            student_number = creds['student_number']
-            masked_student = student_number[:3] + '*' * (len(student_number) - 3) if len(student_number) > 3 else '*' * len(student_number)
-
+                
+            masked_student = result.data['masked_student']
             
             reply = QtWidgets.QMessageBox.question(
                 self,
@@ -5184,150 +3068,37 @@ class SchedulerWindow(QtWidgets.QMainWindow):
             )
             
             if reply == QtWidgets.QMessageBox.Yes:
-                # Delete credentials file
-                if delete_local_credentials():
-                    QtWidgets.QMessageBox.information(
-                        self, 
-                        "موفقیت", 
-                        "اطلاعات ورود گلستان با موفقیت حذف شد."
-                    )
+                del_result = self.golestan_service.delete_credentials()
+                if del_result.success:
+                    QtWidgets.QMessageBox.information(self, "موفقیت", del_result.message)
                 else:
-                    QtWidgets.QMessageBox.warning(
-                        self, 
-                        "خطا", 
-                        "خطا در حذف اطلاعات ورود."
-                    )
+                    QtWidgets.QMessageBox.warning(self, "خطا", del_result.error)
         except Exception as e:
-            logger.error(f"Error managing Golestan credentials: {e}")
-            QtWidgets.QMessageBox.critical(
-                self, 
-                "خطا", 
-                f"خطا در مدیریت اطلاعات ورود گلستان:\n{str(e)}"
-            )
+            logger.error(f"Error managing credentials: {e}")
+            QtWidgets.QMessageBox.critical(self, "خطا", f"خطا در مدیریت اطلاعات ورود:\n{str(e)}")
 
     def forget_saved_credentials(self):
-        """Forget saved credentials - clear saved credentials and prompt for new ones"""
-        logger.debug("DEBUG: forget_saved_credentials called")
-        try:
-            # Check if credentials dialog is already open
-            if hasattr(self, 'credentials_dialog_open') and self.credentials_dialog_open:
-                logger.debug("DEBUG: credentials_dialog_open is True in forget_saved_credentials, returning early")
-                return
-            logger.debug("DEBUG: Setting credentials_dialog_open = True in forget_saved_credentials")
-            self.credentials_dialog_open = True
-            
-            try:
-                from app.core.credentials import delete_local_credentials
-                from .credentials_dialog import GolestanCredentialsDialog
-                
-                # Delete existing credentials
-                logger.debug("DEBUG: Deleting local credentials")
-                if delete_local_credentials():
-                    logger.info("Existing Golestan credentials cleared successfully")
-                    logger.debug("DEBUG: Existing Golestan credentials cleared successfully")
-                else:
-                    logger.warning("Failed to clear Golestan credentials")
-                    logger.error("DEBUG: Failed to clear Golestan credentials")
-                
-                # Check if a dialog is already open
-                if hasattr(self, '_golestan_dialog') and self._golestan_dialog is not None and self._golestan_dialog.isVisible():
-                    # Bring existing dialog to front
-                    logger.debug("DEBUG: Dialog already visible in forget_saved_credentials, bringing to front")
-                    self._golestan_dialog.raise_()
-                    self._golestan_dialog.activateWindow()
-                    return
-                
-                # Open credential dialog to get new credentials
-                logger.debug("DEBUG: Creating GolestanCredentialsDialog in forget_saved_credentials")
-                self._golestan_dialog = GolestanCredentialsDialog(self)
-                logger.debug("DEBUG: Calling get_credentials() in forget_saved_credentials")
-                result = self._golestan_dialog.get_credentials()
-                logger.debug(f"DEBUG: get_credentials() returned in forget_saved_credentials: {result}")
-                
-                # Clean up reference
-                self._golestan_dialog = None
-                
-                # If user provided credentials, save them
-                if result[0] is not None and result[1] is not None:
-                    student_number, password, remember = result
-                    
-                    # Save new credentials
-                    logger.debug("DEBUG: Saving new credentials in forget_saved_credentials")
-                    from app.core.credentials import save_local_credentials
-                    if save_local_credentials(student_number, password, remember):
-                        logger.info("New Golestan credentials saved successfully")
-                        logger.debug("DEBUG: New Golestan credentials saved successfully")
-                        
-                        # Show success message
-                        QtWidgets.QMessageBox.information(
-                            self, 
-                            "موفقیت", 
-                            "اطلاعات ورود گلستان با موفقیت ذخیره شد. این اطلاعات فقط روی این دستگاه نگهداری می‌شود."
-                        )
-                        
-                        # Simulate automatic course fetch with new credentials
-                        self.fetch_from_golestan_with_new_credentials(student_number, password)
-                    else:
-                        logger.error("Failed to save new Golestan credentials")
-                        QtWidgets.QMessageBox.critical(
-                            self, 
-                            "خطا", 
-                            "خطا در ذخیره اطلاعات ورود جدید."
-                        )
-                else:
-                    # User cancelled the dialog
-                    logger.info("User cancelled credential entry")
-                    logger.debug("DEBUG: User cancelled credential entry")
-                    
-            finally:
-                # Always reset the dialog open flag
-                logger.debug("DEBUG: Setting credentials_dialog_open = False in finally block of forget_saved_credentials")
-                self.credentials_dialog_open = False
-                
-        except Exception as e:
-            # Reset the dialog open flag in case of error
-            if hasattr(self, 'credentials_dialog_open'):
-                logger.debug(f"DEBUG: Setting credentials_dialog_open = False in exception handler of forget_saved_credentials: {e}")
-                self.credentials_dialog_open = False
-            logger.error(f"Error in forget saved credentials: {e}")
-            QtWidgets.QMessageBox.critical(
-                self, 
-                "خطا", 
-                f"خطا در فراموش کردن اطلاعات ذخیره شده:\n{str(e)}"
-            )
+        """Delete saved Golestan credentials without asking"""
+        self.golestan_service.delete_credentials()
 
     def fetch_from_golestan_with_new_credentials(self, username, password):
-        """Fetch courses from Golestan using newly entered credentials"""
+        """Fetch courses using provided credentials without saving them (used when saved credentials fail)"""
         try:
-            from app.core.golestan_integration import update_courses_from_golestan
-            
-            # Show progress dialog
             progress = QtWidgets.QProgressDialog('در حال دریافت اطلاعات از گلستان...', 'لغو', 0, 0, self)
             progress.setWindowModality(QtCore.Qt.WindowModal)
             progress.show()
+            QtWidgets.QApplication.processEvents()
             
-            QtWidgets.QApplication.processEvents()  # Update UI
-            
-            # Fetch courses from Golestan with new credentials
-            update_courses_from_golestan(username=username, password=password)
-            
-            # Close progress dialog
+            fetch_result = self.golestan_service.fetch_courses(username, password)
             progress.close()
             
-            # Refresh UI to show the new courses immediately
-            self.refresh_ui()
-            
-            QtWidgets.QMessageBox.information(
-                self, 'موفقیت', 
-                'اطلاعات دروس با موفقیت از سامانه گلستان دریافت شد.'
-            )
-            
+            if fetch_result.success:
+                self.refresh_ui()
+                QtWidgets.QMessageBox.information(self, 'موفقیت', fetch_result.message)
+            else:
+                QtWidgets.QMessageBox.critical(self, 'خطا', fetch_result.error)
         except Exception as e:
-            logger.error(f"Error fetching from Golestan with new credentials: {e}")
-            QtWidgets.QMessageBox.critical(
-                self, 'خطا', 
-                f'خطا در دریافت اطلاعات از گلستان:\n{str(e)}'
-            )
+            QtWidgets.QMessageBox.critical(self, 'خطا', f"خطا در دریافت اطلاعات:\n{str(e)}")
 
     def refresh_ui(self):
         """Refresh both the major dropdown and course list in real-time"""
@@ -5374,287 +3145,33 @@ class SchedulerWindow(QtWidgets.QMainWindow):
             logger.error(f"Error extracting major for course {course_key}: {e}")
             return "رشته نامشخص"
 
-    def populate_major_dropdown(self):
-        """Populate the major dropdown with available majors"""
-        try:
-            if not hasattr(self, 'comboBox'):
-                logger.warning("Major dropdown (comboBox) not found")
-                return
-                
-            # Clear existing items except the first one ("انتخاب رشته")
-            while self.comboBox.count() > 1:
-                self.comboBox.removeItem(1)
-        
-            # If no database instance, fallback to JSON loading
-            if self.db is None:
-                from app.core.data_manager import load_courses_from_json
-                load_courses_from_json()
-            else:
-                # Load courses from database if not already loaded
-                if not COURSES:
-                    self.load_courses_from_database()
-        
-            # Collect all unique majors from courses
-            majors = set()
-            logger.info(f"Populating major dropdown, total courses: {len(COURSES)}")
-            for key, course in COURSES.items():
-                # For database-loaded courses, we can directly use the 'major' field
-                if 'major' in course and course['major'] != "رشته نامشخص":
-                    majors.add(course['major'])
-                else:
-                    # Fallback to extract_course_major for other courses
-                    major = self.extract_course_major(key, course)
-                    if major and major != "رشته نامشخص":
-                        majors.add(major)
-        
-            # Convert to sorted list
-            sorted_majors = sorted(majors)
-        
-            # Add "دروس اضافه‌شده توسط کاربر" category at the beginning
-            user_added_category = "دروس اضافه‌شده توسط کاربر"
-            if user_added_category not in sorted_majors:
-                sorted_majors.insert(0, user_added_category)
-            else:
-                # Move it to the beginning if it already exists
-                sorted_majors.remove(user_added_category)
-                sorted_majors.insert(0, user_added_category)
-        
-            # Add majors to dropdown (removed "همه" option)
-            for major in sorted_majors:
-                self.comboBox.addItem(major)
-            
-            logger.info(f"Populated major dropdown with {len(sorted_majors)} majors")
-        
-        except Exception as e:
-            logger.error(f"Error populating major dropdown: {e}")
-
-    def load_user_schedule(self):
-        """Load previously saved user schedule on application startup"""
-        try:
-            # Check if there's a current schedule in user data
-            current_schedule = self.user_data.get('current_schedule', [])
-            
-            if current_schedule:
-                # Load each course in the schedule
-                for course_key in current_schedule:
-                    if course_key in COURSES:
-                        self.add_course_to_table(course_key, ask_on_conflict=False)
-                
-                # Update UI
-                self.update_status()
-                self.update_stats_panel()
-                self.update_detailed_info_if_open()
-                
-                logger.info(f"Loaded {len(current_schedule)} courses from saved schedule")
-                
-        except Exception as e:
-            logger.error(f"Failed to load user schedule: {e}")
-            # Don't show error to user to keep startup smooth
-
-    def load_latest_backup(self):
-        """Load the latest backup on application startup"""
-        try:
-            from app.core.data_manager import get_latest_auto_backup, load_auto_backup
-            
-            # Get the latest auto backup file
-            latest_backup = get_latest_auto_backup()
-            
-            if latest_backup:
-                # Load data from the latest backup
-                backup_data = load_auto_backup(latest_backup)
-                
-                if backup_data:
-                    # Update user data
-                    self.user_data = backup_data
-                    
-                    # Load courses from backup data
-                    current_schedule = self.user_data.get('current_schedule', [])
-                    for course_key in current_schedule:
-                        if course_key in COURSES:
-                            self.add_course_to_table(course_key, ask_on_conflict=False)
-                    
-                    # Update UI
-                    self.update_status()
-                    self.update_stats_panel()
-                    self.update_detailed_info_if_open()
-                    
-                    logger.info(f"Loaded latest backup: {latest_backup}")
-                else:
-                    logger.error(f"Failed to load backup data from: {latest_backup}")
-            else:
-                logger.info("No backup files found, starting with empty schedule")
-                
-        except Exception as e:
-            logger.error(f"Error loading latest backup: {e}")
-
-    def create_menu_bar(self):
-        """Create the application menu bar with data and usage history options"""
-        try:
-            # Use the menu bar from the UI file if available
-            if hasattr(self, 'menubar'):
-                menubar = self.menubar
-            else:
-                # Create menu bar if not available in UI
-                menubar = self.menuBar()
-            
-            # Use the data menu from the UI file if available
-            if hasattr(self, 'menu_data'):
-                data_menu = self.menu_data
-                
-                # Connect the reset Golestan credentials action if it exists in the UI
-                if hasattr(self, 'action_reset_golestan_credentials'):
-                    # Disconnect any existing connections first to prevent duplicates
-                    try:
-                        self.action_reset_golestan_credentials.triggered.disconnect(self.reset_golestan_credentials)
-                    except TypeError:
-                        # No existing connection, that's fine
-                        pass
-                    self.action_reset_golestan_credentials.triggered.connect(self.reset_golestan_credentials)
-                
-                # Connect the fetch Golestan action if it exists in the UI
-                if hasattr(self, 'action_fetch_golestan'):
-                    # Disconnect any existing connections first to prevent duplicates
-                    try:
-                        self.action_fetch_golestan.triggered.disconnect(self.fetch_from_golestan)
-                    except TypeError:
-                        # No existing connection, that's fine
-                        pass
-                    self.action_fetch_golestan.triggered.connect(self.fetch_from_golestan)
-                    
-                # Connect the manual fetch action if it exists in the UI
-                if hasattr(self, 'action_manual_fetch'):
-                    # Disconnect any existing connections first to prevent duplicates
-                    try:
-                        self.action_manual_fetch.triggered.disconnect(self.manual_fetch_from_golestan)
-                    except TypeError:
-                        # No existing connection, that's fine
-                        pass
-                    self.action_manual_fetch.triggered.connect(self.manual_fetch_from_golestan)
-            
-            # Connect the student profile action if it exists in the UI
-            if hasattr(self, 'action_student_profile'):
-                # Disconnect any existing connections first to prevent duplicates
-                try:
-                    self.action_student_profile.triggered.disconnect(self.show_student_profile)
-                except TypeError:
-                    # No existing connection, that's fine
-                    pass
-                self.action_student_profile.triggered.connect(self.show_student_profile)
-            
-            # Create "Usage History" menu
-            history_menu = menubar.addMenu('سوابق استفاده')
-            
-            # Add date to menu title
-            current_date = datetime.datetime.now().strftime('%Y/%m/%d')
-            history_menu.setTitle(f'سوابق استفاده ({current_date})')
-            
-            # Connect menu to populate with backup history when clicked
-            history_menu.aboutToShow.connect(self.populate_backup_history_menu)
-            
-        except Exception as e:
-            logger.error(f"Error creating menu bar: {e}")
-            import traceback
-            logger.error("Unexpected error occurred", exc_info=True)
-    
     def populate_backup_history_menu(self):
-        """Populate the backup history menu with available backups"""
-        try:
-            # Clear existing menu items
-            menu = self.sender()
+        """Populate backup history menu (delegated to BackupService)"""
+        if not hasattr(self, 'menu_history') and not hasattr(self, 'menuBar'):
+            return
+        result = self.backup_service.get_all_backups()
+        if result.success and hasattr(self, 'menu_history'):
+            menu = self.menu_history
             menu.clear()
-            
-            # Get backup history from data manager
-            from app.core.data_manager import get_backup_history
-            backup_files = get_backup_history(5)
-            
-            if not backup_files:
-                no_backups_action = menu.addAction("هیچ سوابقی موجود نیست")
-                no_backups_action.setEnabled(False)
-                return
-            
-            # Add backup files to menu
-            for i, backup_file in enumerate(backup_files):
-                # Extract timestamp from filename
-                filename = os.path.basename(backup_file)
-                timestamp_part = filename.replace('user_data_', '').replace('user_data_auto_', '').replace('.json', '')
-                
-                # Format timestamp for display with Jalali date
-                try:
-                    if '_' in timestamp_part:
-                        # Handle both manual (YYYYMMDD_HHMMSS) and auto (auto_YYYYMMDD_HHMMSS) backup formats
-                        parts = timestamp_part.split('_', 1)  # Split only on first underscore
-                        if len(parts) == 2 and parts[0] == 'auto':
-                            # Auto backup format: auto_YYYYMMDD_HHMMSS
-                            date_time_part = parts[1]
-                        else:
-                            # Manual backup format: YYYYMMDD_HHMMSS
-                            date_time_part = timestamp_part
-                        
-                        # Split date and time parts
-                        date_part, time_part = date_time_part.split('_')
-                        
-                        # Extract year, month, day
-                        year = int(date_part[:4])
-                        month = int(date_part[4:6])
-                        day = int(date_part[6:8])
-                        
-                        # Convert Gregorian to Jalali
-                        import jdatetime
-                        jalali_date = jdatetime.date.fromgregorian(year=year, month=month, day=day)
-                        
-                        # Format time
-                        formatted_time = f"{time_part[:2]}:{time_part[2:4]}:{time_part[4:6]}"
-                        
-                        # Display in Persian format: 📅 1403/07/17 - 🕒 11:40:06
-                        display_text = f"📅 {jalali_date.year}/{jalali_date.month:02d}/{jalali_date.day:02d} - 🕒 {formatted_time}"
-                    else:
-                        display_text = f"برنامه {i+1} — تاریخ خروج: {timestamp_part}"
-                except Exception as e:
-                    logger.error(f"Error formatting backup timestamp: {e}")
-                    display_text = f"برنامه {i+1} — تاریخ خروج: {timestamp_part}"
-                
-                # Create action for this backup
-                action = menu.addAction(display_text)
-                action.triggered.connect(lambda checked, f=backup_file: self.load_backup_file(f))
-                
-        except Exception as e:
-            logger.error(f"Error populating backup history menu: {e}")
+            for b_file in result.data.get('backups', []):
+                action = menu.addAction(b_file)
+                action.triggered.connect(lambda checked, f=b_file: self.load_backup_file(f))
 
     def load_backup_file(self, backup_file):
-        """Load a specific backup file and populate the schedule table"""
-        try:
-            from app.core.data_manager import load_auto_backup
-            import json
-            
-            logger.info(f"Loading backup file: {backup_file}")
-            
-            # Load data from backup file
-            with open(backup_file, 'r', encoding='utf-8') as f:
-                backup_data = json.load(f)
-            
-            # Update user data
-            self.user_data = backup_data
-            
-            # Clear current schedule completely
+        """Load backup file (delegated to BackupService)"""
+        result = self.backup_service.load_specific_backup(backup_file)
+        if result.success:
+            self.user_data = result.data['backup_data']
             self.clear_table_silent()
-            
-            # Load courses from backup data
             current_schedule = self.user_data.get('current_schedule', [])
             for course_key in current_schedule:
                 if course_key in COURSES:
                     self.add_course_to_table(course_key, ask_on_conflict=False)
-            
-            # Update UI
             self.update_status()
             self.update_stats_panel()
-            self.update_detailed_info_if_open()
-            
-            logger.info(f"Backup successfully loaded and replaced current table: {backup_file}")
-            QtWidgets.QMessageBox.information(self, 'موفقیت', 'نسخه پشتیبان با موفقیت بارگذاری شد.')
-            
-        except Exception as e:
-            logger.error(f"Error loading backup file {backup_file}: {e}")
-            QtWidgets.QMessageBox.critical(self, 'خطا', humanize_error(e, "خطا در بارگذاری نسخه پشتیبان:\n"))
+            QtWidgets.QMessageBox.information(self, "بازیابی موفق", "برنامه با موفقیت بازیابی شد.")
+        else:
+            QtWidgets.QMessageBox.critical(self, "خطا", result.error or "خطا در بارگذاری بکاپ")
 
     def clear_schedule_table(self):
         """Clear all courses from the schedule table"""
@@ -5750,65 +3267,6 @@ class SchedulerWindow(QtWidgets.QMainWindow):
                 keys.append(info.get('course_key'))
         # Update user data with current schedule
         self.user_data['current_schedule'] = keys
-
-    def manage_golestan_credentials(self):
-        """Manage Golestan credentials - view (masked) or remove saved credentials"""
-        try:
-            from app.core.credentials import LOCAL_CREDENTIALS_FILE, load_local_credentials, delete_local_credentials
-            
-            # Check if credentials file exists
-            if not LOCAL_CREDENTIALS_FILE.exists():
-                QtWidgets.QMessageBox.information(
-                    self, 
-                    "اطلاعات ورود گلستان", 
-                    "هیچ اطلاعات ورودی ذخیره‌شده‌ای یافت نشد."
-                )
-                return
-            
-            # Load credentials to show masked info
-            creds = load_local_credentials()
-            if not creds:
-                QtWidgets.QMessageBox.warning(
-                    self, 
-                    "خطا", 
-                    "خطا در خواندن اطلاعات ورود ذخیره‌شده."
-                )
-                return
-            
-            # Show credential info (masked)
-            student_number = creds['student_number']
-            masked_student = student_number[:3] + '*' * (len(student_number) - 3) if len(student_number) > 3 else '*' * len(student_number)
-
-            
-            reply = QtWidgets.QMessageBox.question(
-                self,
-                "مدیریت اطلاعات ورود گلستان",
-                f"اطلاعات ورود ذخیره‌شده:\n\nشماره دانشجویی: {masked_student}\n\nآیا می‌خواهید این اطلاعات را حذف کنید؟",
-                QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
-                QtWidgets.QMessageBox.No
-            )
-            
-            if reply == QtWidgets.QMessageBox.Yes:
-                # Delete credentials file
-                if delete_local_credentials():
-                    QtWidgets.QMessageBox.information(
-                        self, 
-                        "موفقیت", 
-                        "اطلاعات ورود گلستان با موفقیت حذف شد."
-                    )
-                else:
-                    QtWidgets.QMessageBox.warning(
-                        self, 
-                        "خطا", 
-                        "خطا در حذف اطلاعات ورود."
-                    )
-        except Exception as e:
-            logger.error(f"Error managing Golestan credentials: {e}")
-            QtWidgets.QMessageBox.critical(
-                self, 
-                "خطا", 
-                f"خطا در مدیریت اطلاعات ورود گلستان:\n{str(e)}"
-            )
 
     def _find_existing_compatible_dual(self, course):
         """
