@@ -220,6 +220,22 @@ class CourseDatabase:
 
         return self._parse_schedule_results(cursor)
 
+    def get_courses_by_department(self, department_name: str, availability: str = 'both', return_hierarchy: bool = False) -> List[Dict[str, Any]]:
+        """Get courses filtered by department or faculty."""
+        self._ensure_fresh_data()
+        if self.connection is None:
+            self.connection = sqlite3.connect(self.db_path, check_same_thread=False)
+            self.connection.row_factory = sqlite3.Row
+
+        cursor = self.connection.cursor()
+        search_pattern = f"%{department_name}%"
+        cursor.execute("""
+            SELECT * FROM courses 
+            WHERE department LIKE ? OR faculty LIKE ?
+        """, (search_pattern, search_pattern))
+
+        return self._parse_schedule_results(cursor)
+
     def get_course_count(self) -> int:
         """Get the total count of courses in the database."""
         self._ensure_fresh_data()

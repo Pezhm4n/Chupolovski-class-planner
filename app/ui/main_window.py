@@ -2271,29 +2271,25 @@ class SchedulerWindow(QtWidgets.QMainWindow):
     def _process_course_addition_queue(self):
         """
         Process queued course additions with proper synchronization.
-        This version processes courses one by one to properly handle dual course creation.
+        This version processes courses cleanly without re-entrancy deadlocks.
         """
+        if getattr(self, '_is_processing_queue', False):
+            return
+        self._is_processing_queue = True
         logger.info("overlay_processing_start: Starting to process course addition queue")
-        locker = QMutexLocker(self.course_addition_mutex)
         try:
             # Process courses one by one to handle dual course creation correctly
             while self.course_addition_queue:
                 course_key, ask_on_conflict = self.course_addition_queue.popleft()
                 logger.info(f"overlay_processing_item: Processing course {course_key}")
-                # Process course addition with dual operation locking
-                dual_locker = QMutexLocker(self.dual_operation_mutex)
-                try:
-                    self._add_course_internal(course_key, ask_on_conflict)
-                finally:
-                    del dual_locker
-                
-                # Process events to ensure UI updates
-                QtWidgets.QApplication.processEvents()
+                self._add_course_internal(course_key, ask_on_conflict)
             
-            self.save_user_data()
+            # Save user data once after queue is drained
+            save_user_data(self.user_data)
             logger.info("overlay_processing_complete: Course addition queue processing complete")
         finally:
-            del locker
+            self._is_processing_queue = False
+
 
     def _add_course_internal(self, course_key, ask_on_conflict=True):
         """
@@ -3493,12 +3489,12 @@ class SchedulerWindow(QtWidgets.QMainWindow):
                 # Connect exam button to show exam schedule method
                 self.showExamPagebtn.clicked.connect(self.on_show_exam_schedule)
             
-            # Saved combinations buttons - Fix: Connect to proper saved combination handlers
+            # Auto-select list buttons
             if hasattr(self, 'add_to_auto_btn'):
-                self.add_to_auto_btn.clicked.connect(self.on_save_current_combo)
+                self.add_to_auto_btn.clicked.connect(self.on_add_to_auto)
                 
             if hasattr(self, 'remove_from_auto_btn'):
-                self.remove_from_auto_btn.clicked.connect(self.on_delete_saved_combo)
+                self.remove_from_auto_btn.clicked.connect(self.on_remove_from_auto)
             
             # Table interactions
             if hasattr(self, 'schedule_table'):
@@ -3977,54 +3973,39 @@ class SchedulerWindow(QtWidgets.QMainWindow):
             # Clear the course list
             self.course_list.clear()
             
-            # Use pre-filtered courses if provided, otherwise use all courses
+            # Determine base course list to show
             if isinstance(filter_items, dict):
                 courses_to_show = filter_items
+                filter_text = ""
             else:
-                # Filter courses based on current major filter
+                # Filter courses based on current major filter first
                 courses_to_show = COURSES
                 if self.current_major_filter and self.current_major_filter != "دروس اضافه‌شده توسط کاربر":
-                    # Filter courses by major
                     courses_to_show = {
                         key: course for key, course in COURSES.items()
                         if course.get('major') == self.current_major_filter
                     }
                 elif self.current_major_filter == "دروس اضافه‌شده توسط کاربر":
-                    # Show only user-added courses
                     courses_to_show = {
                         key: course for key, course in COURSES.items()
                         if course.get('major') == "دروس اضافه‌شده توسط کاربر"
                     }
-                
-                # Apply text filter if provided
-                if isinstance(filter_items, str) and filter_items.strip():
-                    filter_text = filter_items.strip().lower()
-                    # Search across courses that passed major filter
-                    courses_to_show = {
-                        key: course for key, course in courses_to_show.items()
-                        if (filter_text in course.get('name', '').lower() or
-                            filter_text in course.get('code', '').lower() or
-                            filter_text in course.get('instructor', '').lower())
-                    }
-            # Handle filter_items parameter
-            if isinstance(filter_items, dict):
-                # If a pre-filtered dictionary is provided, use it
-                courses_to_show = filter_items
-                filter_text = ""  # Clear filter text since we're using pre-filtered dict
-            else:
-                # Use filter_items as text search if it's a string
-                filter_text = str(filter_items) if filter_items else ""
-                
-            # Apply text search filter if provided
-            if filter_text.strip():
-                filter_text = filter_text.strip().lower()
-                # Search across courses that passed major filter
+                filter_text = str(filter_items).strip().lower() if isinstance(filter_items, str) else ""
+
+            # Apply search query text filter across selected courses
+            if filter_text:
                 courses_to_show = {
                     key: course for key, course in courses_to_show.items()
-                    if (filter_text in course.get('name', '').lower() or
-                        filter_text in course.get('code', '').lower() or
-                        filter_text in course.get('instructor', '').lower())
+                    if (
+                        filter_text in (course.get('name') or course.get('course_name') or '').lower() or
+                        filter_text in str(course.get('code') or course.get('course_code') or '').lower() or
+                        filter_text in (course.get('instructor') or '').lower() or
+                        filter_text in (course.get('department') or '').lower() or
+                        filter_text in (course.get('faculty') or '').lower()
+                    )
                 }
+
+
 
             # Process courses and create widgets
             used = 0
@@ -4594,14 +4575,23 @@ class SchedulerWindow(QtWidgets.QMainWindow):
             )
 
     def is_editable_course(self, course_key):
-        """Check if a course can be edited (all courses from JSON are now editable)"""
-        # With JSON storage, all courses can be edited
-        # Only restriction could be based on user permissions or course type
+        """Check if a course can be edited (ONLY user-added custom courses)"""
+        if not course_key:
+            return False
         course = COURSES.get(course_key, {})
+        if course.get('is_user_added') is True or course.get('custom') is True:
+            return True
+        if course.get('major') == 'دروس اضافه‌شده توسط کاربر':
+            return True
         
-        # Optional: Add logic to restrict editing of certain courses
-        # For now, all courses are editable since they come from JSON
-        return True
+        # Check custom_courses in user_data
+        custom_courses = self.user_data.get('custom_courses', [])
+        course_code = str(course.get('code', ''))
+        for c in custom_courses:
+            if str(c.get('code', '')) == course_code and course_code != '':
+                return True
+                
+        return False
 
     def open_add_course_dialog(self):
         """Open dialog to add a new custom course"""
@@ -4611,11 +4601,16 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         course = dlg.get_course_data()
         if not course:
             return
+        
+        # Mark as user-added
+        course['is_user_added'] = True
+        course['custom'] = True
+        course['major'] = 'دروس اضافه‌شده توسط کاربر'
+
         # generate key and store
         key = generate_unique_key(course['code'], COURSES)
         COURSES[key] = course
 
-        
         # Save courses to JSON
         save_courses_to_json()
         
@@ -4638,6 +4633,16 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         """Handle clicks on schedule table cells"""
         # This is a placeholder - implement as needed
         pass
+
+    def filter_course_list(self, text):
+        """Filter course list based on search text"""
+        self.populate_course_list(text)
+
+    def clear_search(self):
+        """Clear search box and show all courses"""
+        if hasattr(self, 'search_box'):
+            self.search_box.clear()
+        self.populate_course_list(None)
 
     def on_search_text_changed(self, text):
         """Handle search text change"""
@@ -4741,17 +4746,22 @@ class SchedulerWindow(QtWidgets.QMainWindow):
             else:
                 self._search_timer = QtCore.QTimer(self)
                 self._search_timer.setSingleShot(True)
-                self._search_timer.timeout.connect(lambda: self.filter_course_list(text))
+                self._search_timer.timeout.connect(self._apply_search_filter)
             
             # Start the timer with 300ms delay
             self._search_timer.start(300)
         except Exception as e:
             logger.error(f"Error in search: {e}")
 
+    def _apply_search_filter(self):
+        """Apply the search text from the search box"""
+        if hasattr(self, 'search_box'):
+            self.filter_course_list(self.search_box.text())
+
     def normalize_persian_text(self, text):
         """Normalize Persian text for search and comparison"""
         if not isinstance(text, str):
-            return ""
+            text = str(text) if text is not None else ""
         
         # Replace Arabic letters with Persian equivalents  
         replacements = {
@@ -4778,7 +4788,7 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         """Filter course list based on normalized search text"""
         try:
             # Normalize the search text
-            normalized_filter = self.normalize_persian_text(filter_text)
+            normalized_filter = self.normalize_persian_text(filter_text).lower()
             
             # Filter courses using normalized comparison
             filtered_courses = {}
@@ -4787,15 +4797,19 @@ class SchedulerWindow(QtWidgets.QMainWindow):
                     continue
                     
                 # Normalize course fields for comparison
-                course_name = self.normalize_persian_text(course.get('name', ''))
-                course_code = self.normalize_persian_text(course.get('code', ''))
-                course_instructor = self.normalize_persian_text(course.get('instructor', ''))
+                course_name = self.normalize_persian_text(course.get('name', course.get('course_name', ''))).lower()
+                course_code = self.normalize_persian_text(course.get('code', course.get('course_code', ''))).lower()
+                course_instructor = self.normalize_persian_text(course.get('instructor', '')).lower()
+                course_department = self.normalize_persian_text(course.get('department', '')).lower()
+                course_faculty = self.normalize_persian_text(course.get('faculty', '')).lower()
                 
                 # Check if filter matches any part
                 if not normalized_filter or \
-                   normalized_filter in course_name.lower() or \
-                   normalized_filter in course_code.lower() or \
-                   normalized_filter in course_instructor.lower():
+                   normalized_filter in course_name or \
+                   normalized_filter in course_code or \
+                   normalized_filter in course_instructor or \
+                   normalized_filter in course_department or \
+                   normalized_filter in course_faculty:
                     filtered_courses[key] = course
 
             # Update course list with filtered courses

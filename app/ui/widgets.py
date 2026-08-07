@@ -69,19 +69,18 @@ class CourseListWidget(QtWidgets.QWidget):
         button_layout.setSpacing(6)  # Increased spacing between buttons
         button_layout.setAlignment(QtCore.Qt.AlignRight | QtCore.Qt.AlignVCenter)
         
-        # Edit button (pencil icon) - larger and more visible
-        self.edit_btn = QtWidgets.QPushButton("✏️")
-        self.edit_btn.setObjectName("edit_btn")
-        self.edit_btn.setFixedSize(24, 24)  # Increased size from 18x18 to 24x24
-        self.edit_btn.setToolTip(f"ویرایش درس {self.course_info['name']}")
-        self.edit_btn.clicked.connect(self.edit_course)
-        button_layout.addWidget(self.edit_btn)
-        
-        # Delete button (only for custom courses) - larger and more visible
+        # Edit & Delete buttons (only for custom user-added courses)
         if self.is_custom_course():
+            self.edit_btn = QtWidgets.QPushButton("✏️")
+            self.edit_btn.setObjectName("edit_btn")
+            self.edit_btn.setFixedSize(24, 24)
+            self.edit_btn.setToolTip(f"ویرایش درس {self.course_info['name']}")
+            self.edit_btn.clicked.connect(self.edit_course)
+            button_layout.addWidget(self.edit_btn)
+            
             self.delete_btn = QtWidgets.QPushButton("✕")
             self.delete_btn.setObjectName("delete_btn")
-            self.delete_btn.setFixedSize(24, 24)  # Increased size from 18x18 to 24x24
+            self.delete_btn.setFixedSize(24, 24)
             self.delete_btn.setToolTip(f"حذف درس {self.course_info['name']}")
             self.delete_btn.clicked.connect(self.delete_course)
             button_layout.addWidget(self.delete_btn)
@@ -412,9 +411,12 @@ class CourseListWidget(QtWidgets.QWidget):
         self.conflict_indicator.setToolTip(tooltip_text)
         
     def is_custom_course(self):
-        """Check if this course should show delete button (user-added courses can be deleted)"""
-        # Check if this is a user-added course
-        return self.course_info.get('major') == 'دروس اضافه‌شده توسط کاربر'
+        """Check if this course is user-added (only custom courses can be edited/deleted)"""
+        return (
+            self.course_info.get('is_user_added') is True or
+            self.course_info.get('custom') is True or
+            self.course_info.get('major') == 'دروس اضافه‌شده توسط کاربر'
+        )
                                        
     def delete_course(self):
         """Handle course deletion with confirmation"""

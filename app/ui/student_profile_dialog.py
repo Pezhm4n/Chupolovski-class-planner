@@ -28,6 +28,9 @@ from app.ui.credentials_dialog import get_golestan_credentials
 from app.scrapers.requests_scraper.fetch_data import get_student_record
 from app.core.translator import translator
 from app.core.language_manager import language_manager
+from app.core.logger import setup_logging
+
+logger = setup_logging()
 
 
 class CircularImageLabel(QLabel):
