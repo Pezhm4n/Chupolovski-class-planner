@@ -98,6 +98,10 @@ class TokenManager:
                     )
             return None
 
+    def has_token(self) -> bool:
+        """Check if a valid token exists."""
+        return bool(self.get_token())
+
     def clear_token(self) -> bool:
         """
         Purge the active JWT token from memory cache and OS Keyring.
