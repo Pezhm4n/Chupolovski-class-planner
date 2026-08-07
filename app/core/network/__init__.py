@@ -3,9 +3,10 @@
 Golestoon Core Network Package.
 
 This package provides the core leaf network infrastructure, exception hierarchy,
-endpoint route registries, DTO data models, and sanitized network logging.
+endpoint route registries, DTO data models, sanitized network logging, central configuration,
+HTTP session management, and modular domain sub-clients.
 
-Architecture Layer: Layer 1 (Network Leaf Infrastructure)
+Architecture Layer: Layer 1 & Layer 2 (Network Infrastructure & Clients)
 """
 
 from .exceptions import (
@@ -33,6 +34,16 @@ from .models import (
     ApiErrorResponseModel,
 )
 from .logger import SensitiveDataRedactor, get_network_logger
+from .config import NetworkConfig
+from .session import NetworkSession, SessionFactory
+from .clients import (
+    BaseClient,
+    AuthClient,
+    ScheduleClient,
+    ProfessorClient,
+    TranscriptClient,
+    ProxyClient,
+)
 
 __all__ = [
     # Exceptions
@@ -65,4 +76,15 @@ __all__ = [
     # Logger
     "SensitiveDataRedactor",
     "get_network_logger",
+    # Config & Session
+    "NetworkConfig",
+    "NetworkSession",
+    "SessionFactory",
+    # Sub-Clients
+    "BaseClient",
+    "AuthClient",
+    "ScheduleClient",
+    "ProfessorClient",
+    "TranscriptClient",
+    "ProxyClient",
 ]
