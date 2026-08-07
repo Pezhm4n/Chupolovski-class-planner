@@ -42,7 +42,7 @@ def load_user_added_courses():
                     
                 logger.info(f"Successfully loaded {len(user_courses)} user-added courses")
                 if os.environ.get('DEBUG'):
-                    print(f"Loaded {len(user_courses)} user-added courses")
+                    logger.debug(f"Loaded {len(user_courses)} user-added courses")
         else:
             with open(USER_ADDED_COURSES_FILE, 'w', encoding='utf-8') as f:
                 json.dump({"courses": []}, f, ensure_ascii=False, indent=2)
@@ -50,7 +50,7 @@ def load_user_added_courses():
     except Exception as e:
         logger.error(f"Error loading user-added courses: {e}")
         if os.environ.get('DEBUG'):
-            print(f"Error loading user-added courses: {e}")
+            logger.error(f"Error loading user-added courses: {e}")
 
 def save_user_added_courses():
     """Save user-added courses to dedicated JSON file"""
@@ -69,11 +69,11 @@ def save_user_added_courses():
             
         logger.info(f"Successfully saved {len(user_courses)} user-added courses")
         if os.environ.get('DEBUG'):
-            print(f"Saved {len(user_courses)} user-added courses")
+            logger.debug(f"Saved {len(user_courses)} user-added courses")
     except Exception as e:
         logger.error(f"Error saving user-added courses: {e}")
         if os.environ.get('DEBUG'):
-            print(f"Error saving user-added courses: {e}")
+            logger.error(f"Error saving user-added courses: {e}")
 
 def load_courses_from_json():
     """
@@ -99,12 +99,12 @@ def load_courses_from_json():
 
         logger.info(f"Successfully loaded {len(COURSES)} courses from database (UI-compatible format)")
         if os.environ.get('DEBUG'):
-            print(f"Loaded {len(COURSES)} courses from database (UI-compatible format)")
+            logger.debug(f"Loaded {len(COURSES)} courses from database (UI-compatible format)")
 
     except Exception as e:
         logger.error(f"Error loading courses from database: {e}")
         if os.environ.get('DEBUG'):
-            print(f"Error loading courses from database: {e}")
+            logger.error(f"Error loading courses from database: {e}")
 
 def golestan_data_files_exist():
     """Check if Golestan data files exist in the courses_data directory"""

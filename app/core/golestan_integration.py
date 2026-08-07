@@ -149,7 +149,7 @@ def load_golestan_data() -> Dict[str, Any]:
         
         logger.info(f"Loaded {len(all_courses)} total courses ({available_count} available + {unavailable_count} unavailable)")
         if os.environ.get('DEBUG'):
-            print(f"Loaded {len(all_courses)} total courses ({available_count} available + {unavailable_count} unavailable)")
+            logger.debug(f"Loaded {len(all_courses)} total courses ({available_count} available + {unavailable_count} unavailable)")
         return all_courses
         
     except Exception as e:
@@ -402,6 +402,6 @@ if __name__ == "__main__":
     # This is just for testing purposes
     try:
         courses = load_golestan_data()
-        print(f"Loaded {len(courses)} courses from Golestan data")
+        logger.debug(f"Loaded {len(courses)} courses from Golestan data")
     except Exception as e:
-        print(f"Error: {e}")
+        logger.error(f"Error: {e}")

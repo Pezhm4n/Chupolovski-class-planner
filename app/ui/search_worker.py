@@ -1,3 +1,4 @@
+import logging
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
@@ -77,7 +78,7 @@ class SearchWorker(QThread):
         except Exception as e:
             logger.error(f"Error in SearchWorker: {e}")
             import traceback
-            traceback.print_exc()
+            logger.error("Unexpected error occurred", exc_info=True)
             if not self._cancelled:
                 self.search_finished.emit({})
     

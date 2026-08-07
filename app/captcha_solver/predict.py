@@ -1,3 +1,4 @@
+import logging
 import os
 import sys
 import warnings
@@ -85,10 +86,10 @@ class CaptchaPredictor:
             
         except Exception as e:
             if os.environ.get('DEBUG'):
-                print(f"Error loading model: {e}")
-                print("Please ensure the model file exists and is valid.")
+                logger.error(f"Error loading model: {e}")
+                logger.debug("Please ensure the model file exists and is valid.")
             logger.error(f"Error loading captcha model: {e}")
-            sys.exit(1)
+            return  # Graceful error recovery
     
     def _create_prediction_model(self):
         """Create a lighter prediction model (exclude CTC loss layer)"""
@@ -114,9 +115,9 @@ class CaptchaPredictor:
                 
         except Exception as e:
             if os.environ.get('DEBUG'):
-                print(f"Error creating prediction model: {e}")
+                logger.error(f"Error creating prediction model: {e}")
             logger.error(f"Error creating prediction model: {e}")
-            sys.exit(1)
+            return  # Graceful error recovery
     
     def predict(self, image_content):
         """Run prediction on a single image"""
@@ -132,7 +133,7 @@ class CaptchaPredictor:
             
         except Exception as e:
             if os.environ.get('DEBUG'):
-                print(f"Error during prediction: {e}")
+                logger.error(f"Error during prediction: {e}")
             logger.error(f"Error during captcha prediction: {e}")
             return ""
 

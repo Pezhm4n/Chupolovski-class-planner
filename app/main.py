@@ -1,3 +1,4 @@
+import logging
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
 """
@@ -171,7 +172,7 @@ if __name__ == '__main__':
     try:
         sys.exit(main())
     except Exception as e:
-        print(f"Critical error: {e}")
+        logger.error(f"Critical error: {e}")
         import traceback
-        traceback.print_exc()
+        logger.error("Unexpected error occurred", exc_info=True)
         sys.exit(1)

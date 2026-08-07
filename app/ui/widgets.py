@@ -1,3 +1,4 @@
+import logging
 import sys
 import os
 
@@ -258,7 +259,7 @@ class CourseListWidget(QtWidgets.QWidget):
         except Exception as e:
             logger.warning(f"Error showing floating tooltip: {e}")
             import traceback
-            traceback.print_exc()
+            logger.error("Unexpected error occurred", exc_info=True)
     
     def _hide_floating_tooltip(self):
         """Hide floating tooltip if it exists"""

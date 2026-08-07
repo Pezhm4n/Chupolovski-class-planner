@@ -1,3 +1,4 @@
+import logging
 import re
 import time
 from random import random
@@ -754,7 +755,7 @@ def get_student_record(username=None, password=None, db=None):
 #     except Exception as e:
 #         print(f"💥 An error occurred during testing: {e}")
 #         import traceback
-#         traceback.print_exc()
+#         logger.error("Unexpected error occurred", exc_info=True)
 #
 #
 #
@@ -835,7 +836,7 @@ def get_student_record(username=None, password=None, db=None):
 #     except Exception as e:
 #         print(f"💥 Error: {e}")
 #         import traceback
-#         traceback.print_exc()
+#         logger.error("Unexpected error occurred", exc_info=True)
 #     finally:
 #         golestan.session.close()
 #

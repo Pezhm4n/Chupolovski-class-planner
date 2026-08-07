@@ -207,6 +207,7 @@ class ProfessorManager(QObject):
 
         worker.finished_signal.connect(_handle_success)
         worker.error_signal.connect(on_error)
+        if hasattr(worker, 'finished'): worker.finished.connect(worker.deleteLater)
         worker.start()
         self._active_worker = worker
 
@@ -215,6 +216,7 @@ class ProfessorManager(QObject):
         worker = SearchProfessorsWorker(client=self._client, query=query, department=department)
         worker.finished_signal.connect(on_success)
         worker.error_signal.connect(on_error)
+        if hasattr(worker, 'finished'): worker.finished.connect(worker.deleteLater)
         worker.start()
         self._active_worker = worker
 
@@ -223,5 +225,6 @@ class ProfessorManager(QObject):
         worker = SubmitReviewWorker(client=self._client, review_data=review_data)
         worker.finished_signal.connect(on_success)
         worker.error_signal.connect(on_error)
+        if hasattr(worker, 'finished'): worker.finished.connect(worker.deleteLater)
         worker.start()
         self._active_worker = worker

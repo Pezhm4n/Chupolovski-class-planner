@@ -11,6 +11,10 @@ from PyQt5 import QtWidgets, QtCore, QtGui, uic
 from app.core.translator import translator
 from app.core.language_manager import language_manager
 
+import logging
+logger = logging.getLogger("app.ui.tutorial_dialog")
+
+
 
 class TutorialDialog(QtWidgets.QDialog):
     """Interactive tutorial dialog for the Schedule Planner application"""
@@ -43,14 +47,14 @@ class TutorialDialog(QtWidgets.QDialog):
                 translator.t("tutorial.ui_error_title"), 
                 translator.t("tutorial.ui_error_not_found", path=tutorial_ui_file)
             )
-            sys.exit(1)
+            return  # Graceful error recovery
         except Exception as e:
             QtWidgets.QMessageBox.critical(
                 self, 
                 translator.t("tutorial.ui_error_title"), 
                 translator.t("tutorial.ui_error_load", error=str(e))
             )
-            sys.exit(1)
+            return  # Graceful error recovery
         
         # Initialize state BEFORE setup_ui
         self.current_page = 0
@@ -512,9 +516,9 @@ def show_tutorial(parent=None, show_on_startup=True):
     def on_tutorial_finished(normally):
         # Handle tutorial completion
         if normally:
-            print("Tutorial finished normally")
+            logger.debug("Tutorial finished normally")
         else:
-            print("Tutorial was skipped")
+            logger.debug("Tutorial was skipped")
             
     dialog.tutorial_finished.connect(on_tutorial_finished)
     

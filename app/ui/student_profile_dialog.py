@@ -145,7 +145,7 @@ class StudentProfileDialog(QDialog):
                 translator.t("common.error"),
                 self._t("ui_file_not_found", path=student_profile_ui_file)
             )
-            sys.exit(1)
+            return  # Graceful error recovery
         except Exception as e:
             from PyQt5.QtWidgets import QMessageBox
             QMessageBox.critical(
@@ -153,7 +153,7 @@ class StudentProfileDialog(QDialog):
                 translator.t("common.error"),
                 self._t("ui_load_error", error=str(e))
             )
-            sys.exit(1)
+            return  # Graceful error recovery
 
         # Initialize UI components
         self.init_ui()
@@ -536,7 +536,7 @@ class StudentProfileDialog(QDialog):
                 pixmap.loadFromData(image_data)
                 circular_label.setPixmapData(pixmap)
             except Exception as e:
-                print(f"Error loading student photo: {e}")
+                logger.error(f"Error loading student photo: {e}")
                 self.set_placeholder_photo(circular_label)
         else:
             self.set_placeholder_photo(circular_label)
@@ -878,9 +878,9 @@ class StudentProfileDialog(QDialog):
             main_layout.addWidget(chart_frame)
 
         except ImportError:
-            print("Matplotlib not available")
+            logger.debug("Matplotlib not available")
         except Exception as e:
-            print(f"Error creating chart: {e}")
+            logger.error(f"Error creating chart: {e}")
 
     def create_timeline_card(self, semester):
         """Create a timeline card for a semester."""
@@ -1141,7 +1141,7 @@ class StudentProfileDialog(QDialog):
             main_layout.insertWidget(4, predictor_frame)
 
         except Exception as e:
-            print(f"Error creating GPA predictor: {e}")
+            logger.error(f"Error creating GPA predictor: {e}")
 
     def calculate_predicted_gpa(self):
         """Calculate predicted GPA."""
@@ -1169,7 +1169,7 @@ class StudentProfileDialog(QDialog):
                     self.change_label.setStyleSheet("color: #6c757d;")
 
         except Exception as e:
-            print(f"Error calculating GPA: {e}")
+            logger.error(f"Error calculating GPA: {e}")
 
     def save_academic_screenshot(self):
         """Save academic information as screenshot."""
@@ -1422,7 +1422,7 @@ class StudentProfileDialog(QDialog):
             # Check database first
             if db.student_exists():
                 self.student = db.load_student()
-                print(f"✓ Loaded from database: {student_number}")
+                logger.debug(f"✓ Loaded from database: {student_number}")
                 self.display_student_data()
                 self._data_loaded = True
                 return
@@ -1450,7 +1450,7 @@ class StudentProfileDialog(QDialog):
             def on_finished(result):
                 loading_dialog.close()
                 if isinstance(result, Exception):
-                    print(f"Error loading student data: {result}")
+                    logger.error(f"Error loading student data: {result}")
                     from PyQt5.QtWidgets import QMessageBox
                     QMessageBox.critical(self, self._t("load_error_title"), self._t("load_error_message", error=str(result)))
                     self._data_loaded = False
@@ -1460,7 +1460,7 @@ class StudentProfileDialog(QDialog):
                     self.student = result
                     if self.student:
                         db.save_student(self.student)
-                        print(f"✓ Saved to database: {student_number}")
+                        logger.debug(f"✓ Saved to database: {student_number}")
                         self.display_student_data()
                         self._data_loaded = True
                     else:
@@ -1470,6 +1470,7 @@ class StudentProfileDialog(QDialog):
             worker.finished.connect(on_finished)
 
             # Start worker
+            if hasattr(worker, 'finished'): worker.finished.connect(worker.deleteLater)
             worker.start()
 
             # Keep dialog visible until worker finishes
@@ -1479,9 +1480,10 @@ class StudentProfileDialog(QDialog):
                 QThread.msleep(50)
 
         except Exception as e:
-            print(f"Error loading student data: {e}")
+            logger.error(f"Error loading student data: {e}")
             from PyQt5.QtWidgets import QMessageBox
-            QMessageBox.critical(self, self._t("load_error_title"), self._t("load_error_message", error=str(e)))
+            user_msg = humanize_error(e, self._t("load_error_message"))
+            QMessageBox.critical(self, self._t("load_error_title"), user_msg)
             self._data_loaded = False
             self.reject()
 

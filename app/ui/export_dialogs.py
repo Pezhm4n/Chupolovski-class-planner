@@ -182,7 +182,7 @@ class ExportMixin:
                     
             QtWidgets.QMessageBox.information(self, 'صدور موفق', f'برنامه امتحانات در فایل زیر ذخیره شد:\n{filename}\n\nنکته: برای نمایش صحیح متن راست به چپ، فایل را با یک ویرایشگر متن که از UTF-8 و RTL پشتیبانی می‌کند باز کنید.')
         except Exception as e:
-            QtWidgets.QMessageBox.critical(self, 'خطا', f'خطا در ذخیره فایل:\n{str(e)}')
+            QtWidgets.QMessageBox.critical(self, 'خطا', humanize_error(e, "خطا در ذخیره فایل:\n"))
     
     def export_as_html(self):
         """Export exam schedule as HTML with improved styling and complete information"""
@@ -558,7 +558,7 @@ class ExportMixin:
                 
             QtWidgets.QMessageBox.information(self, 'صدور موفق', f'برنامه امتحانات در فایل زیر ذخیره شد:\n{filename}')
         except Exception as e:
-            QtWidgets.QMessageBox.critical(self, 'خطا', f'خطا در ذخیره فایل:\n{str(e)}')
+            QtWidgets.QMessageBox.critical(self, 'خطا', humanize_error(e, "خطا در ذخیره فایل:\n"))
     
     def export_as_csv(self):
         """Export exam schedule as CSV with comprehensive course information"""
@@ -644,7 +644,7 @@ class ExportMixin:
                     
             QtWidgets.QMessageBox.information(self, 'صدور موفق', f'برنامه امتحانات در فایل زیر ذخیره شد:\n{filename}')
         except Exception as e:
-            QtWidgets.QMessageBox.critical(self, 'خطا', f'خطا در ذخیره فایل:\n{str(e)}')
+            QtWidgets.QMessageBox.critical(self, 'خطا', humanize_error(e, "خطا در ذخیره فایل:\n"))
     
     def export_as_pdf(self):
         """Export exam schedule as PDF with robust error handling"""

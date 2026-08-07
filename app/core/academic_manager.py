@@ -62,6 +62,7 @@ class AcademicManager(QObject):
         worker = SyncTranscriptWorker(client=self._client, student_number=student_number)
         worker.finished_signal.connect(on_success)
         worker.error_signal.connect(on_error)
+        if hasattr(worker, 'finished'): worker.finished.connect(worker.deleteLater)
         worker.start()
         self._active_worker = worker
 

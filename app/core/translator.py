@@ -6,8 +6,11 @@ Translator module for Golestoon Class Planner application.
 This module handles loading translation files and providing translated strings.
 """
 
-import json
 import os
+import json
+import logging
+
+logger = logging.getLogger("golestoon.core.translator")
 from pathlib import Path
 
 class Translator:
@@ -45,10 +48,10 @@ class Translator:
                 self._meta = data.get("meta", {})
                 return True
             else:
-                print(f"Translation file not found: {file_path}")
+                logger.debug(f"Translation file not found: {file_path}")
                 return False
         except Exception as e:
-            print(f"Error loading translations for {lang_code}: {e}")
+            logger.error(f"Error loading translations for {lang_code}: {e}")
             return False
     
     def translate(self, key, **kwargs):
@@ -68,7 +71,7 @@ class Translator:
                 elif 'default' in value:
                     value = str(value['default'])
                 else:
-                    print(f"Translation key '{key}' returned a dict: {value}")
+                    logger.debug(f"Translation key '{key}' returned a dict: {value}")
                     return key
             
             value = str(value)
@@ -115,6 +118,7 @@ class Translator:
         try:
             # Get the translations directory
             from pathlib import Path
+
             translations_dir = Path(__file__).parent.parent / "translations"
             
             # Construct file path

@@ -212,11 +212,11 @@ def load_courses_from_json():
                 course = COURSES[key]
                 logger.info(f"Sample course {key}: type={type(course)}, keys={list(course.keys()) if isinstance(course, dict) else 'not a dict'}")
             if os.environ.get('DEBUG'):
-                print(f"Loaded {len(COURSES)} courses from JSON file")
+                logger.debug(f"Loaded {len(COURSES)} courses from JSON file")
     except Exception as e:
         logger.error(f"Error loading courses from JSON file: {e}")
         if os.environ.get('DEBUG'):
-            print(f"Error loading courses from JSON file: {e}")
+            logger.error(f"Error loading courses from JSON file: {e}")
 
 def load_user_added_courses():
     """Load user-added courses from dedicated JSON file"""
@@ -236,7 +236,7 @@ def load_user_added_courses():
                     
                 logger.info(f"Successfully loaded {len(user_courses)} user-added courses")
                 if os.environ.get('DEBUG'):
-                    print(f"Loaded {len(user_courses)} user-added courses")
+                    logger.debug(f"Loaded {len(user_courses)} user-added courses")
         else:
             with open(USER_ADDED_COURSES_FILE, 'w', encoding='utf-8') as f:
                 json.dump({"courses": []}, f, ensure_ascii=False, indent=2)
@@ -244,7 +244,7 @@ def load_user_added_courses():
     except Exception as e:
         logger.error(f"Error loading user-added courses: {e}")
         if os.environ.get('DEBUG'):
-            print(f"Error loading user-added courses: {e}")
+            logger.error(f"Error loading user-added courses: {e}")
 
 try:
     from .data_manager import golestan_data_files_exist, load_courses_from_json

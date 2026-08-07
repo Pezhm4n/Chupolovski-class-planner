@@ -1,3 +1,4 @@
+import logging
 import time
 from PyQt5.QtCore import QThread, pyqtSignal
 from app.core.logger import setup_logging
@@ -60,5 +61,5 @@ class InitialLoadWorker(QThread):
         except Exception as e:
             logger.error(f"❌ Error in Direct DB Loader: {e}")
             import traceback
-            traceback.print_exc()
+            logger.error("Unexpected error occurred", exc_info=True)
             self.finished.emit(False)

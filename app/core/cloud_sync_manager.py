@@ -158,6 +158,7 @@ class ScheduleSyncManager(QObject):
 
         worker.finished_signal.connect(_handle_success)
         worker.error_signal.connect(_handle_error)
+        if hasattr(worker, 'finished'): worker.finished.connect(worker.deleteLater)
         worker.start()
         self._active_worker = worker
 
@@ -189,6 +190,7 @@ class ScheduleSyncManager(QObject):
 
         worker.finished_signal.connect(_handle_success)
         worker.error_signal.connect(_handle_error)
+        if hasattr(worker, 'finished'): worker.finished.connect(worker.deleteLater)
         worker.start()
         self._active_worker = worker
 
@@ -208,6 +210,7 @@ class ScheduleSyncManager(QObject):
 
         worker.finished_signal.connect(_handle_success)
         worker.error_signal.connect(_handle_error)
+        if hasattr(worker, 'finished'): worker.finished.connect(worker.deleteLater)
         worker.start()
         self._active_worker = worker
 

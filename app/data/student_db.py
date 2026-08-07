@@ -7,6 +7,10 @@ from decimal import Decimal
 from datetime import datetime
 from app.scrapers.requests_scraper.models import Student, SemesterRecord, CourseEnrollment
 
+import logging
+logger = logging.getLogger("app.data.student_db")
+
+
 
 class StudentDatabase:
     """Manages per-user SQLite database for student academic records"""
@@ -166,7 +170,7 @@ class StudentDatabase:
         # Commit and close
         conn.commit()
         conn.close()
-        print(f"✅ Successfully saved student {student.student_id} to {self.db_path}")
+        logger.debug(f"✅ Successfully saved student {student.student_id} to {self.db_path}")
 
     def load_student(self) -> Optional['Student']:
         """Load student record from database."""
@@ -193,7 +197,7 @@ class StudentDatabase:
             try:
                 return Decimal(str(value))
             except (ValueError, decimal.InvalidOperation):
-                print(f"Warning: Could not convert '{value}' to Decimal, using default")
+                logger.warning(f"Warning: Could not convert '{value}' to Decimal, using default")
                 return default
 
         # Parse student data
