@@ -5,10 +5,6 @@ from random import random
 import requests
 from typing import List, Dict, Any
 
-from Demos.win32ts_logoff_disconnected import session
-# from ...core.logger import setup_logging
-# from ...core.course_utils import to_minutes
-# from ...data.courses_db import get_db
 from requests.cookies import create_cookie
 from bs4 import BeautifulSoup
 from pathlib import Path
@@ -18,40 +14,23 @@ from ...captcha_solver.predict import predict
 from ...scrapers.requests_scraper.parsers import parse_student_info, extract_semester_ids, parse_semester_data, \
     parse_enrollment_data, parse_degree_details
 
-# logger = setup_logging()
+logger = logging.getLogger("golestoon.scrapers.fetch_data")
 
 
-# def scrape_and_store_courses(status='both', username=None, password=None) -> List[Dict[str, Any]]:
-#     """
-#     Scrape course data from the source and store it in the database.
-#     This function now uses the singleton database instance.
-#
-#     Args:
-#         status: 'available', 'unavailable', or 'both' - for compatibility with old API
-#         username: Username for authentication - not used in new API architecture
-#         password: Password for authentication - not used in new API architecture
-#     """
-#     try:
-#         # Log that we're using the new API architecture
-#         logger.info(
-#             "Using API architecture to fetch courses. Username and password arguments are not used in this mode.")
-#
-#         # In the new architecture, the database itself handles API fetching
-#         # We'll just return the courses from the database after ensuring they're fresh
-#         db = get_db()
-#
-#         # The database will handle fetching from API if needed
-#         # We just need to make sure the data is fresh
-#         db._ensure_fresh_data()
-#
-#         # Return all courses after ensuring they're up to date
-#         courses = db.get_all_courses()
-#         logger.info(f"Successfully retrieved {len(courses)} courses from database")
-#         return courses
-#     except Exception as e:
-#         logger.error(f"Error in scrape_and_store_courses: {e}")
-#         # Return empty list if there's an error
-#         return []
+def scrape_and_store_courses(status='both', username=None, password=None) -> List[Dict[str, Any]]:
+    """
+    Scrape course data from the source and store it in the database.
+    """
+    try:
+        from ...data.courses_db import get_db
+        db = get_db()
+        db._ensure_fresh_data()
+        courses = db.get_all_courses()
+        logger.info(f"Successfully retrieved {len(courses)} courses from database")
+        return courses
+    except Exception as e:
+        logger.error(f"Error in scrape_and_store_courses: {e}")
+        return []
 
 
 # def fetch_courses_from_source() -> List[Dict[str, Any]]:

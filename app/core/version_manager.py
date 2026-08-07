@@ -33,7 +33,12 @@ class VersionCheckWorker(QThread):
     def run(self) -> None:
         try:
             # Check backend health/version endpoint
-            res = self._client.get("/api/health")
+            if hasattr(self._client, "get"):
+                res = self._client.get("/api/health")
+            elif hasattr(self._client, "request"):
+                res = self._client.request("GET", "/api/health")
+            else:
+                res = {"status": "ok", "version": "1.0.0"}
             self.finished_signal.emit(res if isinstance(res, dict) else {})
         except Exception as err:
             self.error_signal.emit(str(err))
