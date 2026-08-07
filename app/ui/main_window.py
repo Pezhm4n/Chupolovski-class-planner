@@ -2616,7 +2616,7 @@ class SchedulerWindow(QtWidgets.QMainWindow):
                 # Set properties for styling based on course type and conflicts
                 if has_conflicts:
                     cell_widget.setProperty('conflict', True)
-                elif course.get('code', '').startswith('elective'):
+                elif str(course.get('code', '') or '').startswith('elective'):
                     cell_widget.setProperty('elective', True)
                 else:
                     cell_widget.setProperty('conflict', False)
