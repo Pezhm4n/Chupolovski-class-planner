@@ -69,3 +69,9 @@ graphify-out/
 AGENTS.md
 DESIGN.md
 
+
+app/core/network/__pycache__/
+
+app/core/auth/__pycache__/
+
+app/core/network/clients/__pycache__/
