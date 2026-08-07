@@ -22,7 +22,7 @@ from app.core.config import (
 )
 from app.core.data_manager import (
     load_user_data, save_user_data, generate_unique_key, 
-    save_courses_to_json, load_courses_from_json
+    load_courses_from_json
 )
 from app.core.logger import setup_logging
 from app.core.course_utils import (
@@ -44,8 +44,21 @@ from .student_profile_dialog import StudentProfileDialog
 from app.core.credentials import load_local_credentials
 from .credentials_dialog import get_golestan_credentials
 
-# Set up logger
-logger = setup_logging()
+# Import Phase 1 - Phase 8 Managers & UI Dialogs
+import app.core.auth as auth
+import app.core.network as net
+from app.core.professor_manager import ProfessorManager
+from app.core.cloud_sync_manager import ScheduleSyncManager
+from app.core.academic_manager import AcademicManager
+from app.core.version_manager import VersionManager
+from app.core.settings_manager import SettingsManager
+from app.data.offline_storage_service import OfflineStorageService
+
+from app.ui.account_auth_dialog import AccountAuthDialog
+from app.ui.professor_review_dialog import ProfessorReviewDialog
+from app.ui.sync_dialog import CloudScheduleDialog
+from app.ui.academic_center_dialog import AcademicCenterDialog
+from app.ui.settings_dialog import SettingsDialog
 
 # Set up logger
 logger = setup_logging()
@@ -168,8 +181,110 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         # Load latest backup on startup
         self.load_latest_backup()
         
+        # Initialize Phase 1 - Phase 8 Core Infrastructure
+        self._init_phase_infrastructure()
+
         # Create menu bar
         self.create_menu_bar()
+
+    def _init_phase_infrastructure(self):
+        """Initialize Phase 1-8 Network, Auth, Managers, Settings, and Storage services."""
+        try:
+            self.token_manager = auth.TokenManager()
+            self.network_session = net.SessionFactory.create_session(token_manager=self.token_manager)
+
+            self.settings_manager = SettingsManager()
+            self.offline_storage_service = OfflineStorageService()
+
+            self.auth_client = net.AuthClient(session=self.network_session)
+            self.schedule_client = net.ScheduleClient(session=self.network_session)
+            self.professor_client = net.ProfessorClient(session=self.network_session)
+            self.transcript_client = net.TranscriptClient(session=self.network_session)
+
+            self.version_manager = VersionManager(base_client=net.BaseClient(session=self.network_session))
+            self.professor_manager = ProfessorManager(client=self.professor_client)
+            self.cloud_sync_manager = ScheduleSyncManager(client=self.schedule_client)
+            self.academic_manager = AcademicManager(client=self.transcript_client)
+
+            # Startup version check
+            self.version_manager.check_api_compatibility(
+                lambda ok, ver, err: logger.info(f"Version check: compatible={ok}, ver={ver}")
+            )
+        except Exception as e:
+            logger.error(f"Failed to initialize Phase 1-8 infrastructure: {e}")
+
+    def show_cloud_account_dialog(self):
+        """Show Cloud Account Auth dialog."""
+        try:
+            dialog = AccountAuthDialog(auth_client=self.auth_client, token_manager=self.token_manager, parent=self)
+            dialog.exec_()
+        except Exception as e:
+            logger.error(f"Error showing account auth dialog: {e}")
+            QtWidgets.QMessageBox.critical(self, "خطا", f"خطا در نمایش دیالوگ حساب ابری:\n{str(e)}")
+
+    def show_professor_review_dialog(self):
+        """Show Professor Review & Compare dialog."""
+        try:
+            dialog = ProfessorReviewDialog(manager=self.professor_manager, parent=self)
+            dialog.exec_()
+        except Exception as e:
+            logger.error(f"Error showing professor review dialog: {e}")
+            QtWidgets.QMessageBox.critical(self, "خطا", f"خطا در نمایش دیالوگ نظرسنجی اساتید:\n{str(e)}")
+
+    def show_cloud_schedule_dialog(self):
+        """Show Cloud Schedule Sync dialog."""
+        try:
+            courses_payload = self.courses if hasattr(self, 'courses') and self.courses else []
+            dialog = CloudScheduleDialog(sync_manager=self.cloud_sync_manager, current_local_courses=courses_payload, parent=self)
+            dialog.load_schedule_requested.connect(self._on_cloud_schedule_loaded)
+            dialog.exec_()
+        except Exception as e:
+            logger.error(f"Error showing cloud schedule dialog: {e}")
+            QtWidgets.QMessageBox.critical(self, "خطا", f"خطا در نمایش دیالوگ همگام‌سازی ابری:\n{str(e)}")
+
+    def _on_cloud_schedule_loaded(self, courses_list):
+        """Slot called when user loads a cloud schedule into the main table."""
+        try:
+            self.clear_schedule()
+            for c in courses_list:
+                self.place_course(c)
+            QtWidgets.QMessageBox.information(self, "موفقیت", "برنامه ابری با موفقیت در جدول کلاسی اعمال شد.")
+        except Exception as e:
+            logger.error(f"Error loading cloud schedule: {e}")
+
+    def show_academic_center_dialog(self):
+        """Show Academic Center & Report 272 dialog."""
+        try:
+            student_info = {}
+            if self.db:
+                try:
+                    s = self.db.get_student_info()
+                    if s:
+                        student_info = {"name": s.name, "student_id": s.student_id, "faculty": s.faculty, "major": s.major}
+                except Exception:
+                    pass
+
+            semesters_info = []
+            if self.db:
+                try:
+                    semesters_info = self.db.get_all_semesters_with_courses()
+                except Exception:
+                    pass
+
+            dialog = AcademicCenterDialog(manager=self.academic_manager, student_data=student_info, semesters_data=semesters_info, parent=self)
+            dialog.exec_()
+        except Exception as e:
+            logger.error(f"Error showing academic center dialog: {e}")
+            QtWidgets.QMessageBox.critical(self, "خطا", f"خطا در نمایش دیالوگ خدمات تحصیلی:\n{str(e)}")
+
+    def show_settings_dialog(self):
+        """Show Settings & Preferences dialog."""
+        try:
+            dialog = SettingsDialog(settings_manager=self.settings_manager, storage_service=self.offline_storage_service, parent=self)
+            dialog.exec_()
+        except Exception as e:
+            logger.error(f"Error showing settings dialog: {e}")
+            QtWidgets.QMessageBox.critical(self, "خطا", f"خطا در نمایش دیالوگ تنظیمات:\n{str(e)}")
         
         logger.info("SchedulerWindow initialized successfully")
 
@@ -1181,6 +1296,35 @@ class SchedulerWindow(QtWidgets.QMainWindow):
             # Connect menu to populate with backup history when clicked
             history_menu.aboutToShow.connect(self.populate_backup_history_menu)
             
+            # ── Phase 9: Add Cloud Services Menu ────────────────────
+            cloud_menu = menubar.addMenu("🌐 خدمات ابری گلستون")
+
+            act_cloud_auth = QtWidgets.QAction("🔑 ورود / ثبت‌نام حساب ابری...", self)
+            act_cloud_auth.triggered.connect(self.show_cloud_account_dialog)
+            cloud_menu.addAction(act_cloud_auth)
+
+            act_cloud_sync = QtWidgets.QAction("☁️ همگام‌سازی ابری برنامه‌ها...", self)
+            act_cloud_sync.triggered.connect(self.show_cloud_schedule_dialog)
+            cloud_menu.addAction(act_cloud_sync)
+
+            act_prof_review = QtWidgets.QAction("👨‍🏫 نظرسنجی و مقایسه اساتید...", self)
+            act_prof_review.triggered.connect(self.show_professor_review_dialog)
+            cloud_menu.addAction(act_prof_review)
+
+            # ── Phase 9: Add Academic Services Menu ──────────────────
+            acad_menu = menubar.addMenu("🎓 خدمات تحصیلی")
+
+            act_academic = QtWidgets.QAction("🎓 شناسنامه، کارنامه و پیشرفت تحصیلی (گزارش ۲۷۲)...", self)
+            act_academic.triggered.connect(self.show_academic_center_dialog)
+            acad_menu.addAction(act_academic)
+
+            # ── Phase 9: Add Settings Menu ───────────────────────────
+            sett_menu = menubar.addMenu("⚙️ تنظیمات")
+
+            act_settings = QtWidgets.QAction("⚙️ تنظیمات و پیکربندی برنامه...", self)
+            act_settings.triggered.connect(self.show_settings_dialog)
+            sett_menu.addAction(act_settings)
+
         except Exception as e:
             logger.error(f"Error creating menu bar: {e}")
             import traceback

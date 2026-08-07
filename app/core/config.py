@@ -99,6 +99,8 @@ _BASE_DAYS = [
 ]
 
 
+DAYS = _BASE_DAYS[:6]
+
 def get_days():
     """Return canonical day names used for internal scheduling."""
     return list(_BASE_DAYS)
