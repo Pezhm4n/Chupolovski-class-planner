@@ -60,3 +60,12 @@ app/.env
 *.mdc
 
 app/data/cache/
+
+# Graphify generated output
+graphify-out/
+.agents
+
+# Added documentation files
+AGENTS.md
+DESIGN.md
+

@@ -4,23 +4,34 @@ import re
 from bs4 import BeautifulSoup
 from decimal import Decimal
 from datetime import datetime
-from app.scrapers.requests_scraper.models import Student, SemesterRecord, CourseEnrollment
+from app.scrapers.requests_scraper.models import Student, SemesterRecord, CourseEnrollment, DegreeStatus, CourseCategoryResult
 
 def normalize_to_persian(text):
-    """Convert Arabic characters to Persian equivalents."""
+    """
+    Normalize Arabic/Persian characters and digits to standard English/Persian.
+    """
     if not text:
-        return text
+        return ""
 
-    # Arabic to Persian character mappings
+    # 1. Arabic -> Persian chars
     replacements = {
         'ي': 'ی',
         'ك': 'ک',
     }
-
     for arabic, persian in replacements.items():
         text = text.replace(arabic, persian)
 
-    return text
+    # 2. Persian/Arabic Digits -> English Digits
+    digit_map = {
+        '۰': '0', '１': '1', '２': '2', '３': '3', '４': '4',
+        '٥': '5', '６': '6', '７': '7', '８': '8', '９': '9',
+        '٠': '0', '١': '1', '٢': '2', '٣': '3', '٤': '4',
+        '٥': '5', '٦': '6', '٧': '7', '٨': '8', '٩': '9'
+    }
+    for p_digit, e_digit in digit_map.items():
+        text = text.replace(p_digit, e_digit)
+
+    return text.strip()
 
 def normalize_day_name(day_name):
     """
@@ -356,7 +367,10 @@ def parse_semester_data(html_response):
     return semester
 
 def extract_semester_ids(html_response):
-    """Extract semester IDs from T01XML in response"""
+    """
+    Extract semester IDs and their status from T01XML.
+    Returns a list of dicts: [{'id': '4021', 'status': '...'}, ...]
+    """
     import re
     import xml.etree.ElementTree as ET
 
@@ -371,13 +385,186 @@ def extract_semester_ids(html_response):
 
     try:
         root = ET.fromstring(xml_string)
-        semester_ids = []
+        semesters = []
 
         for node in root.findall('N'):
-            semester_id = node.get('F4350')  # e.g., "4021", "4022", etc.
-            if semester_id:
-                semester_ids.append(semester_id)
+            semester_id = node.get('F4350')  # Semester Code
+            semester_status = node.get('F4455')  # Semester Status (e.g., "در حال ثبت نام _ عادي")
 
-        return semester_ids
+            if semester_id:
+                semesters.append({
+                    'id': semester_id,
+                    'status': semester_status
+                })
+
+        return semesters
     except ET.ParseError:
         return []
+
+
+def parse_enrollment_data(html_response, semester_id, semester_status):
+    """
+    Parse active semester enrollment data (Fm_Action=50).
+    Returns a SemesterRecord object containing CourseEnrollment objects.
+    """
+    pattern = r"XMLForDat\s*=\s*'([^']*)';"
+    match = re.search(pattern, html_response)
+
+    courses = []
+    total_units = Decimal('0.00')
+
+    if match:
+        xml_string = match.group(1)
+        try:
+            root = ET.fromstring(xml_string)
+            for row in root.findall('row'):
+                c1_group = row.get('C1', '')
+                c2_id = row.get('C2', '')
+                course_code = f"{c2_id}_{c1_group}"
+                course_name = normalize_to_persian(row.get('C3', ''))
+
+                # Parse units
+                try:
+                    units = Decimal(row.get('C4', '0.0'))
+                except:
+                    units = Decimal('0.00')
+
+                total_units += units
+                grade_state = normalize_to_persian(row.get('C7', ''))
+
+                courses.append(CourseEnrollment(
+                    course_code=course_code,
+                    course_name=course_name,
+                    course_units=units,
+                    course_type=normalize_to_persian(row.get('C6', '')),
+                    grade_state=grade_state,
+                    grade=None  # No grade during registration
+                ))
+        except ET.ParseError as e:
+            print(f"Warning: Failed to parse XMLForDat: {e}")
+
+    # Create the complete SemesterRecord
+    return SemesterRecord(
+        semester_id=int(semester_id),
+        semester_description=f"انتخاب واحد - {semester_id}",
+        semester_status=semester_status,
+        units_taken=total_units,
+        courses=courses,
+        # Default empty values for non-existent registration data
+        semester_gpa=Decimal('0.00'),
+        units_passed=Decimal('0.00')
+    )
+
+
+def to_dec(val):
+    """Safe decimal conversion"""
+    if not val: return Decimal('0')
+    # Remove non-numeric chars except dot
+    clean_val = re.sub(r'[^\d.]', '', str(val))
+    try:
+        return Decimal(clean_val)
+    except:
+        return Decimal('0')
+
+
+def parse_degree_details(xml_string):
+    """
+    Robust parser using BeautifulSoup to handle HTML embedded in XML attributes.
+    """
+    # 1. Clean Wrapper if present
+    if "xmlDat" in xml_string:
+        xml_match = re.search(r"xmlDat\s*=\s*['\"](.*?)['\"];", xml_string, re.DOTALL)
+        if xml_match:
+            xml_string = xml_match.group(1)
+
+    try:
+        # Wrap in a root tag if missing
+        if not xml_string.strip().startswith("<Root>"):
+            xml_string = f"<Root>{xml_string}</Root>"
+        root = ET.fromstring(xml_string)
+    except ET.ParseError as e:
+        print(f"❌ XML Parse Error: {e}")
+        return None
+
+    # Initialize Data
+    degree_status = DegreeStatus(
+        total_passed=Decimal(0),
+        total_required_min=Decimal(0),
+        total_required_max=Decimal(0),
+        incomplete_units=Decimal(0),
+        remaining_units=Decimal(0),
+        categories=[]
+    )
+
+    found_summary = False
+
+    # 2. Iterate Rows
+    for row in root.findall('row'):
+        html_content = row.get('C1', '')
+        if not html_content:
+            continue
+
+        # Parse the embedded HTML
+        soup = BeautifulSoup(html_content, 'html.parser')
+
+        # Get normalized text (Arabic 'ي' becomes Persian 'ی')
+        full_text = normalize_to_persian(soup.get_text(" ", strip=True))
+
+        # --- A. Extract Degree Summary ---
+        # Note: 'واحد تطبيقي' in XML becomes 'واحد تطبیقی' after normalization.
+        # We search for the Persian version 'ی'.
+
+        if "واحد تطبیقی" in full_text:
+            # Pattern: "واحد تطبیقی : 85 واحد از 140 تا 142 واحد برنامه"
+            # We match the Persian string specifically
+            m_main = re.search(r'واحد تطبیقی\s*:\s*(\d+).*?از\s*(\d+).*?تا\s*(\d+)', full_text)
+            if m_main:
+                degree_status.total_passed = to_dec(m_main.group(1))
+                degree_status.total_required_min = to_dec(m_main.group(2))
+                degree_status.total_required_max = to_dec(m_main.group(3))
+                found_summary = True
+
+            # Incomplete (ناتمام)
+            m_inc = re.search(r'واحد ناتمام\s*:\s*(\d+)', full_text)
+            if m_inc:
+                degree_status.incomplete_units = to_dec(m_inc.group(1))
+
+            # Remaining (باقیمانده - normalized form of باقيمانده)
+            m_rem = re.search(r'واحد باقیمانده\s*:\s*(\d+)', full_text)
+            if m_rem:
+                degree_status.remaining_units = to_dec(m_rem.group(1))
+
+        # --- B. Extract Course Category Table ---
+        # Find table headers using regex for Persian 'نوع درس'
+        headers = soup.find_all(text=re.compile("نوع درس"))
+        for header in headers:
+            table = header.find_parent('table')
+            if not table:
+                continue
+
+            for tr in table.find_all('tr'):
+                cells = tr.find_all('td')
+                if len(cells) < 4:
+                    continue
+
+                c_name = normalize_to_persian(cells[0].get_text(strip=True))
+                c_min_txt = normalize_to_persian(cells[1].get_text(strip=True))
+                c_max_txt = normalize_to_persian(cells[2].get_text(strip=True))
+                c_pass_txt = normalize_to_persian(cells[3].get_text(strip=True))
+
+                if "نوع درس" in c_name:
+                    continue
+
+                if c_name and (c_min_txt.isdigit() or c_pass_txt.isdigit()):
+                    cat = CourseCategoryResult(
+                        category_name=c_name,
+                        min_units=to_dec(c_min_txt),
+                        max_units=to_dec(c_max_txt),
+                        passed_units=to_dec(c_pass_txt)
+                    )
+                    degree_status.categories.append(cat)
+
+    if found_summary or degree_status.categories:
+        return degree_status
+
+    return None

@@ -42,8 +42,34 @@ class SemesterRecord:
                 f"courses={len(self.courses)})")
 
 @dataclass
+class CourseCategoryResult:
+    """Progress for a specific course category (e.g., General, Basic, Specialized)"""
+    category_name: str
+    min_units: Decimal
+    max_units: Decimal
+    passed_units: Decimal
+
+    def __repr__(self) -> str:
+        return f"{self.category_name}: {self.passed_units}/{self.max_units}"
+
+
+@dataclass
+class DegreeStatus:
+    """Overall degree progress summary"""
+    total_passed: Decimal  # e.g., 85
+    total_required_min: Decimal  # e.g., 140
+    total_required_max: Decimal  # e.g., 142
+    incomplete_units: Decimal  # e.g., 13
+    remaining_units: Decimal  # e.g., 42
+    categories: List[CourseCategoryResult] = field(default_factory=list)
+
+    def __repr__(self) -> str:
+        return f"DegreeStatus(passed={self.total_passed}, remaining={self.remaining_units})"
+
+@dataclass
 class Student:
     """Main student information model"""
+    # ... (existing fields) ...
     student_id: str
     name: str
     father_name: str
@@ -62,6 +88,8 @@ class Student:
     semesters: List[SemesterRecord] = field(default_factory=list)
     updated_at: datetime = field(default_factory=datetime.now)
     image_b64: Optional[str] = None
+
+    degree_status: Optional[DegreeStatus] = None
 
     def __repr__(self) -> str:
         return (f"Student(id={self.student_id}, "
