@@ -120,7 +120,7 @@ class CategoryProgressBarCard(QtWidgets.QFrame):
 
 class AcademicCenterDialog(QtWidgets.QDialog):
     """
-    Main PyQt5 Dialog for Golestoon Academic Center & Transcript Analytics.
+    PyQt5 Academic Center Dialog displaying Student Profile, Full Transcript, and Report 272 Progress.
     """
 
     def __init__(
@@ -135,7 +135,7 @@ class AcademicCenterDialog(QtWidgets.QDialog):
         self._student: Dict[str, Any] = student_data
         self._semesters: List[Dict[str, Any]] = semesters_data
 
-        self.setWindowTitle("مرکز خدمات تحصیلی و کارنامه دانشجو (Golestoon Academic Center)")
+        self.setWindowTitle("مرکز خدمات تحصیلی و کارنامه دانشجو")
         self.resize(920, 700)
         self.setLayoutDirection(Qt.RightToLeft)
 
@@ -154,8 +154,8 @@ class AcademicCenterDialog(QtWidgets.QDialog):
         header_box.addWidget(title_lbl)
         header_box.addStretch()
 
-        # Desktop Enhancement: Export HTML Transcript
-        btn_export = QtWidgets.QPushButton("🚀 خروجی رسمی HTML / PDF کارنامه")
+        # Desktop Enhancement: Export Transcript File
+        btn_export = QtWidgets.QPushButton("🚀 دریافت فایل کارنامه (PDF / HTML)")
         btn_export.setObjectName("primaryButton")
         btn_export.setCursor(Qt.PointingHandCursor)
         btn_export.clicked.connect(self._export_transcript_html)
@@ -404,9 +404,10 @@ class AcademicCenterDialog(QtWidgets.QDialog):
         try:
             with open(save_path, "w", encoding="utf-8") as f:
                 f.write(html_content)
-            QtWidgets.QMessageBox.information(self, "موفقیت", f"کارنامه تحصیلی با موفقیت در مسیر زیر ذخیره شد:\n{save_path}")
+            QtWidgets.QMessageBox.information(self, "موفقیت", f"فایل کارنامه تحصیلی با موفقیت ذخیره شد:\n{save_path}")
         except Exception as e:
-            QtWidgets.QMessageBox.critical(self, "خطا", f"خطا در ذخیره کارنامه:\n{str(e)}")
+            user_msg = humanize_error(e, "ذخیره فایل کارنامه با خطا مواجه شد. لطفاً بررسی کنید مسیر انتخابی قابل دسترسی باشد.")
+            QtWidgets.QMessageBox.critical(self, "خطا", user_msg)
 
     def _apply_styles(self) -> None:
         self.setStyleSheet("""

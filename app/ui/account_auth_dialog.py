@@ -19,50 +19,46 @@ from app.core.auth.token_manager import TokenManager
 from app.core.network.models import AuthResponseModel, UserModel
 from app.core.network.exceptions import GolestoonNetworkError
 
-logger = logging.getLogger("golestoon.ui.account_dialog")
+from app.core.auth import TokenManager
+from app.core.network import AuthClient, AuthResponseModel
+from app.core.error_humanizer import humanize_error
+
+logger = logging.getLogger("golestoon.ui.account_auth_dialog")
 
 
 class CloudLoginWorker(QThread):
     """Background worker thread for cloud login."""
-
-    finished_signal = pyqtSignal(object)  # AuthResponseModel
     error_signal = pyqtSignal(str)
 
-    def __init__(self, auth_client: AuthClient, username: str, password: str, parent: Optional[QtCore.QObject] = None) -> None:
-        super().__init__(parent)
-        self._client: AuthClient = auth_client
-        self._username: str = username
-        self._password: str = password
+    def __init__(self, auth_client: AuthClient, username: str, password: str) -> None:
+        super().__init__()
+        self._client = auth_client
+        self._user = username
+        self._pass = password
 
     def run(self) -> None:
         try:
-            res = self._client.login(username=self._username, password=self._password)
+            res = self._client.login(self._user, self._pass)
             self.finished_signal.emit(res)
-        except GolestoonNetworkError as err:
-            self.error_signal.emit(err.message)
         except Exception as err:
             self.error_signal.emit(str(err))
 
 
 class CloudSignupWorker(QThread):
     """Background worker thread for cloud account signup."""
-
-    finished_signal = pyqtSignal(object)  # AuthResponseModel
     error_signal = pyqtSignal(str)
 
-    def __init__(self, auth_client: AuthClient, username: str, password: str, name: str = "", parent: Optional[QtCore.QObject] = None) -> None:
-        super().__init__(parent)
-        self._client: AuthClient = auth_client
-        self._username: str = username
-        self._password: str = password
-        self._name: str = name
+    def __init__(self, auth_client: AuthClient, username: str, password: str, name: str) -> None:
+        super().__init__()
+        self._client = auth_client
+        self._user = username
+        self._pass = password
+        self._name = name
 
     def run(self) -> None:
         try:
-            res = self._client.signup(username=self._username, password=self._password, name=self._name)
+            res = self._client.signup(self._user, self._pass, self._name)
             self.finished_signal.emit(res)
-        except GolestoonNetworkError as err:
-            self.error_signal.emit(err.message)
         except Exception as err:
             self.error_signal.emit(str(err))
 
@@ -72,15 +68,18 @@ class AccountAuthDialog(QtWidgets.QDialog):
     Main PyQt5 Dialog for Golestoon Cloud Account Authentication & Session Management.
     """
 
-    account_changed = pyqtSignal()  # Emitted when user logs in or out
-
-    def __init__(self, auth_client: AuthClient, token_manager: TokenManager, parent: Optional[QtWidgets.QWidget] = None) -> None:
+    def __init__(
+        self,
+        auth_client: AuthClient,
+        token_manager: TokenManager,
+        parent: Optional[QtWidgets.QWidget] = None
+    ) -> None:
         super().__init__(parent)
         self._auth_client: AuthClient = auth_client
         self._token_manager: TokenManager = token_manager
         self._active_worker: Optional[QThread] = None
 
-        self.setWindowTitle("حساب کاربری ابری گلستون (Golestoon Account Center)")
+        self.setWindowTitle("حساب کاربری گلستون")
         self.resize(480, 420)
         self.setLayoutDirection(Qt.RightToLeft)
 
@@ -94,7 +93,7 @@ class AccountAuthDialog(QtWidgets.QDialog):
         main_layout.setSpacing(12)
 
         # Header Title
-        title_lbl = QtWidgets.QLabel("🔐 مدیریت حساب کاربری ابری گلستون")
+        title_lbl = QtWidgets.QLabel("🔐 مدیریت حساب کاربری")
         title_lbl.setStyleSheet("font-size: 13pt; font-weight: bold; color: #f8fafc;")
         main_layout.addWidget(title_lbl)
 
@@ -142,7 +141,7 @@ class AccountAuthDialog(QtWidgets.QDialog):
         layout.addLayout(form)
         layout.addSpacing(10)
 
-        btn_login = QtWidgets.QPushButton("🔑 ورود به حساب ابری")
+        btn_login = QtWidgets.QPushButton("🔑 ورود به حساب")
         btn_login.setObjectName("primaryButton")
         btn_login.setCursor(Qt.PointingHandCursor)
         btn_login.clicked.connect(self._on_login_clicked)
@@ -191,12 +190,12 @@ class AccountAuthDialog(QtWidgets.QDialog):
         layout.setContentsMargins(16, 16, 16, 16)
         layout.setSpacing(12)
 
-        self.lbl_profile_info = QtWidgets.QLabel("در حال حاضر هیچ حساب ابری فعالی وارد نشده است.")
+        self.lbl_profile_info = QtWidgets.QLabel("در حال حاضر وارد حساب کاربری نشده‌اید.")
         self.lbl_profile_info.setWordWrap(True)
         self.lbl_profile_info.setStyleSheet("color: #94a3b8; font-size: 10pt;")
         layout.addWidget(self.lbl_profile_info)
 
-        self.btn_logout = QtWidgets.QPushButton("🚪 خروج از حساب ابری")
+        self.btn_logout = QtWidgets.QPushButton("🚪 خروج از حساب کاربری")
         self.btn_logout.setStyleSheet("background-color: #ef4444; color: #ffffff; border-radius: 6px; padding: 8px 14px; font-weight: bold;")
         self.btn_logout.setCursor(Qt.PointingHandCursor)
         self.btn_logout.clicked.connect(self._on_logout_clicked)
@@ -208,19 +207,19 @@ class AccountAuthDialog(QtWidgets.QDialog):
     # ─────────────────────────────────────────────────────────
     def _check_initial_auth_state(self) -> None:
         if self._token_manager.has_token():
-            self.lbl_profile_info.setText("🟢 حساب کاربری ابری شما فعال است.\nتوکن امنیتی در Keyring سیستم‌عامل ذخیره گردیده است.")
+            self.lbl_profile_info.setText("🟢 حساب کاربری شما فعال است.\nاطلاعات ورود شما به‌صورت ایمن ذخیره شده است.")
             self.tab_widget.setTabEnabled(0, False)
             self.tab_widget.setTabEnabled(1, False)
             self.tab_widget.setCurrentIndex(2)
         else:
-            self.lbl_profile_info.setText("⚪ شما در حال حاضر وارد حساب کاربری ابری نشده‌اید.")
+            self.lbl_profile_info.setText("⚪ شما در حال حاضر وارد حساب کاربری نشده‌اید.")
             self.btn_logout.hide()
 
     def _on_login_clicked(self) -> None:
         username = self.txt_login_user.text().strip()
         password = self.txt_login_pass.text().strip()
         if not username or not password:
-            QtWidgets.QMessageBox.warning(self, "خطا", "لطفاً نام کاربری و رمز عبور را وارد کنید.")
+            QtWidgets.QMessageBox.warning(self, "تکمیل اطلاعات", "لطفاً نام کاربری و رمز عبور را وارد کنید.")
             return
 
         worker = CloudLoginWorker(auth_client=self._auth_client, username=username, password=password)
@@ -232,7 +231,8 @@ class AccountAuthDialog(QtWidgets.QDialog):
             self.accept()
 
         def _on_error(err_msg: str):
-            QtWidgets.QMessageBox.critical(self, "خطا در ورود", f"ورود با خطا مواجه شد:\n{err_msg}")
+            user_friendly = humanize_error(err_msg, "ورود به حساب انجام نشد. لطفاً نام کاربری و رمز عبور خود را بررسی کرده و مجدداً تلاش کنید.")
+            QtWidgets.QMessageBox.critical(self, "خطا در ورود", user_friendly)
 
         worker.finished_signal.connect(_on_success)
         worker.error_signal.connect(_on_error)
@@ -252,12 +252,13 @@ class AccountAuthDialog(QtWidgets.QDialog):
 
         def _on_success(auth_res: AuthResponseModel):
             self._token_manager.save_token(auth_res.token)
-            QtWidgets.QMessageBox.information(self, "موفقیت", "حساب ابری جدید با موفقیت ساخته و فعال گردید.")
+            QtWidgets.QMessageBox.information(self, "موفقیت", "حساب کاربری جدید با موفقیت ساخته شد.")
             self.account_changed.emit()
             self.accept()
 
         def _on_error(err_msg: str):
-            QtWidgets.QMessageBox.critical(self, "خطا در ثبت‌نام", f"ثبت‌نام با خطا مواجه شد:\n{err_msg}")
+            user_friendly = humanize_error(err_msg, "ساخت حساب کاربری انجام نشد. لطفاً اتصال اینترنت خود را بررسی کرده یا نام کاربری دیگری انتخاب کنید.")
+            QtWidgets.QMessageBox.critical(self, "خطا در ثبت‌نام", user_friendly)
 
         worker.finished_signal.connect(_on_success)
         worker.error_signal.connect(_on_error)
@@ -266,7 +267,7 @@ class AccountAuthDialog(QtWidgets.QDialog):
 
     def _on_logout_clicked(self) -> None:
         self._token_manager.clear_token()
-        QtWidgets.QMessageBox.information(self, "خروج", "از حساب کاربری ابری با موفقیت خارج شدید.")
+        QtWidgets.QMessageBox.information(self, "خروج از حساب", "از حساب کاربری با موفقیت خارج شدید.")
         self.account_changed.emit()
         self.accept()
 

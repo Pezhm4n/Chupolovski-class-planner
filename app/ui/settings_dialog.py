@@ -2,11 +2,11 @@
 """
 Golestoon Application Settings PyQt5 Dialog.
 
-This module provides the SettingsDialog for configuring application preferences,
-Auto-Sync intervals, export directories, and offline database backup/restore operations.
+This module provides the SettingsDialog with a 2-tiered user layout:
+- Tier 1 (Standard Users): Auto-sync, Sync interval, Export folder path, Update check.
+- Tier 2 (Advanced Users - Collapsible): Data backup, restore, and health diagnostics.
 
 Architecture Layer: Layer 5 (Presentation & UI)
-Dependencies: `PyQt5`, `SettingsManager`, `OfflineStorageService`, `DESIGN.md` Tokens.
 """
 
 import logging
@@ -16,13 +16,14 @@ from PyQt5.QtCore import Qt
 
 from app.core.settings_manager import SettingsManager
 from app.data.offline_storage_service import OfflineStorageService
+from app.core.error_humanizer import humanize_error
 
 logger = logging.getLogger("golestoon.ui.settings_dialog")
 
 
 class SettingsDialog(QtWidgets.QDialog):
     """
-    Main PyQt5 Dialog for Golestoon Settings & Preference Configuration.
+    Two-Tiered PyQt5 Dialog for Golestoon Settings & Preference Configuration.
     """
 
     def __init__(
@@ -35,8 +36,8 @@ class SettingsDialog(QtWidgets.QDialog):
         self._settings_mgr: SettingsManager = settings_manager
         self._storage_service: OfflineStorageService = storage_service
 
-        self.setWindowTitle("تنظیمات و پیکربندی برنامه (Golestoon Settings)")
-        self.resize(520, 440)
+        self.setWindowTitle("تنظیمات برنامه")
+        self.resize(500, 480)
         self.setLayoutDirection(Qt.RightToLeft)
 
         self._setup_ui()
@@ -45,35 +46,94 @@ class SettingsDialog(QtWidgets.QDialog):
 
     def _setup_ui(self) -> None:
         main_layout = QtWidgets.QVBoxLayout(self)
-        main_layout.setContentsMargins(16, 16, 16, 16)
-        main_layout.setSpacing(12)
+        main_layout.setContentsMargins(20, 20, 20, 20)
+        main_layout.setSpacing(14)
 
         # Header Title
-        title_lbl = QtWidgets.QLabel("⚙️ تنظیمات و پیکربندی برنامه")
-        title_lbl.setStyleSheet("font-size: 13pt; font-weight: bold; color: #f8fafc;")
+        title_lbl = QtWidgets.QLabel("⚙️ تنظیمات برنامه")
+        title_lbl.setStyleSheet("font-size: 14pt; font-weight: bold; color: #f8fafc;")
         main_layout.addWidget(title_lbl)
 
-        # Main Tab Widget
-        self.tab_widget = QtWidgets.QTabWidget()
-        self.tab_widget.setLayoutDirection(Qt.RightToLeft)
+        # ── TIER 1: Standard Everyday Settings ────────────────────
+        self.card_standard = QtWidgets.QFrame()
+        self.card_standard.setStyleSheet("background-color: #1e293b; border: 1px solid #334155; border-radius: 8px; padding: 12px;")
+        std_layout = QtWidgets.QVBoxLayout(self.card_standard)
+        std_layout.setSpacing(12)
 
-        # Tab 1: General & Sync Settings
-        self.tab_general = QtWidgets.QWidget()
-        self._setup_general_tab()
-        self.tab_widget.addTab(self.tab_general, "⚙️ عمومی و همگام‌سازی")
+        # Auto Sync Checkbox
+        self.chk_auto_sync = QtWidgets.QCheckBox("همگام‌سازی خودکار برنامه‌ها")
+        self.chk_auto_sync.setStyleSheet("font-weight: bold; color: #f8fafc;")
+        std_layout.addWidget(self.chk_auto_sync)
 
-        # Tab 2: Database & Backup
-        self.tab_db = QtWidgets.QWidget()
-        self._setup_db_tab()
-        self.tab_widget.addTab(self.tab_db, "💾 پایگاه داده و بکاپ")
+        # Interval SpinBox
+        spin_box = QtWidgets.QHBoxLayout()
+        spin_box.addWidget(QtWidgets.QLabel("فاصله زمان همگام‌سازی (دقیقه):"))
+        self.spn_interval = QtWidgets.QSpinBox()
+        self.spn_interval.setRange(5, 120)
+        self.spn_interval.setSingleStep(5)
+        spin_box.addWidget(self.spn_interval)
+        spin_box.addStretch()
+        std_layout.addLayout(spin_box)
 
-        main_layout.addWidget(self.tab_widget)
+        # Default Export Path
+        std_layout.addSpacing(6)
+        std_layout.addWidget(QtWidgets.QLabel("پوشه پیش‌فرض ذخیره فایل‌ها (PDF / Excel / CSV):"))
+
+        path_box = QtWidgets.QHBoxLayout()
+        self.txt_export_path = QtWidgets.QLineEdit()
+        btn_browse = QtWidgets.QPushButton("📁 تغییر پوشه...")
+        btn_browse.setObjectName("secondaryButton")
+        btn_browse.clicked.connect(self._browse_export_directory)
+
+        path_box.addWidget(self.txt_export_path)
+        path_box.addWidget(btn_browse)
+        std_layout.addLayout(path_box)
+
+        main_layout.addWidget(self.card_standard)
+
+        # ── TIER 2: Advanced Collapsible Section ──────────────────
+        self.btn_toggle_advanced = QtWidgets.QPushButton("تنظیمات پیشرفته ▼")
+        self.btn_toggle_advanced.setObjectName("secondaryButton")
+        self.btn_toggle_advanced.setCheckable(True)
+        self.btn_toggle_advanced.clicked.connect(self._toggle_advanced_section)
+        main_layout.addWidget(self.btn_toggle_advanced)
+
+        self.adv_container = QtWidgets.QWidget()
+        adv_layout = QtWidgets.QVBoxLayout(self.adv_container)
+        adv_layout.setContentsMargins(0, 0, 0, 0)
+        adv_layout.setSpacing(10)
+
+        # Status Label
+        self.lbl_health_status = QtWidgets.QLabel("وضعیت فایل‌های برنامه: آماده به کار")
+        self.lbl_health_status.setStyleSheet("color: #94a3b8; font-size: 9.5pt;")
+        adv_layout.addWidget(self.lbl_health_status)
+
+        # Backup & Restore Action Buttons
+        btn_backup = QtWidgets.QPushButton("📂 پشتیبان‌گیری از اطلاعات برنامه")
+        btn_backup.setObjectName("secondaryButton")
+        btn_backup.clicked.connect(self._create_backup)
+        adv_layout.addWidget(btn_backup)
+
+        btn_restore = QtWidgets.QPushButton("📥 بازیابی اطلاعات از نسخه پشتیبان")
+        btn_restore.setObjectName("secondaryButton")
+        btn_restore.clicked.connect(self._restore_backup)
+        adv_layout.addWidget(btn_restore)
+
+        btn_check = QtWidgets.QPushButton("🔍 بررسی سلامت اطلاعات برنامه")
+        btn_check.setObjectName("secondaryButton")
+        btn_check.clicked.connect(self._run_health_check)
+        adv_layout.addWidget(btn_check)
+
+        main_layout.addWidget(self.adv_container)
+        self.adv_container.setVisible(False)  # Collapsed by default for 95% of users
+
+        main_layout.addStretch()
 
         # Bottom Actions Bar
         btn_box = QtWidgets.QHBoxLayout()
         btn_box.addStretch()
 
-        btn_save = QtWidgets.QPushButton("💾 ذخیره تغییرات")
+        btn_save = QtWidgets.QPushButton("ذخیره تغییرات")
         btn_save.setObjectName("primaryButton")
         btn_save.setCursor(Qt.PointingHandCursor)
         btn_save.clicked.connect(self._save_settings)
@@ -86,85 +146,10 @@ class SettingsDialog(QtWidgets.QDialog):
 
         main_layout.addLayout(btn_box)
 
-    # ─────────────────────────────────────────────────────────
-    # Tab 1: General & Sync
-    # ─────────────────────────────────────────────────────────
-    def _setup_general_tab(self) -> None:
-        layout = QtWidgets.QVBoxLayout(self.tab_general)
-        layout.setContentsMargins(16, 16, 16, 16)
-        layout.setSpacing(12)
+    def _toggle_advanced_section(self, checked: bool) -> None:
+        self.adv_container.setVisible(checked)
+        self.btn_toggle_advanced.setText("تنظیمات پیشرفته ▲" if checked else "تنظیمات پیشرفته ▼")
 
-        # Auto Sync Checkbox
-        self.chk_auto_sync = QtWidgets.QCheckBox("فعال‌سازی همگام‌سازی خودکار ابری (Auto-Sync)")
-        self.chk_auto_sync.setStyleSheet("font-weight: bold; color: #f8fafc;")
-        layout.addWidget(self.chk_auto_sync)
-
-        # Interval SpinBox
-        spin_box = QtWidgets.QHBoxLayout()
-        spin_box.addWidget(QtWidgets.QLabel("بازه همگام‌سازی خودکار (دقیقه):"))
-        self.spn_interval = QtWidgets.QSpinBox()
-        self.spn_interval.setRange(5, 120)
-        self.spn_interval.setSingleStep(5)
-        spin_box.addWidget(self.spn_interval)
-        spin_box.addStretch()
-        layout.addLayout(spin_box)
-
-        # Default Export Path
-        layout.addSpacing(10)
-        layout.addWidget(QtWidgets.QLabel("مسیر پیش‌فرض ذخیره خروجی‌ها (PDF / HTML / Excel):"))
-
-        path_box = QtWidgets.QHBoxLayout()
-        self.txt_export_path = QtWidgets.QLineEdit()
-        btn_browse = QtWidgets.QPushButton("📁 انتخاب...")
-        btn_browse.setObjectName("secondaryButton")
-        btn_browse.clicked.connect(self._browse_export_directory)
-
-        path_box.addWidget(self.txt_export_path)
-        path_box.addWidget(btn_browse)
-        layout.addLayout(path_box)
-
-        layout.addStretch()
-
-    # ─────────────────────────────────────────────────────────
-    # Tab 2: Database & Backup
-    # ─────────────────────────────────────────────────────────
-    def _setup_db_tab(self) -> None:
-        layout = QtWidgets.QVBoxLayout(self.tab_db)
-        layout.setContentsMargins(16, 16, 16, 16)
-        layout.setSpacing(12)
-
-        # Integrity Status Card
-        self.card_db = QtWidgets.QFrame()
-        self.card_db.setStyleSheet("background-color: #1e293b; border: 1px solid #334155; border-radius: 8px; padding: 12px;")
-        card_layout = QtWidgets.QVBoxLayout(self.card_db)
-
-        self.lbl_integrity_status = QtWidgets.QLabel("وضعیت پایگاه داده: آماده به کار")
-        self.lbl_integrity_status.setStyleSheet("color: #f8fafc; font-weight: bold;")
-        card_layout.addWidget(self.lbl_integrity_status)
-
-        layout.addWidget(self.card_db)
-
-        # Action Buttons
-        btn_backup = QtWidgets.QPushButton("📂 ایجاد نسخه پشتیبان از پایگاه داده (Backup)")
-        btn_backup.setObjectName("secondaryButton")
-        btn_backup.clicked.connect(self._create_backup)
-        layout.addWidget(btn_backup)
-
-        btn_restore = QtWidgets.QPushButton("📥 بازیابی پایگاه داده از نسخه پشتیبان (Restore)")
-        btn_restore.setObjectName("secondaryButton")
-        btn_restore.clicked.connect(self._restore_backup)
-        layout.addWidget(btn_restore)
-
-        btn_check = QtWidgets.QPushButton("🔍 تست سلامت پایگاه داده (Integrity Check)")
-        btn_check.setObjectName("secondaryButton")
-        btn_check.clicked.connect(self._run_integrity_check)
-        layout.addWidget(btn_check)
-
-        layout.addStretch()
-
-    # ─────────────────────────────────────────────────────────
-    # Slots & Helpers
-    # ─────────────────────────────────────────────────────────
     def _load_current_settings(self) -> None:
         self.chk_auto_sync.setChecked(self._settings_mgr.auto_sync_enabled)
         self.spn_interval.setValue(self._settings_mgr.auto_sync_interval_minutes)
@@ -175,40 +160,41 @@ class SettingsDialog(QtWidgets.QDialog):
         self._settings_mgr.auto_sync_interval_minutes = self.spn_interval.value()
         self._settings_mgr.default_export_path = self.txt_export_path.text().strip()
 
-        QtWidgets.QMessageBox.information(self, "موفقیت", "تنظیمات برنامه با موفقیت ذخیره گردید.")
+        QtWidgets.QMessageBox.information(self, "موفقیت", "تنظیمات برنامه با موفقیت ذخیره شد.")
         self.accept()
 
     def _browse_export_directory(self) -> None:
-        folder = QtWidgets.QFileDialog.getExistingDirectory(self, "انتخاب پوشه پیش‌فرض خروجی‌ها", self.txt_export_path.text())
+        folder = QtWidgets.QFileDialog.getExistingDirectory(self, "انتخاب پوشه ذخیره فایل‌ها", self.txt_export_path.text())
         if folder:
             self.txt_export_path.setText(folder)
 
     def _create_backup(self) -> None:
-        save_path, _ = QtWidgets.QFileDialog.getSaveFileName(self, "ذخیره نسخه پشتیبان", "Golestoon_Backup.db", "SQLite Database (*.db)")
+        save_path, _ = QtWidgets.QFileDialog.getSaveFileName(self, "ذخیره نسخه پشتیبان", "Golestoon_Backup.bak", "نسخه پشتیبان (*.bak)")
         if save_path:
             if self._storage_service.create_backup(save_path):
                 QtWidgets.QMessageBox.information(self, "موفقیت", "نسخه پشتیبان با موفقیت ایجاد شد.")
             else:
-                QtWidgets.QMessageBox.critical(self, "خطا", "ایجاد نسخه پشتیبان با خطا مواجه شد.")
+                QtWidgets.QMessageBox.critical(self, "خطا", "ایجاد نسخه پشتیبان انجام نشد.")
 
     def _restore_backup(self) -> None:
-        open_path, _ = QtWidgets.QFileDialog.getOpenFileName(self, "انتخاب نسخه پشتیبان", "", "SQLite Database (*.db)")
+        open_path, _ = QtWidgets.QFileDialog.getOpenFileName(self, "انتخاب نسخه پشتیبان", "", "نسخه پشتیبان (*.bak)")
         if open_path:
-            reply = QtWidgets.QMessageBox.question(self, "تایید بازیابی", "آیا از بازیابی این نسخه پشتیبان اطمینان دارید؟ داده‌های فعلی جایگزین خواهند شد.", QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No)
+            reply = QtWidgets.QMessageBox.question(self, "تایید بازیابی", "آیا از بازیابی این نسخه پشتیبان اطمینان دارید؟ اطلاعات فعلی جایگزین خواهند شد.", QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No)
             if reply == QtWidgets.QMessageBox.Yes:
                 if self._storage_service.restore_backup(open_path):
-                    QtWidgets.QMessageBox.information(self, "موفقیت", "پایگاه داده با موفقیت بازیابی گردید.")
+                    QtWidgets.QMessageBox.information(self, "موفقیت", "اطلاعات برنامه با موفقیت بازیابی شد.")
                 else:
-                    QtWidgets.QMessageBox.critical(self, "خطا", "بازیابی نسخه پشتیبان با خطا مواجه شد.")
+                    QtWidgets.QMessageBox.critical(self, "خطا", "بازیابی نسخه پشتیبان انجام نشد.")
 
-    def _run_integrity_check(self) -> None:
+    def _run_health_check(self) -> None:
         is_ok, msg = self._storage_service.check_integrity()
         if is_ok:
-            self.lbl_integrity_status.setText("🟢 سلامت پایگاه داده لوکال کاملاً تایید شد (Integrity OK).")
-            QtWidgets.QMessageBox.information(self, "سلامت پایگاه داده", "تست سلامت پایگاه داده با موفقیت انجام شد و هیچ خطایی یافت نشد.")
+            self.lbl_health_status.setText("🟢 اطلاعات برنامه کاملاً سالم و بدون مشکل می‌باشد.")
+            QtWidgets.QMessageBox.information(self, "بررسی سلامت اطلاعات", "بررسی سلامت اطلاعات برنامه انجام شد و هیچ مشکلی یافت نشد.")
         else:
-            self.lbl_integrity_status.setText(f"🔴 خطای سلامت دیتابیس: {msg}")
-            QtWidgets.QMessageBox.critical(self, "خطای پایگاه داده", f"تست سلامت پایگاه داده خطای زیر را گزارش کرد:\n{msg}")
+            user_msg = humanize_error(msg, "در بررسی اطلاعات برنامه مشکلی یافت شد.")
+            self.lbl_health_status.setText(f"🔴 مشکل در اطلاعات برنامه")
+            QtWidgets.QMessageBox.critical(self, "بررسی سلامت اطلاعات", user_msg)
 
     def _apply_styles(self) -> None:
         self.setStyleSheet("""
@@ -217,27 +203,8 @@ class SettingsDialog(QtWidgets.QDialog):
                 color: #f8fafc;
                 font-family: "Vazirmatn", "Segoe UI", sans-serif;
             }
-            QTabWidget::pane {
-                border: 1px solid #334155;
-                background-color: #0f172a;
-                border-radius: 8px;
-            }
-            QTabBar::tab {
-                background: #1e293b;
-                color: #94a3b8;
-                padding: 8px 16px;
-                margin-right: 4px;
-                border-top-left-radius: 6px;
-                border-top-right-radius: 6px;
-                font-size: 9.5pt;
-                font-weight: bold;
-            }
-            QTabBar::tab:selected {
-                background: #3b82f6;
-                color: #ffffff;
-            }
             QLineEdit, QSpinBox {
-                background-color: #1e293b;
+                background-color: #0f172a;
                 color: #f8fafc;
                 border: 1px solid #334155;
                 border-radius: 6px;
@@ -251,10 +218,22 @@ class SettingsDialog(QtWidgets.QDialog):
                 padding: 8px 16px;
                 font-weight: bold;
             }
+            QPushButton#primaryButton:hover {
+                background-color: #2563eb;
+            }
             QPushButton#secondaryButton {
-                background-color: #334155;
-                color: #f8fafc;
+                background-color: #1e293b;
+                color: #cbd5e1;
+                border: 1px solid #334155;
                 border-radius: 6px;
-                padding: 8px 14px;
+                padding: 6px 14px;
+            }
+            QPushButton#secondaryButton:hover {
+                background-color: #334155;
+                color: #ffffff;
+            }
+            QCheckBox {
+                font-size: 10pt;
+                color: #f8fafc;
             }
         """)

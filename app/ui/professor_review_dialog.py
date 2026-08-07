@@ -92,14 +92,13 @@ class StatScoreCard(QtWidgets.QFrame):
 
 class ProfessorReviewDialog(QtWidgets.QDialog):
     """
-    Main PyQt5 Dialog for Golestoon Professor Reviews & Side-by-Side Compare.
-    Matches web version features with RTL layout and Vazirmatn font.
+    PyQt5 Professor Review & Compare Dialog.
     """
 
     def __init__(self, manager: ProfessorManager, parent: Optional[QtWidgets.QWidget] = None) -> None:
         super().__init__(parent)
         self._manager: ProfessorManager = manager
-        self.setWindowTitle("نظرسنجی و مقایسه اساتید گلستون (Golestoon Professor Reviews)")
+        self.setWindowTitle("نظرسنجی و مقایسه اساتید")
         self.resize(920, 680)
         self.setLayoutDirection(Qt.RightToLeft)
 
@@ -113,12 +112,12 @@ class ProfessorReviewDialog(QtWidgets.QDialog):
 
         # Header Title Bar
         header_box = QtWidgets.QHBoxLayout()
-        title_lbl = QtWidgets.QLabel("👨‍🏫 نظرسنجی و مقایسه اساتید (Golestoon Professor Reviews)")
+        title_lbl = QtWidgets.QLabel("👨‍🏫 نظرسنجی و مقایسه اساتید")
         title_lbl.setStyleSheet("font-size: 14pt; font-weight: bold; color: #f8fafc;")
         header_box.addWidget(title_lbl)
         header_box.addStretch()
 
-        badge = QtWidgets.QLabel("✨ به‌روزرسانی زنده")
+        badge = QtWidgets.QLabel("✨ نظرسنجی زنده دانشجوها")
         badge.setStyleSheet("background-color: #1e293b; color: #3b82f6; border: 1px solid #3b82f6; border-radius: 12px; padding: 4px 10px; font-size: 8.5pt;")
         header_box.addWidget(badge)
         main_layout.addLayout(header_box)
@@ -428,12 +427,15 @@ class ProfessorReviewDialog(QtWidgets.QDialog):
         self.cmp_table.setColumnCount(len(headers))
         self.cmp_table.setHorizontalHeaderLabels(headers)
 
+        att_map = {"strict": "خیلی حساس", "normal": "معمولی", "easy": "بی‌خیال"}
+        att_labels = [att_map.get(s.attendance_sensitivity.lower(), s.attendance_sensitivity) for s in results]
+
         rows = [
             ("امتیاز کل ترکیبی", [f"{calc_display_score(s):.1f}" for s in results]),
             ("کیفیت تدریس", [f"{s.teaching_score:.1f}" for s in results]),
             ("نمره‌دهی و ارفاق", [f"{s.grading_score:.1f}" for s in results]),
             ("سختی امتحان", [f"{s.exam_difficulty_score:.1f}" for s in results]),
-            ("حضور و غیاب", [s.attendance_sensitivity for s in results]),
+            ("حضور و غیاب", att_labels),
         ]
 
         for r_idx, (criteria, vals) in enumerate(rows):
@@ -452,7 +454,8 @@ class ProfessorReviewDialog(QtWidgets.QDialog):
                     self.popular_table.setItem(idx, 2, QtWidgets.QTableWidgetItem(f"{calc_display_score(p):.1f}"))
                     self.popular_table.setItem(idx, 3, QtWidgets.QTableWidgetItem(str(p.total_reviews)))
             except Exception as e:
-                QtWidgets.QMessageBox.critical(self, "خطا", f"خطا در دریافت اساتید محبوب:\n{str(e)}")
+                user_msg = humanize_error(e, "دریافت اطلاعات اساتید محبوب با خطا مواجه شد.")
+                QtWidgets.QMessageBox.critical(self, "خطا", user_msg)
 
         QtCore.QTimer.singleShot(0, _run)
 

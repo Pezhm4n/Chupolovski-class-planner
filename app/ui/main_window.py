@@ -25,6 +25,7 @@ from app.core.data_manager import (
     load_courses_from_json
 )
 from app.core.logger import setup_logging
+from app.core.error_humanizer import humanize_error
 from app.core.course_utils import (
     to_minutes, overlap, schedules_conflict, 
     calculate_days_needed_for_combo, calculate_empty_time_for_combo,
@@ -83,10 +84,10 @@ class SchedulerWindow(QtWidgets.QMainWindow):
             uic.loadUi(main_ui_file, self)
         except FileNotFoundError:
             QtWidgets.QMessageBox.critical(self, "خطا", f"فایل UI یافت نشد: {main_ui_file}")
-            sys.exit(1)
+            pass  # Gracefully keep app running
         except Exception as e:
             QtWidgets.QMessageBox.critical(self, "خطا", f"خطا در بارگذاری UI: {str(e)}")
-            sys.exit(1)
+            pass  # Gracefully keep app running
         
         # Debug: Check if comboBox exists - only in debug mode
         if os.environ.get('DEBUG'):
@@ -375,7 +376,7 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         except Exception as e:
             logger.error(f"Failed to initialize schedule table: {e}")
             QtWidgets.QMessageBox.critical(self, "خطا", f"امکان ایجاد جدول زمان‌بندی وجود ندارد: {str(e)}")
-            sys.exit(1)
+            pass  # Gracefully keep app running
     
     def load_courses_from_database(self):
         """Load courses from database instead of JSON files"""
@@ -492,7 +493,7 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         except Exception as e:
             logger.error(f"Failed to populate course list: {e}")
             QtWidgets.QMessageBox.critical(self, "خطا", f"امکان پر کردن فهرست دروس وجود ندارد: {str(e)}")
-            sys.exit(1)
+            pass  # Gracefully keep app running
 
     def on_major_changed(self, index):
         """Handle major change"""
@@ -516,7 +517,7 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         except Exception as e:
             logger.error(f"Failed to handle major change: {e}")
             QtWidgets.QMessageBox.critical(self, "خطا", f"امکان مدیریت تغییر رشته وجود ندارد: {str(e)}")
-            sys.exit(1)
+            pass  # Gracefully keep app running
 
 
     def on_course_selected(self, course_key):
@@ -547,7 +548,7 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         except Exception as e:
             logger.error(f"Failed to handle course selection: {e}")
             QtWidgets.QMessageBox.critical(self, "خطا", f"امکان مدیریت انتخاب درس وجود ندارد: {str(e)}")
-            sys.exit(1)
+            pass  # Gracefully keep app running
 
     def load_saved_combos_ui(self):
         """Load saved combos from user data and display them"""
@@ -575,7 +576,7 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         except Exception as e:
             logger.error(f"Failed to load saved combos: {e}")
             QtWidgets.QMessageBox.critical(self, "خطا", f"امکان بارگذاری ترکیبات ذخیره شده وجود ندارد: {str(e)}")
-            sys.exit(1)
+            pass  # Gracefully keep app running
 
     def on_saved_combo_changed(self, index):
         """Handle saved combo change"""
@@ -593,7 +594,7 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         except Exception as e:
             logger.error(f"Failed to handle saved combo change: {e}")
             QtWidgets.QMessageBox.critical(self, "خطا", f"امکان مدیریت تغییر ترکیب ذخیره شده وجود ندارد: {str(e)}")
-            sys.exit(1)
+            pass  # Gracefully keep app running
 
     def load_combo(self, combo):
         """Load and display a combo"""
@@ -622,7 +623,7 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         except Exception as e:
             logger.error(f"Failed to load combo: {e}")
             QtWidgets.QMessageBox.critical(self, "خطا", f"امکان بارگذاری ترکیب وجود ندارد: {str(e)}")
-            sys.exit(1)
+            pass  # Gracefully keep app running
 
     def clear_schedule(self):
         """Clear the schedule table"""
@@ -642,7 +643,7 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         except Exception as e:
             logger.error(f"Failed to clear schedule: {e}")
             QtWidgets.QMessageBox.critical(self, "خطا", f"امکان پاک کردن جدول زمان‌بندی وجود ندارد: {str(e)}")
-            sys.exit(1)
+            pass  # Gracefully keep app running
 
     def place_course(self, course):
         """Place a course on the schedule"""
@@ -687,7 +688,7 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         except Exception as e:
             logger.error(f"Failed to place course: {e}")
             QtWidgets.QMessageBox.critical(self, "خطا", f"امکان قرار دادن درس وجود ندارد: {str(e)}")
-            sys.exit(1)
+            pass  # Gracefully keep app running
 
     def on_cell_entered(self, row, col):
         """Handle cell enter event"""
@@ -720,7 +721,7 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         except Exception as e:
             logger.error(f"Failed to handle cell enter event: {e}")
             QtWidgets.QMessageBox.critical(self, "خطا", f"امکان مدیریت ورود به سلول وجود ندارد: {str(e)}")
-            sys.exit(1)
+            pass  # Gracefully keep app running
 
     def on_cell_exited(self, row, col):
         """Handle cell exit event"""
@@ -731,7 +732,7 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         except Exception as e:
             logger.error(f"Failed to handle cell exit event: {e}")
             QtWidgets.QMessageBox.critical(self, "خطا", f"امکان مدیریت خروج از سلول وجود ندارد: {str(e)}")
-            sys.exit(1)
+            pass  # Gracefully keep app running
 
     def start_pulse_animation(self, row, col):
         """Start pulse animation for a cell"""
@@ -758,7 +759,7 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         except Exception as e:
             logger.error(f"Failed to start pulse animation: {e}")
             QtWidgets.QMessageBox.critical(self, "خطا", f"امکان شروع انیمیشن پولس وجود ندارد: {str(e)}")
-            sys.exit(1)
+            pass  # Gracefully keep app running
 
     def stop_pulse_animation(self, row, col):
         """Stop pulse animation for a cell"""
@@ -780,7 +781,7 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         except Exception as e:
             logger.error(f"Failed to stop pulse animation: {e}")
             QtWidgets.QMessageBox.critical(self, "خطا", f"امکان متوقف کردن انیمیشن پولس وجود ندارد: {str(e)}")
-            sys.exit(1)
+            pass  # Gracefully keep app running
 
     def pulse_cell(self, item):
         """Pulse a cell"""
@@ -800,7 +801,7 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         except Exception as e:
             logger.error(f"Failed to pulse cell: {e}")
             QtWidgets.QMessageBox.critical(self, "خطا", f"امکان انیمیشن پولس وجود ندارد: {str(e)}")
-            sys.exit(1)
+            pass  # Gracefully keep app running
 
     def show_detailed_info_window(self, course_key):
         """Show detailed info window for a course"""
@@ -816,7 +817,7 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         except Exception as e:
             logger.error(f"Failed to show detailed info window: {e}")
             QtWidgets.QMessageBox.critical(self, "خطا", f"امکان نمایش پنجره اطلاعات دقیق وجود ندارد: {str(e)}")
-            sys.exit(1)
+            pass  # Gracefully keep app running
 
     def show_exam_schedule_window(self):
         """Show exam schedule window"""
@@ -828,7 +829,7 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         except Exception as e:
             logger.error(f"Failed to show exam schedule window: {e}")
             QtWidgets.QMessageBox.critical(self, "خطا", f"امکان نمایش پنجره زمان‌بندی امتحانات وجود ندارد: {str(e)}")
-            sys.exit(1)
+            pass  # Gracefully keep app running
 
     def update_status(self):
         """Update the status bar with the number of selected courses"""
@@ -842,7 +843,7 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         except Exception as e:
             logger.error(f"Failed to update status: {e}")
             QtWidgets.QMessageBox.critical(self, "خطا", f"امکان به‌روزرسانی وضعیت وجود ندارد: {str(e)}")
-            sys.exit(1)
+            pass  # Gracefully keep app running
 
     def update_stats_panel_deprecated(self):
         """Deprecated method - use update_stats_panel() instead"""
@@ -853,12 +854,12 @@ class SchedulerWindow(QtWidgets.QMainWindow):
             logger.error(f"Failed to update stats panel: {e}")
             QtWidgets.QMessageBox.critical(self, "خطا", 
                 f"امکان به‌روزرسانی پانل آمار وجود ندارد: {str(e)}")
-            sys.exit(1)
+            pass  # Gracefully keep app running
 
         except Exception as e:
             logger.error(f"Failed to update stats panel: {e}")
             QtWidgets.QMessageBox.critical(self, "خطا", f"امکان به‌روزرسانی پانل آمار وجود ندارد: {str(e)}")
-            sys.exit(1)
+            pass  # Gracefully keep app running
 
     def setup_responsive_layout(self):
         """Setup responsive layout"""
@@ -881,7 +882,7 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         except Exception as e:
             logger.error(f"Failed to setup responsive layout: {e}")
             QtWidgets.QMessageBox.critical(self, "خطا", f"امکان تنظیم طرح بندی واکنش‌گرا وجود ندارد: {str(e)}")
-            sys.exit(1)
+            pass  # Gracefully keep app running
 
     def eventFilter(self, obj, event):
         """Handle events"""
@@ -894,7 +895,7 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         except Exception as e:
             logger.error(f"Failed to handle event: {e}")
             QtWidgets.QMessageBox.critical(self, "خطا", f"امکان مدیریت رویداد وجود ندارد: {str(e)}")
-            sys.exit(1)
+            pass  # Gracefully keep app running
 
     def on_resize(self, event):
         """Handle resize event"""
@@ -914,7 +915,7 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         except Exception as e:
             logger.error(f"Failed to handle resize event: {e}")
             QtWidgets.QMessageBox.critical(self, "خطا", f"امکان مدیریت تغییر اندازه وجود ندارد: {str(e)}")
-            sys.exit(1)
+            pass  # Gracefully keep app running
 
     def create_search_clear_button(self):
         """Create search clear button and add it to the search box"""
@@ -932,7 +933,7 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         except Exception as e:
             logger.error(f"Failed to create search clear button: {e}")
             QtWidgets.QMessageBox.critical(self, "خطا", f"امکان ایجاد دکمه پاک کردن جستجو وجود ندارد: {str(e)}")
-            sys.exit(1)
+            pass  # Gracefully keep app running
 
     def clear_search_box(self):
         """Clear the search box"""
@@ -948,7 +949,7 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         except Exception as e:
             logger.error(f"Failed to clear search box: {e}")
             QtWidgets.QMessageBox.critical(self, "خطا", f"امکان پاک کردن جستجو وجود ندارد: {str(e)}")
-            sys.exit(1)
+            pass  # Gracefully keep app running
 
     def load_and_apply_styles(self):
         """Load and apply styles"""
@@ -967,7 +968,7 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         except Exception as e:
             logger.error(f"Failed to load and apply styles: {e}")
             QtWidgets.QMessageBox.critical(self, "خطا", f"امکان بارگذاری و اعمال استایل‌ها وجود ندارد: {str(e)}")
-            sys.exit(1)
+            pass  # Gracefully keep app running
 
     def load_latest_backup(self):
         """Load latest backup on startup"""
@@ -999,7 +1000,7 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         except Exception as e:
             logger.error(f"Failed to load latest backup: {e}")
             QtWidgets.QMessageBox.critical(self, "خطا", f"امکان بارگذاری آخرین پشتیبان وجود ندارد: {str(e)}")
-            sys.exit(1)
+            pass  # Gracefully keep app running
 
     def connect_signals(self):
         """Connect signals"""
@@ -1031,7 +1032,7 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         except Exception as e:
             logger.error(f"Failed to connect signals: {e}")
             QtWidgets.QMessageBox.critical(self, "خطا", f"امکان اتصال سیگنال‌ها وجود ندارد: {str(e)}")
-            sys.exit(1)
+            pass  # Gracefully keep app running
 
     def add_course(self):
         """Add a new course"""
@@ -1080,7 +1081,7 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         except Exception as e:
             logger.error(f"Failed to add course: {e}")
             QtWidgets.QMessageBox.critical(self, "خطا", f"امکان اضافه کردن درس وجود ندارد: {str(e)}")
-            sys.exit(1)
+            pass  # Gracefully keep app running
 
     def edit_course(self):
         """Edit a selected course"""
@@ -1114,7 +1115,7 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         except Exception as e:
             logger.error(f"Failed to edit course: {e}")
             QtWidgets.QMessageBox.critical(self, "خطا", f"امکان ویرایش درس وجود ندارد: {str(e)}")
-            sys.exit(1)
+            pass  # Gracefully keep app running
 
     def remove_course(self):
         """Remove a selected course"""
@@ -1137,7 +1138,7 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         except Exception as e:
             logger.error(f"Failed to remove course: {e}")
             QtWidgets.QMessageBox.critical(self, "خطا", f"امکان حذف درس وجود ندارد: {str(e)}")
-            sys.exit(1)
+            pass  # Gracefully keep app running
 
     def generate_combinations(self):
         """Generate all possible combinations of selected courses"""
@@ -1154,7 +1155,7 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         except Exception as e:
             logger.error(f"Failed to generate combinations: {e}")
             QtWidgets.QMessageBox.critical(self, "خطا", f"امکان ایجاد تمام ترکیبات وجود ندارد: {str(e)}")
-            sys.exit(1)
+            pass  # Gracefully keep app running
 
     def generate_greedy_schedule(self):
         """Generate a greedy schedule for selected courses"""
@@ -1174,7 +1175,7 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         except Exception as e:
             logger.error(f"Failed to generate greedy schedule: {e}")
             QtWidgets.QMessageBox.critical(self, "خطا", f"امکان ایجاد برنامه زمانی متعادل وجود ندارد: {str(e)}")
-            sys.exit(1)
+            pass  # Gracefully keep app running
 
     def generate_alternative_schedule(self):
         """Generate an alternative schedule for selected courses"""
@@ -1194,7 +1195,7 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         except Exception as e:
             logger.error(f"Failed to generate alternative schedule: {e}")
             QtWidgets.QMessageBox.critical(self, "خطا", f"امکان ایجاد برنامه زمانی جایگزین وجود ندارد: {str(e)}")
-            sys.exit(1)
+            pass  # Gracefully keep app running
 
     def show_detailed_info(self):
         """Show detailed info window for selected course"""
@@ -1211,7 +1212,7 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         except Exception as e:
             logger.error(f"Failed to show detailed info: {e}")
             QtWidgets.QMessageBox.critical(self, "خطا", f"امکان نمایش اطلاعات دقیق وجود ندارد: {str(e)}")
-            sys.exit(1)
+            pass  # Gracefully keep app running
 
     def show_exam_schedule(self):
         """Show exam schedule window"""
@@ -1222,7 +1223,7 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         except Exception as e:
             logger.error(f"Failed to show exam schedule: {e}")
             QtWidgets.QMessageBox.critical(self, "خطا", f"امکان نمایش برنامه زمانی امتحانات وجود ندارد: {str(e)}")
-            sys.exit(1)
+            pass  # Gracefully keep app running
 
     def create_menu_bar(self):
         """Create the application menu bar with data and usage history options"""
@@ -1286,24 +1287,24 @@ class SchedulerWindow(QtWidgets.QMainWindow):
                 student_profile_action.triggered.connect(self.show_student_profile)
                 menubar.addAction(student_profile_action)
             
-            # Create "Usage History" menu
-            history_menu = menubar.addMenu('سوابق استفاده')
+            # Create "Backup History" menu
+            history_menu = menubar.addMenu('نسخه‌های پشتیبان')
             
             # Add date to menu title
             current_date = datetime.datetime.now().strftime('%Y/%m/%d')
-            history_menu.setTitle(f'سوابق استفاده ({current_date})')
+            history_menu.setTitle(f'نسخه‌های پشتیبان ({current_date})')
             
             # Connect menu to populate with backup history when clicked
             history_menu.aboutToShow.connect(self.populate_backup_history_menu)
             
-            # ── Phase 9: Add Cloud Services Menu ────────────────────
-            cloud_menu = menubar.addMenu("🌐 خدمات ابری گلستون")
+            # ── Phase 10: Add Online Services Menu ────────────────────
+            cloud_menu = menubar.addMenu("🌐 خدمات آنلاین")
 
-            act_cloud_auth = QtWidgets.QAction("🔑 ورود / ثبت‌نام حساب ابری...", self)
+            act_cloud_auth = QtWidgets.QAction("🔑 ورود / ایجاد حساب کاربری...", self)
             act_cloud_auth.triggered.connect(self.show_cloud_account_dialog)
             cloud_menu.addAction(act_cloud_auth)
 
-            act_cloud_sync = QtWidgets.QAction("☁️ همگام‌سازی ابری برنامه‌ها...", self)
+            act_cloud_sync = QtWidgets.QAction("☁️ پشتیبان‌گیری و بازیابی آنلاین...", self)
             act_cloud_sync.triggered.connect(self.show_cloud_schedule_dialog)
             cloud_menu.addAction(act_cloud_sync)
 
@@ -1311,17 +1312,17 @@ class SchedulerWindow(QtWidgets.QMainWindow):
             act_prof_review.triggered.connect(self.show_professor_review_dialog)
             cloud_menu.addAction(act_prof_review)
 
-            # ── Phase 9: Add Academic Services Menu ──────────────────
+            # ── Phase 10: Add Academic Services Menu ──────────────────
             acad_menu = menubar.addMenu("🎓 خدمات تحصیلی")
 
             act_academic = QtWidgets.QAction("🎓 شناسنامه، کارنامه و پیشرفت تحصیلی (گزارش ۲۷۲)...", self)
             act_academic.triggered.connect(self.show_academic_center_dialog)
             acad_menu.addAction(act_academic)
 
-            # ── Phase 9: Add Settings Menu ───────────────────────────
+            # ── Phase 10: Add Settings Menu ───────────────────────────
             sett_menu = menubar.addMenu("⚙️ تنظیمات")
 
-            act_settings = QtWidgets.QAction("⚙️ تنظیمات و پیکربندی برنامه...", self)
+            act_settings = QtWidgets.QAction("⚙️ تنظیمات برنامه...", self)
             act_settings.triggered.connect(self.show_settings_dialog)
             sett_menu.addAction(act_settings)
 
@@ -1361,7 +1362,7 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         except Exception as e:
             logger.error(f"Failed to save user data: {e}")
             QtWidgets.QMessageBox.critical(self, "خطا", f"امکان ذخیره داده‌های کاربر وجود ندارد: {str(e)}")
-            sys.exit(1)
+            pass  # Gracefully keep app running
 
     def load_user_data(self):
         """Load user data"""
@@ -1386,7 +1387,7 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         except Exception as e:
             logger.error(f"Failed to load user data: {e}")
             QtWidgets.QMessageBox.critical(self, "خطا", f"امکان بارگذاری داده‌های کاربر وجود ندارد: {str(e)}")
-            sys.exit(1)
+            pass  # Gracefully keep app running
 
     def debug_stats_widget(self):
         """Debug stats widget"""
@@ -1400,10 +1401,10 @@ class SchedulerWindow(QtWidgets.QMainWindow):
                 uic.loadUi(stats_widget_ui_file, self.stats_widget)
             except FileNotFoundError:
                 QtWidgets.QMessageBox.critical(self, "خطا", f"فایل UI یافت نشد: {stats_widget_ui_file}")
-                sys.exit(1)
+                pass  # Gracefully keep app running
             except Exception as e:
                 QtWidgets.QMessageBox.critical(self, "خطا", f"خطا در بارگذاری UI: {str(e)}")
-                sys.exit(1)
+                pass  # Gracefully keep app running
 
             # Set layout direction
             self.stats_widget.setLayoutDirection(QtCore.Qt.RightToLeft)
@@ -1417,7 +1418,7 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         except Exception as e:
             logger.error(f"Failed to debug stats widget: {e}")
             QtWidgets.QMessageBox.critical(self, "خطا", f"امکان اجرای تست بر روی ویجت آمار وجود ندارد: {str(e)}")
-            sys.exit(1)
+            pass  # Gracefully keep app running
 
     def get_course_priority(self, course_key):
         """

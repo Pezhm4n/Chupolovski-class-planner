@@ -9,25 +9,25 @@ Architecture Layer: Layer 5 (Presentation & UI)
 Dependencies: `PyQt5`, `ScheduleSyncManager`, `DESIGN.md` Tokens.
 """
 
-import logging
 import time
+import logging
 from typing import Optional, List, Dict, Any
 from PyQt5 import QtWidgets, QtCore
 from PyQt5.QtCore import Qt, pyqtSignal
 
-from app.core.cloud_sync_manager import ScheduleSyncManager, ScheduleModel
+from app.core.cloud_sync_manager import ScheduleSyncManager
+from app.core.network import ScheduleModel
+from app.core.error_humanizer import humanize_error
 
 logger = logging.getLogger("golestoon.ui.sync_dialog")
 
 
 class SyncConflictDialog(QtWidgets.QDialog):
     """
-    Dialog for resolving conflicts between local schedule and cloud schedule.
-    Provides 3 choices: Keep Local, Keep Cloud, or Merge Both.
+    PyQt5 Dialog for resolving conflicts between local table and cloud schedule.
     """
 
-    # Signal emitted with chosen mode string ('local', 'cloud', 'merge')
-    resolution_chosen = pyqtSignal(str)
+    resolution_chosen = pyqtSignal(str)  # "local", "cloud", "merge"
 
     def __init__(
         self,
@@ -37,7 +37,7 @@ class SyncConflictDialog(QtWidgets.QDialog):
         parent: Optional[QtWidgets.QWidget] = None
     ) -> None:
         super().__init__(parent)
-        self.setWindowTitle("تشخیص اختلاف برنامه لوکال و ابری (Conflict Detected)")
+        self.setWindowTitle("مغایرت در اطلاعات برنامه کلاسی")
         self.resize(520, 320)
         self.setLayoutDirection(Qt.RightToLeft)
 
@@ -61,9 +61,9 @@ class SyncConflictDialog(QtWidgets.QDialog):
         header_box.addWidget(icon_lbl)
 
         title_box = QtWidgets.QVBoxLayout()
-        lbl_title = QtWidgets.QLabel("اختلاف بین برنامه لوکال و ابری")
+        lbl_title = QtWidgets.QLabel("تفاوت بین برنامه موجود و نسخه ابری")
         lbl_title.setStyleSheet("font-size: 13pt; font-weight: bold; color: #f59e0b;")
-        lbl_desc = QtWidgets.QLabel(f"برنامه '{self._name}' در نسخه لوکال و سرور ابری متفاوت است.")
+        lbl_desc = QtWidgets.QLabel(f"برنامه '{self._name}' در این دستگاه با نسخه ذخیره‌شده در حساب ابری متفاوت است.")
         lbl_desc.setStyleSheet("font-size: 9.5pt; color: #94a3b8;")
         title_box.addWidget(lbl_title)
         title_box.addWidget(lbl_desc)
@@ -78,7 +78,7 @@ class SyncConflictDialog(QtWidgets.QDialog):
 
         # Local Box
         box_local = QtWidgets.QVBoxLayout()
-        lbl_loc_t = QtWidgets.QLabel("🖥️ نسخه لوکال دسکتاپ")
+        lbl_loc_t = QtWidgets.QLabel("🖥️ نسخه روی این دستگاه")
         lbl_loc_t.setStyleSheet("font-weight: bold; color: #f8fafc;")
         lbl_loc_c = QtWidgets.QLabel(f"{self._local_count} درس در جدول")
         lbl_loc_c.setStyleSheet("color: #3b82f6; font-size: 11pt; font-weight: bold;")
@@ -87,30 +87,30 @@ class SyncConflictDialog(QtWidgets.QDialog):
 
         # Cloud Box
         box_cloud = QtWidgets.QVBoxLayout()
-        lbl_cld_t = QtWidgets.QLabel("☁️ نسخه ابری سرور")
+        lbl_cld_t = QtWidgets.QLabel("☁️ نسخه حساب ابری")
         lbl_cld_t.setStyleSheet("font-weight: bold; color: #f8fafc;")
-        lbl_cld_c = QtWidgets.QLabel(f"{self._cloud_count} درس در سرور")
+        lbl_cld_c = QtWidgets.QLabel(f"{self._cloud_count} درس در حساب ابری")
         lbl_cld_c.setStyleSheet("color: #10b981; font-size: 11pt; font-weight: bold;")
         box_cloud.addWidget(lbl_cld_t)
         box_cloud.addWidget(lbl_cld_c)
 
         cmp_layout.addLayout(box_local)
-        cmp_layout.addWidget(QtWidgets.QLabel("VS"))
+        cmp_layout.addWidget(QtWidgets.QLabel("در برابر"))
         cmp_layout.addLayout(box_cloud)
         layout.addWidget(compare_frame)
 
         # Resolution Options Label
-        layout.addWidget(QtWidgets.QLabel("لطفاً نحوه‌ حل اختلاف را انتخاب کنید:"))
+        layout.addWidget(QtWidgets.QLabel("لطفاً نحوه‌ جایگزینی را انتخاب کنید:"))
 
         # Resolution Buttons
         btn_box = QtWidgets.QHBoxLayout()
         btn_box.setSpacing(10)
 
-        btn_keep_local = QtWidgets.QPushButton("🖥️ حفظ نسخه لوکال")
+        btn_keep_local = QtWidgets.QPushButton("🖥️ حفظ برنامه این دستگاه")
         btn_keep_local.setObjectName("secondaryButton")
         btn_keep_local.clicked.connect(lambda: self._select("local"))
 
-        btn_keep_cloud = QtWidgets.QPushButton("☁️ حفظ نسخه ابری")
+        btn_keep_cloud = QtWidgets.QPushButton("☁️ حفظ برنامه حساب ابری")
         btn_keep_cloud.setObjectName("secondaryButton")
         btn_keep_cloud.clicked.connect(lambda: self._select("cloud"))
 
@@ -123,9 +123,9 @@ class SyncConflictDialog(QtWidgets.QDialog):
         btn_box.addWidget(btn_merge)
         layout.addLayout(btn_box)
 
-    def _select(self, mode: str) -> None:
-        self.chosen_resolution = mode
-        self.resolution_chosen.emit(mode)
+    def _select(self, option: str) -> None:
+        self.chosen_resolution = option
+        self.resolution_chosen.emit(option)
         self.accept()
 
     def _apply_styles(self) -> None:
@@ -139,38 +139,36 @@ class SyncConflictDialog(QtWidgets.QDialog):
                 background-color: #3b82f6;
                 color: #ffffff;
                 border-radius: 6px;
-                padding: 10px 14px;
+                padding: 8px 14px;
                 font-weight: bold;
             }
-            QPushButton#primaryButton:hover {
-                background-color: #2563eb;
-            }
             QPushButton#secondaryButton {
-                background-color: #334155;
-                color: #f8fafc;
+                background-color: #1e293b;
+                color: #cbd5e1;
+                border: 1px solid #334155;
                 border-radius: 6px;
-                padding: 10px 14px;
-            }
-            QPushButton#secondaryButton:hover {
-                background-color: #475569;
+                padding: 8px 14px;
             }
         """)
 
 
 class CloudScheduleDialog(QtWidgets.QDialog):
     """
-    Main PyQt5 Dialog for managing Cloud Schedule Synchronization.
-    Displays sync status, cloud schedule list, and manual upload/download buttons.
+    Main PyQt5 Dialog for Cloud Schedule Sync, Management, and Local Integration.
     """
 
-    # Signals emitted when user chooses to load cloud schedule into main window
-    load_schedule_requested = pyqtSignal(list)  # List[Dict[str, Any]] (courses payload)
+    load_schedule_requested = pyqtSignal(list)  # Emits course dictionaries list
 
-    def __init__(self, sync_manager: ScheduleSyncManager, current_local_courses: List[Dict[str, Any]], parent: Optional[QtWidgets.QWidget] = None) -> None:
+    def __init__(
+        self,
+        sync_manager: ScheduleSyncManager,
+        current_local_courses: Optional[List[Dict[str, Any]]] = None,
+        parent: Optional[QtWidgets.QWidget] = None
+    ) -> None:
         super().__init__(parent)
         self._sync_manager: ScheduleSyncManager = sync_manager
-        self._local_courses: List[Dict[str, Any]] = current_local_courses
-        self.setWindowTitle("همگام‌سازی ابری برنامه‌ها (Cloud Schedule Sync)")
+        self._local_courses: List[Dict[str, Any]] = current_local_courses if current_local_courses else []
+        self.setWindowTitle("همگام‌سازی و پشتیبان‌گیری ابری برنامه‌ها")
         self.resize(720, 520)
         self.setLayoutDirection(Qt.RightToLeft)
 
@@ -208,7 +206,7 @@ class CloudScheduleDialog(QtWidgets.QDialog):
         self.lbl_status_icon = QtWidgets.QLabel("🟢")
         self.lbl_status_text = QtWidgets.QLabel("وضعیت: آماده به کار")
         self.lbl_status_text.setStyleSheet("color: #f8fafc; font-size: 9.5pt;")
-        self.lbl_last_sync = QtWidgets.QLabel("آخرین Sync: ثبت نشده")
+        self.lbl_last_sync = QtWidgets.QLabel("آخرین همگام‌سازی: ثبت نشده")
         self.lbl_last_sync.setStyleSheet("color: #64748b; font-size: 8.5pt;")
 
         banner_layout.addWidget(self.lbl_status_icon)
@@ -220,7 +218,7 @@ class CloudScheduleDialog(QtWidgets.QDialog):
         # Table of Cloud Schedules
         self.schedules_table = QtWidgets.QTableWidget()
         self.schedules_table.setColumnCount(4)
-        self.schedules_table.setHorizontalHeaderLabels(["شناسه", "عنوان برنامه", "تعداد دروس", "تاریخ ثبت"])
+        self.schedules_table.setHorizontalHeaderLabels(["ردیف", "عنوان برنامه", "تعداد دروس", "تاریخ ثبت"])
         self.schedules_table.horizontalHeader().setSectionResizeMode(QtWidgets.QHeaderView.Stretch)
         self.schedules_table.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectRows)
         self.schedules_table.setSelectionMode(QtWidgets.QAbstractItemView.SingleSelection)
@@ -229,15 +227,15 @@ class CloudScheduleDialog(QtWidgets.QDialog):
         # Actions Buttons Bar
         actions_box = QtWidgets.QHBoxLayout()
 
-        btn_upload_current = QtWidgets.QPushButton("☁️ ذخیره برنامه فعلی دسکتاپ در ابری")
+        btn_upload_current = QtWidgets.QPushButton("☁️ ذخیره برنامه فعلی در حساب ابری")
         btn_upload_current.setObjectName("primaryButton")
         btn_upload_current.clicked.connect(self._on_upload_current_clicked)
 
-        btn_load_selected = QtWidgets.QPushButton("📥 اعمال برنامه انتخابی در دسکتاپ")
+        btn_load_selected = QtWidgets.QPushButton("📥 اعمال برنامه انتخابی در برنامه اصلی")
         btn_load_selected.setObjectName("secondaryButton")
         btn_load_selected.clicked.connect(self._on_load_selected_clicked)
 
-        btn_delete_selected = QtWidgets.QPushButton("🗑️ حذف از سرور ابری")
+        btn_delete_selected = QtWidgets.QPushButton("🗑️ حذف از حساب ابری")
         btn_delete_selected.setStyleSheet("background-color: #ef4444; color: #ffffff; border-radius: 6px; padding: 8px 14px; font-weight: bold;")
         btn_delete_selected.clicked.connect(self._on_delete_selected_clicked)
 
@@ -258,7 +256,7 @@ class CloudScheduleDialog(QtWidgets.QDialog):
     def _render_schedules_table(self, schedules: List[ScheduleModel]) -> None:
         self.schedules_table.setRowCount(len(schedules))
         for r_idx, s in enumerate(schedules):
-            self.schedules_table.setItem(r_idx, 0, QtWidgets.QTableWidgetItem(str(s.id)))
+            self.schedules_table.setItem(r_idx, 0, QtWidgets.QTableWidgetItem(str(r_idx + 1)))
             self.schedules_table.setItem(r_idx, 1, QtWidgets.QTableWidgetItem(str(s.name)))
             self.schedules_table.setItem(r_idx, 2, QtWidgets.QTableWidgetItem(str(len(s.courses))))
 
@@ -268,21 +266,22 @@ class CloudScheduleDialog(QtWidgets.QDialog):
 
     def _on_upload_current_clicked(self) -> None:
         if not self._local_courses:
-            QtWidgets.QMessageBox.warning(self, "هشدار", "جدول لوکال دسکتاپ خالی است. هیچ درسی برای ذخیره‌سازی ابری وجود ندارد.")
+            QtWidgets.QMessageBox.warning(self, "اطلاعات خالی", "برنامه کلاسی این دستگاه خالی است. هیچ درسی برای ذخیره‌سازی ابری وجود ندارد.")
             return
 
-        text, ok = QtWidgets.QInputDialog.getText(self, "نام برنامه ابری", "لطفاً عنوانی برای ذخیره برنامه در سرور ابری وارد کنید:", text="برنامه دسکتاپ")
+        text, ok = QtWidgets.QInputDialog.getText(self, "نام برنامه ابری", "لطفاً عنوانی برای ذخیره برنامه در حساب ابری وارد کنید:", text="برنامه من")
         if not ok or not text.strip():
             return
 
         name = text.strip()
 
         def _on_success(model: ScheduleModel):
-            QtWidgets.QMessageBox.information(self, "موفقیت", f"برنامه '{model.name}' با موفقیت در سرور ابری ذخیره شد.")
+            QtWidgets.QMessageBox.information(self, "موفقیت", f"برنامه '{model.name}' با موفقیت در حساب ابری ذخیره شد.")
             self._refresh_cloud_schedules()
 
         def _on_error(err_msg: str):
-            QtWidgets.QMessageBox.critical(self, "خطا", f"ذخیره‌سازی ابری با خطا مواجه شد:\n{err_msg}")
+            user_msg = humanize_error(err_msg, "ذخیره‌سازی برنامه در حساب ابری با خطا مواجه شد. لطفاً اتصال اینترنت خود را بررسی کنید.")
+            QtWidgets.QMessageBox.critical(self, "خطا", user_msg)
 
         self._sync_manager.upload_schedule(name=name, courses=self._local_courses, on_success=_on_success, on_error=_on_error)
 
@@ -292,15 +291,12 @@ class CloudScheduleDialog(QtWidgets.QDialog):
             QtWidgets.QMessageBox.warning(self, "انتخاب برنامه", "لطفاً ابتدا یک برنامه را از جدول انتخاب کنید.")
             return
 
-        schedule_id = self.schedules_table.item(selected, 0).text()
         schedule_name = self.schedules_table.item(selected, 1).text()
 
         # Find in cache
         target: Optional[ScheduleModel] = None
-        for s in self._sync_manager._cloud_schedules_cache:
-            if str(s.id) == str(schedule_id):
-                target = s
-                break
+        if selected < len(self._sync_manager._cloud_schedules_cache):
+            target = self._sync_manager._cloud_schedules_cache[selected]
 
         if not target:
             return
@@ -342,16 +338,24 @@ class CloudScheduleDialog(QtWidgets.QDialog):
             QtWidgets.QMessageBox.warning(self, "انتخاب برنامه", "لطفاً ابتدا یک برنامه را از جدول انتخاب کنید.")
             return
 
-        schedule_id = self.schedules_table.item(selected, 0).text()
-        schedule_name = self.schedules_table.item(selected, 1).text()
+        target: Optional[ScheduleModel] = None
+        if selected < len(self._sync_manager._cloud_schedules_cache):
+            target = self._sync_manager._cloud_schedules_cache[selected]
 
-        reply = QtWidgets.QMessageBox.question(self, "تایید حذف", f"آیا از حذف برنامه '{schedule_name}' از سرور ابری اطمینان دارید؟", QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No)
+        if not target:
+            return
+
+        schedule_id = str(target.id)
+        schedule_name = target.name
+
+        reply = QtWidgets.QMessageBox.question(self, "تایید حذف", f"آیا از حذف برنامه '{schedule_name}' از حساب ابری اطمینان دارید؟", QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No)
         if reply == QtWidgets.QMessageBox.Yes:
             def _on_success(sid: str):
                 self._refresh_cloud_schedules()
 
             def _on_error(err_msg: str):
-                QtWidgets.QMessageBox.critical(self, "خطا", f"حذف برنامه با خطا مواجه شد:\n{err_msg}")
+                user_msg = humanize_error(err_msg, "حذف برنامه انجام نشد. لطفاً اتصال اینترنت خود را بررسی کنید.")
+                QtWidgets.QMessageBox.critical(self, "خطا", user_msg)
 
             self._sync_manager.delete_schedule(schedule_id=schedule_id, on_success=_on_success, on_error=_on_error)
 

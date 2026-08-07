@@ -853,13 +853,13 @@ class StudentProfileDialog(QDialog):
             avg_gpa = sum(gpas) / len(gpas) if gpas else 0
             
             ax.axhline(y=avg_gpa, color='#48bb78', linestyle='--',
-                       linewidth=2, alpha=0.8, label=f'Average: {avg_gpa:.2f}')
+                       linewidth=2, alpha=0.8, label=f'میانگین: {avg_gpa:.2f}')
 
-            ax.set_xlabel('Term Number', fontsize=self.FONT_SIZE_NORMAL, fontweight='500', color='#ffffff')
-            ax.set_ylabel('GPA', fontsize=self.FONT_SIZE_NORMAL, fontweight='500', color='#ffffff')
+            ax.set_xlabel('شماره ترم', fontsize=self.FONT_SIZE_NORMAL, fontweight='500', color='#ffffff')
+            ax.set_ylabel('معدل', fontsize=self.FONT_SIZE_NORMAL, fontweight='500', color='#ffffff')
             ax.set_ylim(0, 20)
             ax.set_xticks(term_numbers)
-            ax.set_xticklabels([f'Term {i}' for i in term_numbers], rotation=0, fontsize=self.FONT_SIZE_NORMAL, color='#ffffff')
+            ax.set_xticklabels([f'ترم {i}' for i in term_numbers], rotation=0, fontsize=self.FONT_SIZE_NORMAL, color='#ffffff')
             ax.grid(True, alpha=0.3, linestyle='--', linewidth=0.5, axis='y', color='#4a4a6a')
             ax.legend(loc='upper right', fontsize=self.FONT_SIZE_SMALL, framealpha=0.9, facecolor='#2d2d44', edgecolor='#4a4a6a', labelcolor='#ffffff')
 
