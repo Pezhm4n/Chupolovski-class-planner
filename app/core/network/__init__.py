@@ -28,11 +28,10 @@ from .models import (
     UserModel,
     AuthResponseModel,
     ScheduleModel,
-    ProfessorStatsModel,
-    ProfessorReviewModel,
     TranscriptSyncStatusModel,
     ApiErrorResponseModel,
 )
+from .clients.professor_client import ProfessorStats, ProfessorReview
 from .logger import SensitiveDataRedactor, get_network_logger
 from .config import NetworkConfig
 from .session import NetworkSession, SessionFactory
@@ -69,10 +68,10 @@ __all__ = [
     "UserModel",
     "AuthResponseModel",
     "ScheduleModel",
-    "ProfessorStatsModel",
-    "ProfessorReviewModel",
     "TranscriptSyncStatusModel",
     "ApiErrorResponseModel",
+    "ProfessorStats",
+    "ProfessorReview",
     # Logger
     "SensitiveDataRedactor",
     "get_network_logger",

@@ -98,17 +98,19 @@ class CourseDatabase:
         return False
 
     def fetch_from_api(self) -> Optional[List[Dict[str, Any]]]:
-        """Fetch courses from API if available."""
+        """Fetch the course catalog from the cloud backend scraper-proxy."""
         if not settings.API_URL:
             logger.info("API_URL not configured, skipping API fetch")
             return None
 
-        # Correct endpoint logic
+        # Canonical catalog endpoint on the backend is
+        # {base}/scraper-proxy/api/courses/all (see golestan-web server).
         base_url = settings.API_URL.rstrip('/')
-        if not base_url.endswith('/api/courses/all'):
-            api_url = f"{base_url}/api/courses/all"
-        else:
+        if base_url.endswith('/api/courses/all'):
             api_url = base_url
+        else:
+            root = base_url[:-len('/scraper-proxy')] if base_url.endswith('/scraper-proxy') else base_url
+            api_url = f"{root}/scraper-proxy/api/courses/all"
 
         try:
             logger.info(f"Attempting to fetch courses from API: {api_url}")

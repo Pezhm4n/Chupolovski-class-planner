@@ -2,16 +2,33 @@
 """
 Golestoon Authentication Network Client.
 
-This module provides the AuthClient for user login, account registration,
-token validation, and user profile retrieval endpoints (`/api/auth/*`).
+Implements the exact backend auth surface of `golestan-web/server/index.ts`:
+
+  POST /api/auth/signup          {full_name, email, password} → {token, user}
+  POST /api/auth/login           {email, password}            → {token, user}
+  PUT  /api/auth/profile         (JWT) {fullName, currentPassword, newPassword}
+  POST /api/auth/forgot-password {email}                      → message
+  POST /api/auth/reset-password  {token, newPassword}         → message
+  POST /api/auth/set-password    (JWT) {password}
+
+NOTE: the backend deliberately exposes **no** `GET /api/auth/me` endpoint —
+the authenticated user model is returned inline by login/signup responses
+and tokens are validated implicitly through auth-protected endpoints
+(`GET /api/schedules` is used here as the lightweight probe, mirroring the
+web client's 401-driven session handling).
 
 Architecture Layer: Layer 2 (Modular Network Sub-Clients)
-Dependencies: `BaseClient`, `AuthResponseModel`, `UserModel`, `UserMetadataModel`.
+Dependencies: `BaseClient`, `AuthResponseModel`, `UserModel`.
 """
 
-from typing import Dict, Any, Optional
+import logging
+from typing import Any, Dict, Optional
+
 from app.core.network.clients.base_client import BaseClient
-from app.core.network.models import AuthResponseModel, UserModel, UserMetadataModel
+from app.core.network.models import AuthResponseModel, UserModel
+from app.core.network.exceptions import GolestoonNetworkError, AuthenticationError
+
+logger = logging.getLogger("golestoon.network.auth_client")
 
 
 class AuthClient(BaseClient):
@@ -39,27 +56,64 @@ class AuthClient(BaseClient):
         Register a new user account.
 
         Args:
-            full_name (str): User full name.
+            full_name (str): User full name (sent as `fullName`; 3-100 chars).
             email (str): User account email.
             password (str): User account password.
 
         Returns:
             AuthResponseModel: Auth response containing JWT token and user profile model.
         """
-        payload = {"full_name": full_name, "email": email, "password": password}
+        payload = {"fullName": full_name, "email": email, "password": password}
         res = self._post(self.routes.AUTH.SIGNUP, data=payload)
         return self._parse_auth_response(res)
 
-    def get_me(self) -> UserModel:
+    def update_profile(
+        self,
+        full_name: Optional[str] = None,
+        current_password: Optional[str] = None,
+        new_password: Optional[str] = None,
+    ) -> Dict[str, Any]:
         """
-        Fetch active authenticated user profile.
+        Update the authenticated user's profile / change password.
+
+        Args:
+            full_name: New display name.
+            current_password: Current password (required for password change).
+            new_password: New password to set.
 
         Returns:
-            UserModel: User profile model.
+            Dict[str, Any]: Server confirmation payload.
         """
-        res = self._get(self.routes.AUTH.ME)
-        user_data = res.get("user", res)
-        return self._parse_user_model(user_data)
+        payload: Dict[str, Any] = {}
+        if full_name:
+            payload["fullName"] = full_name
+        if new_password:
+            payload["newPassword"] = new_password
+            if current_password:
+                payload["currentPassword"] = current_password
+        res = self._put(self.routes.AUTH.UPDATE_PROFILE, data=payload)
+        return res
+
+    def forgot_password(self, email: str) -> Dict[str, Any]:
+        """
+        Request a password-reset email.
+
+        Returns:
+            Dict[str, Any]: Server response (always 200-shaped for privacy).
+        """
+        return self._post(self.routes.AUTH.FORGOT_PASSWORD, data={"email": email})
+
+    def reset_password(self, reset_token: str, new_password: str) -> Dict[str, Any]:
+        """
+        Consume a reset token (emailed link) and set a new password.
+
+        Returns:
+            Dict[str, Any]: Server confirmation payload.
+        """
+        return self._post(
+            self.routes.AUTH.RESET_PASSWORD,
+            data={"token": reset_token, "newPassword": new_password},
+        )
 
     def logout(self) -> bool:
         """
@@ -74,25 +128,25 @@ class AuthClient(BaseClient):
 
     def validate_token(self) -> bool:
         """
-        Validate currently active token against backend server.
+        Validate the stored JWT against a lightweight auth-protected endpoint
+        (`GET /api/schedules`). The backend has no dedicated /me route — this
+        mirrors the web client's implicit 401-driven validation.
 
         Returns:
-            bool: True if token is valid and active, False otherwise.
+            bool: True if the token is accepted by the server.
         """
         try:
-            self.get_me()
+            self._get(self.routes.SCHEDULES.BASE, timeout=(5, 15))
             return True
-        except Exception:
+        except AuthenticationError:
+            return False
+        except GolestoonNetworkError as err:
+            logger.warning("Token validation probe failed: %s", err)
             return False
 
-    def refresh_token(self) -> bool:
-        """
-        Placeholder for future server-side token refresh claims.
-
-        Returns:
-            bool: True if refreshed successfully.
-        """
-        return self.validate_token()
+    # ─────────────────────────────────────────────────────────
+    # Parsing helpers
+    # ─────────────────────────────────────────────────────────
 
     def _parse_auth_response(self, data: Dict[str, Any]) -> AuthResponseModel:
         """Helper to parse API JSON dict into AuthResponseModel."""
@@ -103,6 +157,7 @@ class AuthClient(BaseClient):
 
     def _parse_user_model(self, data: Dict[str, Any]) -> UserModel:
         """Helper to parse user dict into UserModel."""
+        from app.core.network.models import UserMetadataModel
         meta_dict = data.get("user_metadata", data.get("metadata", {}))
         meta = UserMetadataModel(
             full_name=meta_dict.get("full_name"),

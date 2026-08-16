@@ -22,12 +22,20 @@ class ScheduleClient(BaseClient):
         """
         Fetch all cloud saved schedules for active user.
 
+        The backend returns a bare JSON array (which NetworkSession wraps as
+        ``{"data": [...]}``), so both shapes are handled here.
+
         Returns:
             List[ScheduleModel]: List of saved schedule models.
         """
         res = self._get(self.routes.SCHEDULES.BASE)
-        schedules_list = res.get("schedules", res if isinstance(res, list) else [])
-        return [self._parse_schedule_model(s) for s in schedules_list]
+        if isinstance(res, list):
+            schedules_list = res
+        elif isinstance(res, dict):
+            schedules_list = res.get("schedules") or res.get("data") or []
+        else:
+            schedules_list = []
+        return [self._parse_schedule_model(s) for s in schedules_list if s]
 
     def create_schedule(self, name: str, courses: List[Dict[str, Any]]) -> ScheduleModel:
         """
@@ -99,10 +107,15 @@ class ScheduleClient(BaseClient):
         return None
 
     def _parse_schedule_model(self, data: Dict[str, Any]) -> ScheduleModel:
-        """Helper to parse API dict into ScheduleModel."""
+        """Helper to parse API dict into ScheduleModel (backend sends camelCase)."""
+        created_raw = data.get("createdAt", data.get("created_at", 0))
+        try:
+            created_at = int(created_raw)
+        except (TypeError, ValueError):
+            created_at = 0
         return ScheduleModel(
             id=str(data.get("id", "")),
             name=str(data.get("name", "Untitled Schedule")),
             courses=data.get("courses", []),
-            created_at=int(data.get("created_at", 0)),
+            created_at=created_at,
         )

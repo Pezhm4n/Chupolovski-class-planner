@@ -73,6 +73,10 @@ class NetworkSession:
             if token:
                 headers["Authorization"] = f"Bearer {token}"
 
+    # Methods that are safe to transparently retry when the server closes an
+    # idle keep-alive connection mid-request (RemoteDisconnected races).
+    IDEMPOTENT_METHODS = frozenset({"GET", "HEAD", "OPTIONS"})
+
     def request(
         self,
         method: str,
@@ -85,6 +89,10 @@ class NetworkSession:
     ) -> Dict[str, Any]:
         """
         Execute an HTTP request against the backend server.
+
+        Idempotent methods (GET/HEAD/OPTIONS) are retried once on transient
+        connection failures (server closing a pooled keep-alive socket),
+        which otherwise surfaces as spurious ConnectionFailedError bursts.
 
         Args:
             method (str): HTTP method ('GET', 'POST', 'PUT', 'DELETE').
@@ -103,6 +111,37 @@ class NetworkSession:
             TimeoutError: On socket read or connect timeout.
             ApiHttpError: On HTTP 4xx or 5xx status codes.
         """
+        try:
+            return self._do_request(
+                method=method, endpoint=endpoint, data=data, params=params,
+                headers=headers, timeout=timeout, is_proxy=is_proxy,
+            )
+        except ConnectionFailedError as err:
+            # _do_request translates raw socket failures into
+            # ConnectionFailedError; retry idempotent verbs once on a fresh
+            # connection (server closing a pooled keep-alive socket).
+            if method.upper() in self.IDEMPOTENT_METHODS:
+                logger.warning(
+                    "[HTTP RETRY] %s %s after transient connection failure; retrying once",
+                    method.upper(), endpoint,
+                )
+                return self._do_request(
+                    method=method, endpoint=endpoint, data=data, params=params,
+                    headers=headers, timeout=timeout, is_proxy=is_proxy,
+                )
+            raise
+
+    def _do_request(
+        self,
+        method: str,
+        endpoint: str,
+        data: Optional[Union[Dict[str, Any], List[Any]]] = None,
+        params: Optional[Dict[str, Any]] = None,
+        headers: Optional[Dict[str, str]] = None,
+        timeout: Optional[Tuple[int, int]] = None,
+        is_proxy: bool = False,
+    ) -> Dict[str, Any]:
+        """Single-attempt HTTP execution (see `request`)."""
         url = f"{self.config.base_url}/{endpoint.lstrip('/')}"
         req_headers = dict(self._session.headers)
         if headers:

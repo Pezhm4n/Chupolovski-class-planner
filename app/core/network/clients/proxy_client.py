@@ -35,7 +35,13 @@ class ProxyClient(BaseClient):
         """
         params = {"department": department, "availability": availability}
         res = self._get(self.routes.PROXY.COURSES_ALL, params=params, is_proxy=True)
-        return res.get("courses", res if isinstance(res, list) else [])
+        if isinstance(res, list):
+            # Flat catalog (hierarchy=false) — NetworkSession wraps bare JSON
+            # arrays as {"data": [...]}; accept both shapes.
+            return res
+        if isinstance(res, dict):
+            return res.get("courses") or res.get("data") or []
+        return []
 
     def fetch_student_profile(
         self,

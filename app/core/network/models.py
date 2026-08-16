@@ -54,52 +54,23 @@ class ScheduleModel:
 
 
 @dataclass(frozen=True)
-class ProfessorStatsModel:
-    """Aggregated professor review statistics DTO."""
-
-    department_name: str
-    instructor_name: str
-    teaching_score: float = 0.0
-    ethics_score: float = 0.0
-    assignments_score: float = 0.0
-    grading_score: float = 0.0
-    overall_score: float = 0.0
-    exam_difficulty_score: float = 0.0
-    exam_source_score: float = 0.0
-    interaction_score: float = 0.0
-    attendance_sensitivity: str = "normal"
-    time_sensitivity: str = "normal"
-    total_reviews: int = 0
-    total_voters: int = 0
-    telegram_has_data: bool = False
-    telegram_overall_avg: Optional[float] = None
-    telegram_effective_voters: int = 0
-
-
-@dataclass(frozen=True)
-class ProfessorReviewModel:
-    """Single pseudonymous professor review DTO."""
-
-    reviewer_hash: str
-    department_name: str
-    instructor_name: str
-    teaching_score: float
-    assignments_score: float
-    grading_score: float
-    exam_difficulty_score: float
-    attendance_sensitivity: str
-    updated_at: str
-
-
-@dataclass(frozen=True)
 class TranscriptSyncStatusModel:
-    """Golestan transcript sync status DTO."""
+    """Golestan transcript sync status DTO.
+
+    Mirrors the backend contract of `POST /api/transcript/sync` and
+    `GET /api/transcript` (see golestan-web server/index.ts):
+    statuses: done | queued | syncing | too_recent | needs_login | ok | error.
+    """
 
     status: str
-    message: str
+    message: str = ""
     last_synced_at: Optional[str] = None
     is_syncing: bool = False
+    sync_progress: int = 0
+    sync_step: Optional[str] = None
+    minutes_left: Optional[int] = None
     job_id: Optional[int] = None
+    mode: Optional[str] = None
     student: Optional[Dict[str, Any]] = None
 
 
