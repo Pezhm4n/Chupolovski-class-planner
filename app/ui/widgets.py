@@ -96,13 +96,15 @@ class CourseListWidget(QtWidgets.QWidget):
         # Use QFrame instead of QWidget for better visibility with border
         widget = QtWidgets.QFrame()
         widget.setFrameStyle(QtWidgets.QFrame.Box)
-        widget.setStyleSheet("""
-            QFrame {
-                background-color: #f8f9fa;
-                border: 1px solid #dee2e6;
+        from app.core.theme_manager import theme_manager
+        _p = theme_manager.palette()
+        widget.setStyleSheet(f"""
+            QFrame {{
+                background-color: {_p['surface']};
+                border: 1px solid {_p['border']};
                 border-radius: 4px;
                 padding: 5px;
-            }
+            }}
         """)
         layout = QtWidgets.QVBoxLayout(widget)
         layout.setContentsMargins(10, 5, 10, 5)
@@ -284,15 +286,19 @@ class CourseListWidget(QtWidgets.QWidget):
             QtCore.Qt.WindowStaysOnTopHint
         )
         tooltip.setAttribute(QtCore.Qt.WA_ShowWithoutActivating)
-        
-        # Set styling
-        tooltip.setStyleSheet("""
-            QWidget {
-                background-color: #ffffff;
-                border: 1px solid #dee2e6;
+
+        # Theme-aware floating panel styling
+        from app.core.theme_manager import theme_manager
+        _p = theme_manager.palette()
+        tooltip.setStyleSheet(f"""
+            QWidget {{
+                background-color: {_p['surface']};
+                color: {_p['text']};
+                border: 1px solid {_p['border']};
                 border-radius: 6px;
                 padding: 8px;
-            }
+            }}
+            QLabel {{ color: {_p['text_mid']}; border: none; background: transparent; }}
         """)
         
         layout = QtWidgets.QVBoxLayout(tooltip)
@@ -577,22 +583,24 @@ class CourseListWidget(QtWidgets.QWidget):
             logger.error(f"Error adding to auto schedule list: {e}")
             
     def mousePressEvent(self, event):
-        """Handle mouse clicks to select item and emit itemClicked signal"""
+        """Select the item on left-click.
+
+        NOTE: do NOT manually emit itemClicked here — Qt already emits it for
+        clicks on list rows, and a second manual emit caused every course click
+        to be processed twice (double add attempts + double saves/backups).
+        """
         # Only handle left-click, ignore right-click and other buttons
         if event.button() != QtCore.Qt.LeftButton:
             super().mousePressEvent(event)
             return
-            
-        # Find the corresponding QListWidgetItem
+
+        # Find the corresponding QListWidgetItem and select it
         for i in range(self.parent_list.count()):
             item = self.parent_list.item(i)
             if self.parent_list.itemWidget(item) == self:
-                # Set this item as current
                 self.parent_list.setCurrentItem(item)
-                # Emit itemClicked signal to trigger course addition
-                self.parent_list.itemClicked.emit(item)
                 break
-        
+
         # Call parent implementation for any buttons (edit/delete)
         super().mousePressEvent(event)
     
@@ -780,8 +788,20 @@ class AnimatedCourseWidget(QtWidgets.QFrame):
         self.has_conflicts = has_conflicts
         # Handle both string styles and QColor objects
         if isinstance(original_style, QtGui.QColor):
-            # Convert QColor to CSS string
-            self.original_style = f"background-color: rgba({original_style.red()}, {original_style.green()}, {original_style.blue()}, {original_style.alpha()});"
+            # Soft rounded color fill only — no border (borders clipped the
+            # compact cell content); text color adapts to the theme.
+            from app.core.theme_manager import theme_manager
+            try:
+                is_dark = theme_manager.effective_theme() == 'dark'
+            except Exception:  # noqa: BLE001 — styling fallback
+                is_dark = False
+            text_color = "#f8fafc" if is_dark else "#1e293b"
+            self.original_style = (
+                f"background-color: {original_style.name()};"
+                f"border: none;"
+                f"border-radius: 10px;"
+                f"color: {text_color};"
+            )
         else:
             self.original_style = original_style or ""
         

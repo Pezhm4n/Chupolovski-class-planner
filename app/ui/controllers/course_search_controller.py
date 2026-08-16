@@ -17,16 +17,23 @@ class CourseSearchController:
         self.db_instance = None
         self.parent_window: Optional[QtWidgets.QWidget] = None
 
-    def attach(self, 
-               search_box: Optional[QtWidgets.QLineEdit] = None, 
-               search_clear_button: Optional[QtWidgets.QToolButton] = None, 
+    def attach(self,
+               search_box: Optional[QtWidgets.QLineEdit] = None,
+               search_clear_button: Optional[QtWidgets.QToolButton] = None,
                major_combo: Optional[QtWidgets.QComboBox] = None,
                course_list_widget: Optional[QtWidgets.QListWidget] = None,
                db_instance=None,
                get_current_major_filter: Optional[Callable[[], str]] = None,
                on_refresh_course_list: Optional[Callable[[str], None]] = None,
-               parent_window: Optional[QtWidgets.QWidget] = None):
-        """Attaches specific UI widgets and callbacks without storing MainWindow instance."""
+               parent_window: Optional[QtWidgets.QWidget] = None,
+               wire_signals: bool = True):
+        """Attaches specific UI widgets and callbacks without storing MainWindow instance.
+
+        Args:
+            wire_signals: When False, signal wiring is skipped — use this when the
+                host window already connects the widget signals to the delegation
+                methods (avoids double-firing handlers).
+        """
         self.search_box = search_box
         self.search_clear_button = search_clear_button
         self.major_combo = major_combo
@@ -35,7 +42,8 @@ class CourseSearchController:
         self.get_current_major_filter = get_current_major_filter
         self.on_refresh_course_list = on_refresh_course_list
         self.parent_window = parent_window
-        self.connect_signals()
+        if wire_signals:
+            self.connect_signals()
 
     def connect_signals(self):
         """Connects signals for search and major widgets."""
@@ -102,9 +110,10 @@ class CourseSearchController:
         if not self.major_combo:
             return
         try:
+            from app.core.translator import translator
             self.major_combo.blockSignals(True)
             self.major_combo.clear()
-            self.major_combo.addItem("همه رشته‌ها", "ALL")
+            self.major_combo.addItem(translator.t("ui.settings.all_majors"), "ALL")
 
             majors = set()
             for course in COURSES.values():
@@ -139,7 +148,11 @@ class CourseSearchController:
         try:
             from app.ui.widgets import CourseListWidget
 
-            if not self.course_list_widget:
+            # NOTE: compare against None explicitly — an EMPTY QListWidget is
+            # falsy (it implements __len__), which used to abort population
+            # right after startup and leave the list permanently blank.
+            if self.course_list_widget is None:
+                self.logger.warning("populate_course_list skipped: no course list widget attached")
                 return
 
             self.course_list_widget.clear()
@@ -176,8 +189,16 @@ class CourseSearchController:
 
             used = 0
             sorted_courses = sorted(courses_to_show.items(), key=lambda x: x[1].get('name', ''))
+            total_matching = len(sorted_courses)
 
-            for key, course in sorted_courses:
+            # Virtualization cap: rendering ~2000 heavyweight item widgets
+            # freezes (and can natively crash) the GUI. Show the first page
+            # and guide the user to search/filter for the rest (web parity —
+            # the web list is virtualized too).
+            MAX_VISIBLE = 400
+            visible_courses = sorted_courses[:MAX_VISIBLE]
+
+            for key, course in visible_courses:
                 try:
                     if not isinstance(course, dict):
                         continue
@@ -192,16 +213,11 @@ class CourseSearchController:
                     color = COLOR_MAP[used % len(COLOR_MAP)]
                     item.setBackground(QtGui.QBrush(color))
 
-                    tooltip = f"کد: {course['code']}\nنام: {course['name']}\nاستاد: {course['instructor']}\nواحد: {course['credits']}\n"
-                    if course.get('schedule'):
-                        tooltip += "\nجلسات:"
-                        for sess in course['schedule']:
-                            p_text = ' (زوج)' if sess.get('parity') == 'ز' else (' (فرد)' if sess.get('parity') == 'ف' else '')
-                            tooltip += f"\n  {sess['day']}: {sess['start']}-{sess['end']}{p_text}"
+                    # NOTE: no item.setToolTip here — the custom floating info
+                    # panel (CourseListWidget hover) already shows full course
+                    # details; a native tooltip would duplicate it.
 
-                    item.setToolTip(tooltip)
                     self.course_list_widget.addItem(item)
-
                     course_widget = CourseListWidget(key, course, self.course_list_widget, self.parent_window)
                     course_widget.setProperty('colorIndex', used % len(COLOR_MAP))
                     item.setSizeHint(course_widget.sizeHint())
@@ -212,6 +228,18 @@ class CourseSearchController:
                     self.logger.error(f"Error creating course item for {key}: {e}")
                     continue
 
-            self.logger.info(f"Populated course list with {used} courses")
+            # Footer hint when the list was capped
+            hidden = total_matching - len(visible_courses)
+            if hidden > 0:
+                footer = QtWidgets.QListWidgetItem(
+                    f"🔎 … {hidden} درس دیگر یافت شد — برای یافتن سریع‌تر، جستجو کنید یا رشته را انتخاب کنید"
+                )
+                footer.setFlags(QtCore.Qt.NoItemFlags)  # not clickable
+                self.course_list_widget.addItem(footer)
+
+            self.logger.info(
+                f"Populated course list with {used} courses "
+                f"(matched {total_matching}, capped at {MAX_VISIBLE})"
+            )
         except Exception as e:
             self.logger.error(f"Error in populate_course_list: {e}")

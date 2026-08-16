@@ -4,7 +4,7 @@ from app.core.config import COURSES
 from app.core.data_manager import save_user_added_courses, save_user_data, generate_unique_key
 
 # Import Dialogs
-from app.ui.dialogs import AddCourseDialog, EditCourseDialog, DetailedInfoWindow
+from app.ui.dialogs import AddCourseDialog, EditCourseDialog
 from app.ui.exam_schedule_window import ExamScheduleWindow
 
 class DialogCoordinator:
@@ -121,12 +121,17 @@ class DialogCoordinator:
         )
 
     def show_course_details(self, course_key):
-        """Show detailed course information in a dialog"""
+        """Show rich course details in a modal card (theme-aware)."""
         course = COURSES.get(course_key, {})
         if not course:
             return
-            
-        dialog = DetailedInfoWindow(self.main_window)
+
+        from app.ui.course_details_dialog import CourseDetailsDialog
+        dialog = CourseDetailsDialog(
+            course_key,
+            parent=self.main_window,
+            on_remove=getattr(self.main_window, "remove_course_silently", None),
+        )
         dialog.exec_()
 
     def open_detailed_info_window(self):
@@ -170,7 +175,7 @@ class DialogCoordinator:
         layout = QtWidgets.QVBoxLayout(dialog)
         
         title_label = QtWidgets.QLabel('ترکیب‌های بهینه پیشنهادی')
-        title_label.setStyleSheet("font-size: 16px; font-weight: bold; color: #2c3e50; margin: 10px;")
+        title_label.setStyleSheet("font-size: 16px; font-weight: bold;  margin: 10px;")
         title_label.setAlignment(QtCore.Qt.AlignCenter)
         layout.addWidget(title_label)
         
@@ -178,7 +183,7 @@ class DialogCoordinator:
             info_label = QtWidgets.QLabel('بهترین ترکیب‌ها بر اساس حداقل روزهای حضور و حداقل فاصله بین جلسات')
         else:
             info_label = QtWidgets.QLabel('هیچ ترکیب بهینه‌ای بدون تداخل پیدا نشد. ترکیب‌هایی با تداخل نشان داده نمی‌شوند.')
-        info_label.setStyleSheet("color: #7f8c8d; margin-bottom: 10px;")
+        info_label.setStyleSheet(" margin-bottom: 10px;")
         info_label.setAlignment(QtCore.Qt.AlignCenter)
         layout.addWidget(info_label)
         
@@ -197,7 +202,7 @@ class DialogCoordinator:
                 rank_label.setFixedWidth(30)
                 
                 stats_label = QtWidgets.QLabel(f'روزها: {combo["days"]} | فاصله: {combo["empty"]:.1f}h | امتیاز: {combo["score"]:.1f}')
-                stats_label.setStyleSheet("color: #7f8c8d;")
+                stats_label.setStyleSheet("")
                 
                 apply_btn = QtWidgets.QPushButton('اعمال')
                 apply_btn.setObjectName("success_btn")
@@ -213,7 +218,7 @@ class DialogCoordinator:
                 
                 course_list = QtWidgets.QListWidget()
                 course_list.setMaximumHeight(100)
-                course_list.setStyleSheet("border: 1px solid #d5dbdb; border-radius: 5px;")
+                course_list.setStyleSheet(" border-radius: 5px;")
                 
                 for course_key in combo['courses']:
                     if course_key in COURSES:
@@ -230,7 +235,7 @@ class DialogCoordinator:
         else:
             no_results_label = QtWidgets.QLabel('هیچ ترکیبی برای نمایش وجود ندارد.')
             no_results_label.setAlignment(QtCore.Qt.AlignCenter)
-            no_results_label.setStyleSheet("color: #95a5a6; font-style: italic; padding: 20px;")
+            no_results_label.setStyleSheet(" font-style: italic; padding: 20px;")
             item_widget = QtWidgets.QWidget()
             item_layout = QtWidgets.QVBoxLayout(item_widget)
             item_layout.addWidget(no_results_label)

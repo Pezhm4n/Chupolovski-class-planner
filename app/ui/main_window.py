@@ -36,11 +36,8 @@ from app.core.course_utils import (
 from .widgets import (
     CourseListWidget, AnimatedCourseWidget
 )
-from .dialogs import AddCourseDialog, EditCourseDialog, DetailedInfoWindow
+from .dialogs import AddCourseDialog, EditCourseDialog, CourseDetailsDialog
 from .exam_schedule_window import ExamScheduleWindow
-
-# Import student profile dialog
-from .student_profile_dialog import StudentProfileDialog
 
 # Import credential handling modules
 from app.core.credentials import load_local_credentials
@@ -59,7 +56,6 @@ from app.data.offline_storage_service import OfflineStorageService
 from app.ui.account_auth_dialog import AccountAuthDialog
 from app.ui.professor_review_dialog import ProfessorReviewDialog
 from app.ui.sync_dialog import CloudScheduleDialog
-from app.ui.academic_center_dialog import AcademicCenterDialog
 from app.ui.settings_dialog import SettingsDialog
 
 # Set up logger
@@ -116,6 +112,22 @@ class SchedulerWindow(QtWidgets.QMainWindow):
             logger.debug(f"[DEBUG] comboBox exists: {hasattr(self, 'comboBox')}")
             if hasattr(self, 'comboBox'):
                 logger.debug(f"[DEBUG] comboBox type: {type(self.comboBox)}")
+
+        # Wire the course search controller to the widgets loaded from the
+        # .ui file. Signal wiring stays with connect_signals() (which already
+        # routes comboBox/search_box events to the controller), so only the
+        # widget references and callbacks are attached here.
+        self.course_search_controller.attach(
+            search_box=getattr(self, 'search_box', None),
+            major_combo=getattr(self, 'comboBox', None),
+            course_list_widget=getattr(self, 'course_list', None),
+            db_instance=self.db,
+            get_current_major_filter=self._current_major_filter,
+            on_refresh_course_list=lambda _major: self.populate_course_list(None),
+            parent_window=self,
+            wire_signals=False,
+        )
+
         # Initialize schedule table FIRST
         self.initialize_schedule_table()
         
@@ -202,6 +214,9 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         
         # Load and apply styles
         self.load_and_apply_styles()
+
+        # Apply the saved language to .ui widgets (English startup support)
+        self.retranslate_ui()
         
         # Load latest backup on startup
         self.load_latest_backup()
@@ -231,12 +246,29 @@ class SchedulerWindow(QtWidgets.QMainWindow):
             self.cloud_sync_manager = ScheduleSyncManager(client=self.schedule_client)
             self.academic_manager = AcademicManager(client=self.transcript_client)
 
-            # Startup version check
-            self.version_manager.check_api_compatibility(
-                lambda ok, ver, err: logger.info(f"Version check: compatible={ok}, ver={ver}")
-            )
+            # Startup version check — warn the user when the client is outdated
+            self.version_manager.check_api_compatibility(self._on_version_check_result)
         except Exception as e:
             logger.error(f"Failed to initialize Phase 1-8 infrastructure: {e}")
+
+    def _on_version_check_result(self, compatible: bool, server_version: str, error: str = ""):
+        """Handle the startup API version compatibility result (user-facing)."""
+        try:
+            logger.info(f"Version check: compatible={compatible}, ver={server_version}, err={error or 'none'}")
+            if compatible:
+                return
+            # Offline / unknown errors are treated as compatible by the manager;
+            # reaching here with compatible=False means a real version mismatch.
+            QtWidgets.QMessageBox.warning(
+                self,
+                "به‌روزرسانی لازم است",
+                "نسخه برنامه شما با نسخه فعلی سرورهای گلستون سازگار نیست و برخی قابلیت‌ها "
+                "(همگام‌سازی ابری، کارنامه و نظرسنجی اساتید) ممکن است درست کار نکنند.\n\n"
+                f"نسخه سرور: {server_version or 'نامشخص'}\n\n"
+                "لطفاً آخرین نسخه برنامه را از golestoon-app.ir دریافت و نصب کنید."
+            )
+        except Exception as e:
+            logger.error(f"Error handling version check result: {e}")
 
     def show_cloud_account_dialog(self):
         """Show Cloud Account Auth dialog."""
@@ -250,7 +282,12 @@ class SchedulerWindow(QtWidgets.QMainWindow):
     def show_professor_review_dialog(self):
         """Show Professor Review & Compare dialog."""
         try:
-            dialog = ProfessorReviewDialog(manager=self.professor_manager, parent=self)
+            dialog = ProfessorReviewDialog(
+                manager=self.professor_manager,
+                parent=self,
+                token_manager=getattr(self, 'token_manager', None),
+                auth_client=getattr(self, 'auth_client', None),
+            )
             dialog.exec_()
         except Exception as e:
             logger.error(f"Error showing professor review dialog: {e}")
@@ -276,31 +313,6 @@ class SchedulerWindow(QtWidgets.QMainWindow):
             QtWidgets.QMessageBox.information(self, "موفقیت", "برنامه ابری با موفقیت در جدول کلاسی اعمال شد.")
         except Exception as e:
             logger.error(f"Error loading cloud schedule: {e}")
-
-    def show_academic_center_dialog(self):
-        """Show Academic Center & Report 272 dialog."""
-        try:
-            student_info = {}
-            if self.db:
-                try:
-                    s = self.db.get_student_info()
-                    if s:
-                        student_info = {"name": s.name, "student_id": s.student_id, "faculty": s.faculty, "major": s.major}
-                except Exception:
-                    pass
-
-            semesters_info = []
-            if self.db:
-                try:
-                    semesters_info = self.db.get_all_semesters_with_courses()
-                except Exception:
-                    pass
-
-            dialog = AcademicCenterDialog(manager=self.academic_manager, student_data=student_info, semesters_data=semesters_info, parent=self)
-            dialog.exec_()
-        except Exception as e:
-            logger.error(f"Error showing academic center dialog: {e}")
-            QtWidgets.QMessageBox.critical(self, "خطا", humanize_error(e, "خطا در نمایش دیالوگ خدمات تحصیلی:\n"))
 
     def show_settings_dialog(self):
         """Show Settings & Preferences dialog."""
@@ -334,26 +346,36 @@ class SchedulerWindow(QtWidgets.QMainWindow):
             self.schedule_table.setAlternatingRowColors(True)
             self.schedule_table.verticalHeader().setVisible(True)
             
-            # Generate Persian time labels for vertical header
+            # Clean hourly labels (reference design): a single Persian hour
+            # numeral («۷» … «۲۰») on whole-hour rows; half-hour rows stay
+            # empty so each hour reads as one visual block.
             time_labels = []
             for i in range(len(EXTENDED_TIME_SLOTS) - 1):
                 start_time = EXTENDED_TIME_SLOTS[i]
-                end_time = EXTENDED_TIME_SLOTS[i + 1]
-                
-                # Convert to Persian numerals
-                start_persian = self.convert_to_persian_numerals(start_time)
-                end_persian = self.convert_to_persian_numerals(end_time)
-                
-                # Format as dual-line: start_time - end_time
-                time_labels.append(f"{start_persian}\n{end_persian}")
-            
+                if ':30' not in start_time:
+                    hour = start_time.split(':')[0].lstrip('0') or '0'
+                    time_labels.append(self.convert_to_persian_numerals(hour))
+                else:
+                    time_labels.append("")
+
+            # Closing boundary mark («۲۰») on the final half-hour row so the
+            # column reads ۷ … ۱۹ ۲۰ exactly like the reference design and it
+            # is obvious the grid extends to 20:00.
+            if time_labels:
+                time_labels[-1] = self.convert_to_persian_numerals('20')
+
             # Set vertical header labels
             self.schedule_table.setVerticalHeaderLabels(time_labels)
-            
-            # Configure vertical header appearance
+
+            # Configure vertical header appearance (styled dark via QSS)
             vertical_header = self.schedule_table.verticalHeader()
-            vertical_header.setFixedWidth(80)
+            vertical_header.setFixedWidth(40)
             vertical_header.setDefaultSectionSize(35)
+            vertical_header.setDefaultAlignment(QtCore.Qt.AlignCenter)
+
+            # Make sure the table fills its panel completely (no stray gap)
+            from PyQt5.QtWidgets import QSizePolicy
+            self.schedule_table.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Expanding)
             
             # Set row heights
             for row in range(len(EXTENDED_TIME_SLOTS) - 1):
@@ -423,6 +445,19 @@ class SchedulerWindow(QtWidgets.QMainWindow):
     def populate_major_dropdown(self):
         self.course_search_controller.populate_major_dropdown()
 
+    def _current_major_filter(self):
+        """Current major filter for the course list; None means 'show all'."""
+        try:
+            combo = getattr(self, 'comboBox', None)
+            if combo is None:
+                return None
+            data = combo.itemData(combo.currentIndex())
+            if data is None or data == "ALL":
+                return None
+            return data
+        except Exception:
+            return None
+
     def populate_course_list_deprecated(self):
         """Deprecated method - use populate_course_list() instead"""
         try:
@@ -489,13 +524,56 @@ class SchedulerWindow(QtWidgets.QMainWindow):
             pass  # Gracefully keep app running
 
     def load_saved_combos_ui(self):
-        """Load saved combinations into the UI"""
+        """Load saved combinations into the UI (adds action buttons once)."""
+        self._ensure_saved_combo_buttons()
         self.saved_combos_list.clear()
         for sc in self.user_data.get('saved_combos', []):
             name = sc.get('name', 'بدون نام')
             item = QtWidgets.QListWidgetItem(name)
             item.setData(QtCore.Qt.UserRole, sc)
             self.saved_combos_list.addItem(item)
+
+    def _ensure_saved_combo_buttons(self):
+        """Arrange saved-combos actions: hide legacy misplaced buttons and add
+        the working save/delete row BELOW the list (once)."""
+        if getattr(self, '_saved_combo_buttons_added', False):
+            return
+        try:
+            layout = self.saved_combos_layout
+        except AttributeError:
+            return
+
+        # Hide the legacy «➕ افزودن / ➖ حذف» buttons — they belong to the
+        # auto-select list but were placed inside the saved-combos group and
+        # looked like broken duplicates.
+        for legacy in ('add_to_auto_btn', 'remove_from_auto_btn'):
+            btn = getattr(self, legacy, None)
+            if btn is not None:
+                btn.hide()
+                btn.setParent(None)
+
+        btn_row = QtWidgets.QHBoxLayout()
+        btn_row.setSpacing(6)
+
+        btn_save = QtWidgets.QPushButton("💾 ذخیره برنامه فعلی")
+        btn_save.setObjectName("primaryButton")
+        btn_save.setToolTip("برنامه‌ی فعلی جدول را با نام دلخواه ذخیره می‌کند")
+        btn_save.clicked.connect(self.on_save_current_combo)
+
+        btn_delete = QtWidgets.QPushButton("🗑️ حذف")
+        btn_delete.setObjectName("secondaryButton")
+        btn_delete.setToolTip("ترکیب انتخاب‌شده را از فهرست حذف می‌کند")
+        btn_delete.clicked.connect(self.on_delete_saved_combo)
+
+        btn_row.addWidget(btn_save, stretch=1)
+        btn_row.addWidget(btn_delete)
+
+        # Actions live at the BOTTOM of the group, below the list
+        layout.addLayout(btn_row)
+        # Keep references for live re-translation
+        self._saved_combo_save_btn = btn_save
+        self._saved_combo_delete_btn = btn_delete
+        self._saved_combo_buttons_added = True
 
     def on_saved_combo_changed(self, index):
         """Handle saved combo change"""
@@ -564,6 +642,17 @@ class SchedulerWindow(QtWidgets.QMainWindow):
             QtWidgets.QMessageBox.critical(self, "خطا", humanize_error(e, "امکان پاک کردن جدول زمان‌بندی وجود ندارد: "))
             pass  # Gracefully keep app running
 
+    def _safe_set_span(self, row: int, col: int, span: int) -> None:
+        """setSpan without overlap warnings: reset any existing span first."""
+        table = self.schedule_table
+        try:
+            if table.columnSpan(row, col) > 1 or table.rowSpan(row, col) > 1:
+                table.setSpan(row, col, 1, 1)
+        except Exception:  # noqa: BLE001 — cosmetic guard
+            pass
+        if span > 1:
+            table.setSpan(row, col, span, 1)
+
     def place_course(self, course):
         """Place a course on the schedule"""
         try:
@@ -592,7 +681,7 @@ class SchedulerWindow(QtWidgets.QMainWindow):
             item.setData(QtCore.Qt.UserRole, course_key)
 
             # Add the item to the schedule table
-            self.schedule_table.setSpan(row_start, col_start, row_span, col_span)
+            self._safe_set_span(row_start, col_start, row_span)
             self.schedule_table.setItem(row_start, col_start, item)
 
             # Store the placed course
@@ -663,20 +752,14 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         self.schedule_table_controller.pulse_cell(item)
 
     def show_detailed_info_window(self, course_key):
-        """Show detailed info window for a course"""
+        """Show rich course details card for a course (theme-aware modal)."""
         try:
-            # Get the course details
-            course = next((c for c in COURSES if c['key'] == course_key), None)
-
-            if course:
-                # Create and show the detailed info window
-                self.detailed_info_window = DetailedInfoWindow(course, self)
-                self.detailed_info_window.show()
-
+            if course_key in COURSES:
+                dialog = CourseDetailsDialog(course_key, parent=self)
+                dialog.exec_()
         except Exception as e:
-            logger.error(f"Failed to show detailed info window: {e}")
+            logger.error(f"Failed to show course details: {e}")
             QtWidgets.QMessageBox.critical(self, "خطا", humanize_error(e, "امکان نمایش پنجره اطلاعات دقیق وجود ندارد: "))
-            pass  # Gracefully keep app running
 
     def show_exam_schedule_window(self):
         """Show exam schedule window"""
@@ -869,16 +952,57 @@ class SchedulerWindow(QtWidgets.QMainWindow):
             pass  # Gracefully keep app running
 
     def load_and_apply_styles(self):
-        """Load styles from external QSS file"""
+        """Load the themed stylesheet onto this window.
+
+        NOTE: the window-level stylesheet must be the THEMED build — a raw
+        light styles.qss here would override the application-level theme for
+        the entire main-window subtree (closest-ancestor stylesheet wins in
+        Qt), which used to freeze the main window in light mode.
+        """
         try:
-            ui_dir = os.path.dirname(os.path.abspath(__file__))
-            qss_file = os.path.join(ui_dir, 'styles.qss')
-            with open(qss_file, 'r', encoding='utf-8') as f:
-                self.setStyleSheet(f.read())
-        except FileNotFoundError:
-            logger.warning("Warning: styles.qss file not found")
+            from app.core.theme_manager import theme_manager
+            themed_qss = theme_manager.build_qss()
+            if themed_qss:
+                self.setStyleSheet(themed_qss)
+
+            # Keep this window in sync with live theme switches
+            try:
+                theme_manager.theme_changed.connect(self._on_theme_changed)
+            except (RuntimeError, TypeError):
+                pass  # already connected
         except Exception as e:
             logger.warning(f"Warning: Could not load styles: {e}")
+
+    def _on_theme_changed(self, effective_theme: str) -> None:
+        """Live theme switch: re-apply window QSS and re-tint placed cells."""
+        try:
+            from app.core.theme_manager import theme_manager
+            self.setStyleSheet(theme_manager.build_qss())
+
+            # Re-tint placed course cells with the new theme variant
+            from app.core.course_utils import course_color
+            is_dark = effective_theme == 'dark'
+            text_color = '#f8fafc' if is_dark else '#1e293b'
+            for info in self.placed.values():
+                if not isinstance(info, dict):
+                    continue
+                if info.get('type') == 'dual':
+                    continue  # dual widget manages its own section colors
+                widget = info.get('widget')
+                key = info.get('course')
+                if widget is None or not key:
+                    continue
+                color = course_color(key, dark=is_dark)
+                try:
+                    widget.setStyleSheet(
+                        f"background-color: {color.name()};"
+                        "border: none; border-radius: 10px;"
+                        f"color: {text_color};"
+                    )
+                except RuntimeError:
+                    continue  # widget already deleted
+        except Exception as e:
+            logger.warning(f"Theme re-apply failed: {e}")
             
     def load_latest_backup(self):
         """Load the latest backup on application startup"""
@@ -964,13 +1088,10 @@ class SchedulerWindow(QtWidgets.QMainWindow):
                 # Connect exam button to show exam schedule method
                 self.showExamPagebtn.clicked.connect(self.on_show_exam_schedule)
             
-            # Auto-select list buttons
-            if hasattr(self, 'add_to_auto_btn'):
-                self.add_to_auto_btn.clicked.connect(self.on_add_to_auto)
-                
-            if hasattr(self, 'remove_from_auto_btn'):
-                self.remove_from_auto_btn.clicked.connect(self.on_remove_from_auto)
-            
+            # Auto-select list buttons were removed from the saved-combos group
+            # (misplaced duplicates); auto-list management happens via the
+            # course context menu and drag & drop.
+
             # Table interactions
             if hasattr(self, 'schedule_table'):
                 self.schedule_table.cellClicked.connect(self.on_table_cell_clicked)
@@ -1065,9 +1186,47 @@ class SchedulerWindow(QtWidgets.QMainWindow):
             actions['english_lang'].setChecked(current_lang == 'en')
             actions['persian_lang'].triggered.connect(lambda: self.switch_language('fa'))
             actions['english_lang'].triggered.connect(lambda: self.switch_language('en'))
+
+        # Theme selection (light / dark / system) — applies live
+        if 'theme_group' in actions:
+            self.switch_theme_mode(actions)
             
         if 'history_menu' in menus:
             menus['history_menu'].aboutToShow.connect(self.populate_backup_history_menu)
+
+    def switch_theme_mode(self, actions=None):
+        """Wire theme menu actions and apply the persisted theme live."""
+        try:
+            from app.core.theme_manager import theme_manager
+
+            if actions and 'theme_group' in actions:
+                mode_checks = {
+                    'light': actions.get('theme_light'),
+                    'dark': actions.get('theme_dark'),
+                    'system': actions.get('theme_system'),
+                }
+                current = theme_manager.mode
+                for mode, act in mode_checks.items():
+                    if act is not None:
+                        act.setChecked(mode == current)
+                        # Capture mode explicitly to avoid late-binding surprises
+                        act.triggered.connect(
+                            lambda _=False, m=mode: self.apply_theme_mode(m)
+                        )
+        except Exception as e:
+            logger.error(f"Error wiring theme actions: {e}")
+
+    def apply_theme_mode(self, mode: str):
+        """Persist the chosen theme mode and re-apply styles application-wide."""
+        try:
+            from app.core.theme_manager import theme_manager
+            app = QtWidgets.QApplication.instance()
+            theme_manager.set_mode(mode)
+            if app is not None:
+                theme_manager.apply(app)
+            logger.info(f"Theme switched to '{mode}' (effective: {theme_manager.effective_theme()})")
+        except Exception as e:
+            logger.error(f"Error applying theme '{mode}': {e}")
 
     def show_tutorial_dialog(self):
         """Show the interactive tutorial dialog"""
@@ -1087,12 +1246,73 @@ class SchedulerWindow(QtWidgets.QMainWindow):
                 "درباره گلستون (Golestoon)",
                 "<h3>🌸 گلستون (Golestoon Desktop)</h3>"
                 "<p>نسخه دسکتاپ رسمی سامانه برنامه‌ریزی کلاسی، کارنامه و نظرسنجی اساتید دانشگاه</p>"
-                "<p><b>نسخه:</b> 1.5.2</p>"
+                "<p><b>نسخه:</b> 1.0.0</p>"
                 "<p><b>وبسایت:</b> <a href='https://golestoon-app.ir'>golestoon-app.ir</a></p>"
                 "<p>ساخته شده با افتخار برای دانشجویان دانشگاه‌های ایران 🇮🇷</p>"
             )
         except Exception as e:
             logger.error(f"Error showing about dialog: {e}")
+
+    def retranslate_ui(self):
+        """Retranslate the .ui-loaded widgets (groups, buttons, placeholders)
+        and the schedule table headers for the current language."""
+        try:
+            from app.core.translator import translator
+            t = translator.t
+
+            # Group boxes
+            for attr, key in (
+                ('search_group', 'ui.search_group'),
+                ('course_list_group', 'ui.course_list_group'),
+                ('actions_group', 'ui.actions_group'),
+                ('info_group', 'ui.info_group'),
+                ('stats_group', 'ui.stats_group'),
+                ('notifications_group', 'ui.notifications_group'),
+                ('auto_select_group', 'ui.auto_select_group'),
+                ('saved_combos_group', 'ui.saved_combos_group'),
+            ):
+                widget = getattr(self, attr, None)
+                if widget is not None:
+                    widget.setTitle(t(key))
+
+            # Buttons
+            for attr, key in (
+                ('detailed_info_btn', 'ui.save_schedule'),
+                ('clear_schedule_btn', 'ui.clear_schedule'),
+                ('showExamPagebtn', 'ui.show_exams'),
+                ('optimal_schedule_btn', 'ui.generate_optimal'),
+                ('success_btn', 'ui.add_course'),
+            ):
+                widget = getattr(self, attr, None)
+                if widget is not None:
+                    widget.setText(t(key))
+
+            # Search box placeholder
+            if hasattr(self, 'search_box') and self.search_box is not None:
+                self.search_box.setPlaceholderText(t("ui.search_placeholder"))
+
+            # Saved-combo action buttons (created programmatically)
+            if getattr(self, '_saved_combo_save_btn', None) is not None:
+                self._saved_combo_save_btn.setText(t("ui.save_current_combo"))
+                self._saved_combo_delete_btn.setText(t("ui.delete_combo"))
+
+            # Schedule table day headers (translated labels)
+            try:
+                from app.core.config import DAYS, get_day_label_map
+                label_map = dict(get_day_label_map())
+                labels = [label_map.get(day, day) for day in DAYS]
+                if labels and hasattr(self, 'schedule_table'):
+                    self.schedule_table.setHorizontalHeaderLabels(labels)
+            except Exception as err:  # noqa: BLE001
+                logger.debug(f"Day header translation skipped: {err}")
+
+            # Course list contents (re-populate so filter texts re-apply)
+            try:
+                self.populate_course_list(None)
+            except Exception:  # noqa: BLE001 — keep UI stable
+                pass
+        except Exception as e:
+            logger.error(f"retranslate_ui failed: {e}")
 
     def switch_language(self, lang_code: str):
         """Switch application language dynamically with RTL/LTR layout propagation"""
@@ -1115,7 +1335,8 @@ class SchedulerWindow(QtWidgets.QMainWindow):
             if app:
                 language_manager.apply_font(app)
 
-            # Refresh menus and status
+            # Retranslate .ui widgets + table headers, then refresh menus
+            self.retranslate_ui()
             self.create_menu_bar()
             self.update_status()
             self.update_stats_panel()
@@ -1134,7 +1355,11 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         """Show the unified student academic & transcript dashboard."""
         try:
             from app.ui.unified_student_dashboard import UnifiedStudentDashboard
-            dialog = UnifiedStudentDashboard(self)
+            dialog = UnifiedStudentDashboard(
+                self,
+                network_session=getattr(self, 'network_session', None),
+                token_manager=getattr(self, 'token_manager', None),
+            )
             dialog.exec_()
         except Exception as e:
             logger.error(f"Error showing unified student dashboard: {e}")
@@ -1583,7 +1808,7 @@ class SchedulerWindow(QtWidgets.QMainWindow):
             self.schedule_table.removeCellWidget(srow, scol)
             for r in range(srow, srow + span):
                 self.schedule_table.setItem(r, scol, QtWidgets.QTableWidgetItem(''))
-            self.schedule_table.setSpan(srow, scol, 1, 1)
+            self._safe_set_span(srow, scol, 1)
         self.placed.clear()
         
         # Clear any preview cells
@@ -1696,7 +1921,7 @@ class SchedulerWindow(QtWidgets.QMainWindow):
                 
                 self.schedule_table.setCellWidget(srow, col, preview_widget)
                 if span > 1:
-                    self.schedule_table.setSpan(srow, col, span, 1)
+                    self._safe_set_span(srow, col, span)
                 self.preview_cells.append((srow, col, span))
 
     def can_place_preview(self, srow, col, span):
@@ -1911,10 +2136,15 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         # Clear preview
         self.clear_preview()
 
-        # Use the imported COLOR_MAP instead of defining locally
-        color_idx = len(self.placed) % len(COLOR_MAP)
-        # رنگ‌ها - Updated with harmonious color palette
-        bg = COLOR_MAP[color_idx % len(COLOR_MAP)]
+        # Distinct deterministic color per course (hash-based hue) so courses
+        # are visually separable in the grid; pastel on light, deep on dark.
+        from app.core.course_utils import course_color
+        from app.core.theme_manager import theme_manager
+        try:
+            is_dark = theme_manager.effective_theme() == 'dark'
+        except Exception:  # noqa: BLE001 — styling fallback
+            is_dark = False
+        bg = course_color(course_key, dark=is_dark)
         
         # Place the course sessions
         # Create a unique slot key for overlay tracking
@@ -2167,7 +2397,7 @@ class SchedulerWindow(QtWidgets.QMainWindow):
                 
                 self.schedule_table.setCellWidget(srow, col, cell_widget)
                 if span > 1:
-                    self.schedule_table.setSpan(srow, col, span, 1)
+                    self._safe_set_span(srow, col, span)
                 
                 # Update overlay tracking for single course
                 if slot_key not in self.overlays:
@@ -2204,7 +2434,7 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         self.schedule_table.removeCellWidget(srow, col)
         for r in range(srow, srow + span):
             self.schedule_table.setItem(r, col, QtWidgets.QTableWidgetItem(''))
-        self.schedule_table.setSpan(srow, col, 1, 1)
+        self._safe_set_span(srow, col, 1)
         del self.placed[start_tuple]
 
     def remove_course_from_schedule(self, course_key):
@@ -2392,7 +2622,7 @@ class SchedulerWindow(QtWidgets.QMainWindow):
                 item = self.schedule_table.item(r, col)
                 if item:
                     item.setText('')
-            self.schedule_table.setSpan(srow, col, 1, 1)
+            self._safe_set_span(srow, col, 1)
             # Clear any cell widgets
             self.schedule_table.removeCellWidget(srow, col)
         self.preview_cells.clear()
@@ -2980,19 +3210,77 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         """Open dialog to add a new custom course (delegated to DialogCoordinator)"""
         self.dialog_coordinator.open_add_course_dialog()
 
-    def update_course_info_panel(self):
-        """Update the course information panel"""
-        # This method is called to update the course info panel
-        # Implementation can be added as needed
-        pass
+    def update_course_info_panel(self, course_key=None):
+        """Update the course info panel from a key, the list selection, or schedule summary."""
+        try:
+            if not hasattr(self, 'course_info_label'):
+                return
+
+            if course_key is None and hasattr(self, 'course_list'):
+                item = self.course_list.currentItem()
+                course_key = item.data(QtCore.Qt.UserRole) if item is not None else None
+
+            if course_key and course_key in COURSES:
+                course = COURSES.get(course_key, {})
+                exam_time = course.get('exam_time', '') or 'اعلام نشده'
+                info_text = (f"نام درس: {course.get('name', 'نامشخص')}\n"
+                             f"کد درس: {course.get('code', 'نامشخص')}\n"
+                             f"استاد: {course.get('instructor', 'نامشخص')}\n"
+                             f"تعداد واحد: {course.get('credits', 'نامشخص')}\n"
+                             f"محل برگزاری: {course.get('location', 'نامشخص')}\n"
+                             f"امتحان: {exam_time}")
+            else:
+                placed_count = sum(1 for v in self.placed.values() if isinstance(v, dict))
+                info_text = (f"دروس روی برنامه: {placed_count}\n"
+                             f"برای دیدن جزئیات، روی یک درس در فهرست یا جدول کلیک کنید.")
+            self.course_info_label.setText(info_text)
+        except Exception as e:
+            logger.debug(f"update_course_info_panel skipped: {e}")
 
     def on_table_cell_clicked(self, row, column):
-        """Handle clicks on schedule table cells"""
-        # This is a placeholder - implement as needed
-        pass
+        """Show details of the course(s) placed in the clicked schedule cell."""
+        try:
+            entry = None
+            for (start_row, start_col), info in self.placed.items():
+                if not isinstance(info, dict) or start_col != column:
+                    continue
+                span = max(1, int(info.get('rows', 1) or 1))
+                if start_row <= row < start_row + span:
+                    entry = info
+                    break
+
+            if entry is None:
+                return
+
+            keys = entry.get('courses') or [entry.get('course')]
+            lines = []
+            for key in keys:
+                if not key:
+                    continue
+                course = COURSES.get(key, {})
+                if not course:
+                    continue
+                exam_time = course.get('exam_time', '') or 'اعلام نشده'
+                lines.append(
+                    f"📘 {course.get('name', key)}\n"
+                    f"    کد: {course.get('code', '—')} | استاد: {course.get('instructor', '—')}\n"
+                    f"    واحد: {course.get('credits', '—')} | محل: {course.get('location', '—')}\n"
+                    f"    امتحان: {exam_time}"
+                )
+            if not lines:
+                return
+
+            info_text = "\n\n".join(lines)
+            if hasattr(self, 'course_info_label'):
+                self.course_info_label.setText(info_text)
+            name_first = keys[0] if keys else ''
+            self.status_bar.showMessage(f"جزئیات «{COURSES.get(name_first, {}).get('name', name_first)}» در پنل اطلاعات نمایش داده شد", 4000)
+        except Exception as e:
+            logger.debug(f"on_table_cell_clicked skipped: {e}")
 
     def filter_course_list(self, text):
-        self.course_search_controller.filter_course_list(text)
+        """Filter the course list by search text (delegates to the controller)."""
+        self.course_search_controller.populate_course_list(text or None)
 
     def on_clear_schedule(self):
         """Clear all courses from schedule table"""

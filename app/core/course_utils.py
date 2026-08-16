@@ -10,7 +10,40 @@ from itertools import product
 import sys
 import os
 
+from PyQt5.QtGui import QColor
+
 from .config import COURSES, TIME_SLOTS, get_days
+
+
+def course_color(course_key: str, dark: bool = False) -> QColor:
+    """
+    Deterministic, distinct pastel color per course (web-parity hash hues).
+
+    Every course gets a stable hue derived from crc32 of its key, so the same
+    course always looks the same and adjacent courses in the grid are visually
+    distinguishable — unlike sequential palette cycling. A small lightness
+    jitter from other hash bits reduces near-identical collisions.
+
+    Args:
+        course_key: Unique course key.
+        dark: Return the dark-theme variant (deeper, desaturated).
+    """
+    import zlib
+    digest = zlib.crc32(str(course_key).encode("utf-8")) & 0xFFFFFFFF
+    hue = digest % 360
+    jitter = ((digest >> 12) % 17) - 8   # -8..+8 lightness jitter
+    if dark:
+        lightness = max(70, min(120, 96 + jitter))
+        return QColor.fromHsl(hue, 90, lightness)
+    lightness = max(196, min(228, 212 + jitter))
+    return QColor.fromHsl(hue, 130, lightness)
+
+
+def course_border_color(color: QColor) -> QColor:
+    """A darker shade of the course color used for cell borders."""
+    hsv = color.toHsv()
+    return QColor.fromHsv(hsv.hue(), min(255, hsv.saturation() + 30), max(0, hsv.value() - 60))
+
 
 def to_minutes(tstr):
     """Convert time string (HH:MM) to minutes since midnight"""
