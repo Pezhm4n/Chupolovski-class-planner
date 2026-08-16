@@ -99,8 +99,14 @@ class TokenManager:
             return None
 
     def has_token(self) -> bool:
-        """Check if a valid token exists."""
-        return bool(self.get_token())
+        """Check if a valid, non-expired token exists."""
+        token = self.get_token()
+        if not token:
+            return False
+        if self.is_expired(token):
+            self.clear_token()
+            return False
+        return True
 
     def clear_token(self) -> bool:
         """

@@ -34,8 +34,10 @@ class NetworkConfig:
     """
 
     base_url: str = field(
-        default_factory=lambda: os.environ.get(
-            "GOLESTOON_API_BASE_URL", DEFAULT_PRODUCTION_BASE_URL
+        default_factory=lambda: (
+            os.environ.get("GOLESTOON_API_BASE_URL")
+            or os.environ.get("API_URL")
+            or DEFAULT_PRODUCTION_BASE_URL
         ).rstrip("/")
     )
     connect_timeout: int = 5

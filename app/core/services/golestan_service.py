@@ -55,12 +55,23 @@ class GolestanService:
             self.logger.error(f"Error in delete_credentials: {e}")
             return Result(success=False, error=str(e))
 
-    def fetch_courses(self, student_number: str, password: str) -> Result:
+    def fetch_courses(self, student_number: str = "", password: str = "") -> Result:
         """Fetches courses synchronously from Golestan API."""
         try:
+            if not student_number or not password:
+                creds = self.check_local_credentials()
+                if not creds.success:
+                    return Result(success=False, error="اطلاعات ورود به سامانه گلستان یافت نشد.")
+                student_number = creds.data.get('student_number', '')
+                password = creds.data.get('password', '')
+
             self.logger.debug("Fetching courses from Golestan")
             update_courses_from_golestan(username=student_number, password=password)
             return Result(success=True, message="اطلاعات دروس با موفقیت از سامانه گلستان دریافت شد.")
         except Exception as e:
             self.logger.error(f"Error fetching from Golestan: {e}")
             return Result(success=False, error=str(e))
+
+    def manual_fetch_courses(self, student_number: str = "", password: str = "") -> Result:
+        """Manual fetch from Golestan using stored or provided credentials."""
+        return self.fetch_courses(student_number, password)

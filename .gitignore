@@ -77,3 +77,9 @@ app/core/auth/__pycache__/
 app/core/network/clients/__pycache__/
 
 .vscode/
+
+app/core/services/__pycache__/
+
+app/ui/controllers/__pycache__/
+
+app/ui/builders/__pycache__/
