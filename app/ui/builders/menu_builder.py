@@ -2,11 +2,15 @@
 """
 Golestoon Menu Builder.
 Constructs a unified, clean, and modern menu bar aligned with Golestoon Web routes.
+All labels are translated via `translator.t("menu.*")` for full fa/en support.
 """
 
 import datetime
 import logging
 from PyQt5 import QtWidgets, QtCore
+
+from app.core.translator import translator
+
 
 class MenuBuilder:
     """Pure UI builder for creating application menus and action hierarchies."""
@@ -16,7 +20,8 @@ class MenuBuilder:
         """Constructs menu bar structure and returns created actions/menus dictionary for window to wire."""
         actions = {}
         menus = {}
-        
+        t = translator.t
+
         try:
             menubar = window.menubar if hasattr(window, 'menubar') else window.menuBar()
             menubar.clear()
@@ -25,83 +30,82 @@ class MenuBuilder:
             # -------------------------------------------------------------
             # 1. 🌐 داده‌ها و همگام‌سازی (Data & Cloud Sync)
             # -------------------------------------------------------------
-            data_menu = menubar.addMenu("🌐 داده‌ها و همگام‌سازی")
+            data_menu = menubar.addMenu(t("menu.data_menu"))
             menus['data_menu'] = data_menu
 
-            act_cloud_auth = QtWidgets.QAction("🔑 ورود / مدیریت حساب کاربری...", window)
+            act_cloud_auth = QtWidgets.QAction(t("menu.cloud_auth"), window)
             data_menu.addAction(act_cloud_auth)
             actions['cloud_auth'] = act_cloud_auth
 
-            act_cloud_sync = QtWidgets.QAction("☁️ پشتیبان‌گیری و بازیابی ابری...", window)
+            act_cloud_sync = QtWidgets.QAction(t("menu.cloud_sync"), window)
             data_menu.addAction(act_cloud_sync)
             actions['cloud_sync'] = act_cloud_sync
 
             data_menu.addSeparator()
 
-            act_fetch_golestan = QtWidgets.QAction("🔄 دریافت آنلاین دروس از گلستان...", window)
+            act_fetch_golestan = QtWidgets.QAction(t("menu.fetch_golestan"), window)
             data_menu.addAction(act_fetch_golestan)
             actions['fetch_golestan'] = act_fetch_golestan
 
-            act_reset_creds = QtWidgets.QAction("🔒 پاکسازی اطلاعات ورود به گلستان", window)
+            act_reset_creds = QtWidgets.QAction(t("menu.reset_creds"), window)
             data_menu.addAction(act_reset_creds)
             actions['reset_creds'] = act_reset_creds
 
             data_menu.addSeparator()
 
-            history_menu = data_menu.addMenu("📂 نسخه‌های پشتیبان محلی")
+            history_menu = data_menu.addMenu(t("menu.backup_history"))
             menus['history_menu'] = history_menu
 
             # -------------------------------------------------------------
-            # 2. 🎓 داشبورد تحصیلی دانشجو (Student Dashboard)
+            # 2. 🎓 خدمات تحصیلی (Academic Services)
             # -------------------------------------------------------------
-            acad_menu = menubar.addMenu("🎓 خدمات تحصیلی")
+            acad_menu = menubar.addMenu(t("menu.academic_menu"))
             menus['acad_menu'] = acad_menu
 
-            act_student_dashboard = QtWidgets.QAction("📊 داشبورد دانشجو، کارنامه و پیشرفت تحصیلی (گزارش ۲۷۲)...", window)
+            act_student_dashboard = QtWidgets.QAction(t("menu.student_dashboard"), window)
             acad_menu.addAction(act_student_dashboard)
             actions['student_dashboard'] = act_student_dashboard
             actions['student_profile'] = act_student_dashboard
             actions['academic'] = act_student_dashboard
 
             # -------------------------------------------------------------
-            # 3. 👨‍🏫 نظرسنجی و اساتید (Professor Reviews)
+            # 3. 👨‍🏫 نظرسنجی اساتید (Professor Reviews)
             # -------------------------------------------------------------
-            prof_menu = menubar.addMenu("👨‍🏫 نظرسنجی اساتید")
+            prof_menu = menubar.addMenu(t("menu.professors_menu"))
             menus['prof_menu'] = prof_menu
 
-            act_prof_review = QtWidgets.QAction("⭐ نظرسنجی و مقایسه اساتید...", window)
+            act_prof_review = QtWidgets.QAction(t("menu.prof_review"), window)
             prof_menu.addAction(act_prof_review)
             actions['prof_review'] = act_prof_review
 
             # -------------------------------------------------------------
-            # 4. 📝 برنامه امتحانات (Exam Timetable)
+            # 4. 📝 امتحانات (Exams)
             # -------------------------------------------------------------
-            exam_menu = menubar.addMenu("📝 امتحانات")
+            exam_menu = menubar.addMenu(t("menu.exams_menu"))
             menus['exam_menu'] = exam_menu
 
-            act_show_exams = QtWidgets.QAction("📅 نمایش تقویم و برنامه امتحانات...", window)
+            act_show_exams = QtWidgets.QAction(t("menu.show_exams"), window)
             exam_menu.addAction(act_show_exams)
             actions['show_exam_schedule'] = act_show_exams
 
-            act_export_exams = QtWidgets.QAction("📤 دریافت خروجی از برنامه امتحانات (PDF / تصویر)...", window)
+            act_export_exams = QtWidgets.QAction(t("menu.export_exams"), window)
             exam_menu.addAction(act_export_exams)
             actions['export_exam_schedule'] = act_export_exams
 
             # -------------------------------------------------------------
-            # 5. ⚙️ تنظیمات و زبان (Settings & Language)
+            # 5. ⚙️ تنظیمات (Settings, Language & Theme)
             # -------------------------------------------------------------
-            settings_menu = menubar.addMenu("⚙️ تنظیمات")
+            settings_menu = menubar.addMenu(t("menu.settings_menu"))
             menus['settings_menu'] = settings_menu
 
-            lang_submenu = settings_menu.addMenu("🌐 زبان برنامه (Language)")
+            lang_submenu = settings_menu.addMenu(t("menu.language_menu"))
             menus['lang_menu'] = lang_submenu
 
-            # Language selection with QActionGroup (Exclusive Selection)
             lang_group = QtWidgets.QActionGroup(window)
             lang_group.setExclusive(True)
 
-            act_persian = QtWidgets.QAction("🇮🇷 فارسی", window, checkable=True)
-            act_english = QtWidgets.QAction("🇬🇧 English", window, checkable=True)
+            act_persian = QtWidgets.QAction(t("menu.persian"), window, checkable=True)
+            act_english = QtWidgets.QAction(t("menu.english"), window, checkable=True)
 
             lang_group.addAction(act_persian)
             lang_group.addAction(act_english)
@@ -115,21 +119,46 @@ class MenuBuilder:
 
             settings_menu.addSeparator()
 
-            act_settings = QtWidgets.QAction("⚙️ تنظیمات برنامه...", window)
+            theme_submenu = settings_menu.addMenu(t("menu.theme_menu"))
+            menus['theme_menu'] = theme_submenu
+
+            theme_group = QtWidgets.QActionGroup(window)
+            theme_group.setExclusive(True)
+
+            act_theme_light = QtWidgets.QAction(t("menu.theme_light"), window, checkable=True)
+            act_theme_dark = QtWidgets.QAction(t("menu.theme_dark"), window, checkable=True)
+            act_theme_system = QtWidgets.QAction(t("menu.theme_system"), window, checkable=True)
+
+            theme_group.addAction(act_theme_light)
+            theme_group.addAction(act_theme_dark)
+            theme_group.addAction(act_theme_system)
+
+            theme_submenu.addAction(act_theme_light)
+            theme_submenu.addAction(act_theme_dark)
+            theme_submenu.addAction(act_theme_system)
+
+            actions['theme_light'] = act_theme_light
+            actions['theme_dark'] = act_theme_dark
+            actions['theme_system'] = act_theme_system
+            actions['theme_group'] = theme_group
+
+            settings_menu.addSeparator()
+
+            act_settings = QtWidgets.QAction(t("menu.open_settings"), window)
             settings_menu.addAction(act_settings)
             actions['settings'] = act_settings
 
             # -------------------------------------------------------------
-            # 6. ❓ راهنما و آموزش (Help & Guide)
+            # 6. ❓ راهنما (Help)
             # -------------------------------------------------------------
-            help_menu = menubar.addMenu("❓ راهنما")
+            help_menu = menubar.addMenu(t("menu.help_menu"))
             menus['help_menu'] = help_menu
 
-            act_tutorial = QtWidgets.QAction("💡 آموزش و راهنمای تصویری برنامه...", window)
+            act_tutorial = QtWidgets.QAction(t("menu.tutorial"), window)
             help_menu.addAction(act_tutorial)
             actions['tutorial'] = act_tutorial
 
-            act_about = QtWidgets.QAction("ℹ️ درباره گلستون دسکتاپ...", window)
+            act_about = QtWidgets.QAction(t("menu.about"), window)
             help_menu.addAction(act_about)
             actions['about'] = act_about
 
