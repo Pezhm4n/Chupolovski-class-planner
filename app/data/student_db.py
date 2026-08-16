@@ -88,6 +88,34 @@ class StudentDatabase:
                        )
                        """)
 
+        # Report 272 degree progress summary (one row per student)
+        cursor.execute("""
+                       CREATE TABLE IF NOT EXISTS degree_status
+                       (
+                           student_id         TEXT PRIMARY KEY,
+                           total_passed       TEXT,
+                           total_required_min TEXT,
+                           total_required_max TEXT,
+                           incomplete_units   TEXT,
+                           remaining_units    TEXT,
+                           updated_at         TEXT
+                       )
+                       """)
+
+        # Report 272 per-category progress rows (General / Basic / Specialized / ...)
+        cursor.execute("""
+                       CREATE TABLE IF NOT EXISTS degree_categories
+                       (
+                           student_id   TEXT    NOT NULL,
+                           category_ix  INTEGER NOT NULL,
+                           category_name TEXT,
+                           min_units    TEXT,
+                           max_units    TEXT,
+                           passed_units TEXT,
+                           PRIMARY KEY (student_id, category_ix)
+                       )
+                       """)
+
     def save_student(self, student: 'Student'):
         """Save or update complete student record including semesters and courses."""
 
@@ -167,10 +195,91 @@ class StudentDatabase:
                     str(course.grade) if course.grade else None
                 ))
 
+        # Save Report 272 degree progress (summary + categories)
+        self._save_degree_status(cursor, student)
+
         # Commit and close
         conn.commit()
         conn.close()
         logger.debug(f"✅ Successfully saved student {student.student_id} to {self.db_path}")
+
+    def _save_degree_status(self, cursor, student: 'Student') -> None:
+        """Persist Report 272 summary and category rows for a student."""
+        cursor.execute("DELETE FROM degree_status WHERE student_id = ?", (student.student_id,))
+        cursor.execute("DELETE FROM degree_categories WHERE student_id = ?", (student.student_id,))
+
+        ds = getattr(student, 'degree_status', None)
+        if ds is None:
+            return
+
+        cursor.execute("""
+            INSERT INTO degree_status (
+                student_id, total_passed, total_required_min, total_required_max,
+                incomplete_units, remaining_units, updated_at
+            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+        """, (
+            student.student_id,
+            str(ds.total_passed), str(ds.total_required_min), str(ds.total_required_max),
+            str(ds.incomplete_units), str(ds.remaining_units),
+            datetime.now().isoformat()
+        ))
+
+        for ix, cat in enumerate(ds.categories or []):
+            cursor.execute("""
+                INSERT INTO degree_categories (
+                    student_id, category_ix, category_name, min_units, max_units, passed_units
+                ) VALUES (?, ?, ?, ?, ?, ?)
+            """, (
+                student.student_id, ix, cat.category_name,
+                str(cat.min_units), str(cat.max_units), str(cat.passed_units)
+            ))
+
+    def _load_degree_status(self, cursor, student_id: str) -> Optional['DegreeStatus']:
+        """Load Report 272 summary + categories; returns None when never synced."""
+        from app.scrapers.requests_scraper.models import DegreeStatus, CourseCategoryResult
+
+        cursor.execute("""
+            SELECT total_passed, total_required_min, total_required_max,
+                   incomplete_units, remaining_units
+            FROM degree_status WHERE student_id = ?
+        """, (student_id,))
+        row = cursor.fetchone()
+        if not row:
+            return None
+
+        cursor.execute("""
+            SELECT category_name, min_units, max_units, passed_units
+            FROM degree_categories WHERE student_id = ? ORDER BY category_ix
+        """, (student_id,))
+
+        categories = [
+            CourseCategoryResult(
+                category_name=cat_row[0] or '',
+                min_units=self._safe_decimal(cat_row[1]),
+                max_units=self._safe_decimal(cat_row[2]),
+                passed_units=self._safe_decimal(cat_row[3]),
+            )
+            for cat_row in cursor.fetchall()
+        ]
+
+        return DegreeStatus(
+            total_passed=self._safe_decimal(row[0]),
+            total_required_min=self._safe_decimal(row[1]),
+            total_required_max=self._safe_decimal(row[2]),
+            incomplete_units=self._safe_decimal(row[3]),
+            remaining_units=self._safe_decimal(row[4]),
+            categories=categories,
+        )
+
+    @staticmethod
+    def _safe_decimal(value, default=None):
+        """Tolerant Decimal conversion for stored TEXT numeric columns."""
+        if value is None or value == '':
+            return default
+        try:
+            return Decimal(str(value))
+        except (ValueError, decimal.InvalidOperation):
+            return default
 
     def load_student(self) -> Optional['Student']:
         """Load student record from database."""
@@ -286,6 +395,9 @@ class StudentDatabase:
             semesters.append(semester)
 
         student_data['semesters'] = semesters
+
+        # Load Report 272 degree progress (None when never synced)
+        student_data['degree_status'] = self._load_degree_status(cursor, self.student_id)
 
         # Close connection
         conn.close()

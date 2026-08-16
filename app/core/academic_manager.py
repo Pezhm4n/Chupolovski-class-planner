@@ -2,69 +2,181 @@
 """
 Golestoon Academic Center Manager (ViewModel & Business Logic Layer).
 
-This module provides the AcademicManager handling student academic profiles,
-transcript analytics, GPA trend computations, Report 272 degree progress breakdown,
-and background QThread workers.
+This module provides the AcademicManager orchestrating real transcript syncs:
+it reads locally-stored Golestan credentials, triggers the backend sync job
+(`POST /api/transcript/sync` with wait=True), converts the returned JSON into
+the desktop `Student` model, caches it into the per-student SQLite database,
+and reports progress through QThread signals.
 
 Architecture Layer: Layer 4 (Application Logic & Manager)
-Dependencies: `TranscriptClient`, `StudentDatabase`, `PyQt5.QtCore` (QThread, pyqtSignal).
+Dependencies: `TranscriptClient`, `StudentDatabase`, `converters`,
+`PyQt5.QtCore` (QThread, pyqtSignal).
 """
 
 import logging
-from typing import List, Dict, Any, Optional, Tuple
+from typing import Any, Callable, Dict, List, Optional, Tuple
+
 from PyQt5.QtCore import QObject, QThread, pyqtSignal
 
 from app.core.network.clients.transcript_client import TranscriptClient
 from app.core.network.models import TranscriptSyncStatusModel
-from app.core.network.exceptions import GolestoonNetworkError
+from app.core.network.converters import student_from_api
+from app.core.network.exceptions import (
+    GolestoonNetworkError,
+    AuthenticationError,
+    ValidationApiError,
+)
+from app.scrapers.requests_scraper.models import Student
 
 logger = logging.getLogger("golestoon.academic.manager")
 
 
 class SyncTranscriptWorker(QThread):
-    """Background worker thread to trigger transcript and Report 272 sync."""
+    """Background worker executing a blocking transcript sync and local caching."""
 
-    finished_signal = pyqtSignal(object)  # TranscriptSyncStatusModel
+    finished_signal = pyqtSignal(object)     # Student model on success
+    status_signal = pyqtSignal(str, str)     # (status, human message)
     error_signal = pyqtSignal(str)
 
-    def __init__(self, client: TranscriptClient, student_number: str, parent: Optional[QObject] = None) -> None:
+    def __init__(
+        self,
+        client: TranscriptClient,
+        golestan_username: str,
+        golestan_password: str,
+        mode: str = "full",
+        force: bool = True,
+        parent: Optional[QObject] = None,
+    ) -> None:
         super().__init__(parent)
         self._client: TranscriptClient = client
-        self._student_number: str = student_number
+        self._username: str = golestan_username
+        self._password: str = golestan_password
+        self._mode: str = mode
+        self._force: bool = force
 
     def run(self) -> None:
         try:
-            status = self._client.sync_transcript(student_number=self._student_number)
-            self.finished_signal.emit(status)
+            result: TranscriptSyncStatusModel = self._client.trigger_sync(
+                golestan_username=self._username,
+                golestan_password=self._password,
+                mode=self._mode,
+                wait=True,
+                force=self._force,
+            )
+            self._handle_status(result)
+        except ValidationApiError as err:
+            # Backend rejects with 400: LOGIN_FAILED / bad captcha / bad creds.
+            self.error_signal.emit(err.message or "LOGIN_FAILED")
+        except AuthenticationError as err:
+            self.error_signal.emit(f"AUTH_REQUIRED:{err.message}")
         except GolestoonNetworkError as err:
             self.error_signal.emit(err.message)
-        except Exception as err:
+        except Exception as err:  # noqa: BLE001 — worker boundary
+            logger.exception("Transcript sync worker crashed")
             self.error_signal.emit(str(err))
+
+    def _handle_status(self, result: TranscriptSyncStatusModel) -> None:
+        status = result.status
+
+        if status == "done" and result.student:
+            try:
+                student: Student = student_from_api(result.student)
+            except Exception as err:  # noqa: BLE001 — conversion boundary
+                logger.exception("Failed to convert student payload")
+                self.error_signal.emit(f"CONVERSION_ERROR:{err}")
+                return
+
+            try:
+                from app.data.student_db import StudentDatabase
+                StudentDatabase(student.student_id).save_student(student)
+            except Exception as err:  # noqa: BLE001 — cache write boundary
+                logger.warning("Failed to cache student record locally: %s", err)
+
+            self.finished_signal.emit(student)
+            return
+
+        if status == "too_recent":
+            minutes = result.minutes_left
+            msg = result.message or (
+                "در ۱۰ دقیقه گذشته بروزرسانی انجام شده؛ لطفاً کمی بعد دوباره تلاش کنید."
+                if minutes is None else
+                f"محدودیت تعداد درخواست؛ {minutes} دقیقه دیگر تلاش کنید."
+            )
+            self.status_signal.emit(status, msg)
+            return
+
+        if status == "needs_login":
+            self.status_signal.emit(status, "اعتبارنامه گلستان برای همگام‌سازی لازم است.")
+            return
+
+        if status in ("queued", "syncing"):
+            self.status_signal.emit(status, "همگام‌سازی در حال اجراست؛ لطفاً منتظر بمانید.")
+            return
+
+        self.error_signal.emit(result.message or f"UNKNOWN_STATUS:{status}")
 
 
 class AcademicManager(QObject):
     """
-    Manager and ViewModel bridging PyQt5 Academic Center UI with TranscriptClient and local StudentDatabase.
+    Manager and ViewModel bridging PyQt5 dashboard UI with TranscriptClient
+    and the local StudentDatabase cache.
     """
 
     def __init__(self, client: TranscriptClient, parent: Optional[QObject] = None) -> None:
         super().__init__(parent)
         self._client: TranscriptClient = client
-        self._active_worker: Optional[QThread] = None
+        # Hold every running worker so its Python wrapper is never GC'd
+        # mid-run (a destroyed running QThread aborts the whole process).
+        self._active_workers: set = set()
 
     @property
     def client(self) -> TranscriptClient:
         """Get underlying TranscriptClient instance."""
         return self._client
 
-    def sync_transcript(self, student_number: str, on_success: Any, on_error: Any) -> None:
-        """Trigger async background transcript sync."""
-        worker = SyncTranscriptWorker(client=self._client, student_number=student_number)
+    def sync_transcript(
+        self,
+        golestan_username: str,
+        golestan_password: str,
+        on_success: Callable[[Student], Any],
+        on_error: Callable[[str], Any],
+        on_status: Optional[Callable[[str, str], Any]] = None,
+        mode: str = "full",
+        force: bool = True,
+    ) -> None:
+        """
+        Trigger an async background transcript sync in a QThread.
+
+        Args:
+            golestan_username (str): University student ID.
+            golestan_password (str): University Golestan password.
+            on_success: Callback receiving the cached `Student` model.
+            on_error: Callback receiving a human-readable error string
+                (prefixed `AUTH_REQUIRED:` when the cloud JWT is missing/expired).
+            on_status: Optional callback for non-terminal statuses
+                (too_recent / needs_login / queued / syncing).
+            mode (str): 'full' or 'recent'.
+            force (bool): Skip the 10-minute freshness window.
+        """
+        worker = SyncTranscriptWorker(
+            client=self._client,
+            golestan_username=golestan_username,
+            golestan_password=golestan_password,
+            mode=mode,
+            force=force,
+        )
         worker.finished_signal.connect(on_success)
         worker.error_signal.connect(on_error)
-        if hasattr(worker, 'finished'): worker.finished.connect(worker.deleteLater)
+        if on_status is not None:
+            worker.status_signal.connect(on_status)
+        self._active_workers.add(worker)
+
+        def _release():
+            self._active_workers.discard(worker)
+            worker.deleteLater()
+
+        worker.finished.connect(_release)
         worker.start()
-        self._active_worker = worker
 
     # ─────────────────────────────────────────────────────────
     #  GPA & Academic Analytics Calculations
@@ -148,10 +260,11 @@ class AcademicManager(QObject):
         elective_passed: int = 0, elective_req: int = 12
     ) -> Dict[str, Any]:
         """
-        Compute Report 272 degree requirement progress breakdown matching Golestan web view.
+        Compute a *synthetic* Report 272 breakdown (legacy helper).
 
-        Returns:
-            Dict[str, Any]: Progress percentages and unit shortages per category.
+        The dashboard now renders real server-side Report 272 data via
+        `Student.degree_status`; this fallback remains for the legacy
+        academic center dialog.
         """
         total_passed = general_passed + basic_passed + specialized_passed + elective_passed
         total_required = general_req + basic_req + specialized_req + elective_req
