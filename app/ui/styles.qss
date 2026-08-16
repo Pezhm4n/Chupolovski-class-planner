@@ -381,3 +381,79 @@ QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
     width: 0;
     border: none;
 }
+
+/* --- 9. Schedule Grid Course Cells (weekly plan blocks) --- */
+
+/* Cell container: background & border come from per-course inline styles
+   (hash-based colors); QSS here only handles typography & children. */
+QWidget#course-cell {
+    border-radius: 8px;
+}
+
+QWidget#course-cell QLabel#course-name-label {
+    font-size: 11px;
+    font-weight: bold;
+    background: transparent;
+}
+
+QWidget#course-cell QLabel#professor-label {
+    font-size: 9.5px;
+    background: transparent;
+    opacity: 0.95;
+}
+
+QWidget#course-cell QLabel#code-label {
+    font-size: 9px;
+    background: transparent;
+}
+
+/* Round subtle remove (✕) button on course cells */
+QPushButton#close-btn {
+    background-color: rgba(239, 68, 68, 0.15);
+    color: #ef4444;
+    border: none;
+    border-radius: 9px;
+    font-size: 10px;
+    font-weight: bold;
+}
+
+QPushButton#close-btn:hover {
+    background-color: #ef4444;
+    color: #ffffff;
+}
+
+/* Parity chips (ف = odd / ز = even weeks) */
+QLabel#parity-label-odd, QLabel#parity-label-even, QLabel#parity-label-all {
+    font-size: 9px;
+    font-weight: bold;
+    padding: 1px 6px;
+    border-radius: 7px;
+    background: transparent;
+}
+
+QLabel#parity-label-odd { color: #d97706; }
+QLabel#parity-label-even { color: #0284c7; }
+QLabel#parity-label-all { color: #64748b; }
+
+/* Vertical time header — reference style: dark column with bold centered
+   Persian hour numerals; fixed colors (identical in light & dark themes) */
+QTableWidget QHeaderView::section:vertical {
+    background-color: #1f2937;
+    color: #f1f5f9;
+    font-size: 13px;
+    font-weight: bold;
+    border: none;
+    border-top: 1px solid #374151;
+    padding: 0px 3px;
+}
+
+/* Horizontal day header — match the dark hour column */
+QTableWidget QHeaderView::section:horizontal {
+    background-color: #1f2937;
+    color: #f1f5f9;
+    font-size: 12px;
+    font-weight: bold;
+    border: none;
+    border-left: 1px solid #374151;
+    padding: 8px 4px;
+}

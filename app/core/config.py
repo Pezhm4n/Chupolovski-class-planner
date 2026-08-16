@@ -145,10 +145,10 @@ def generate_time_slots():
 TIME_SLOTS = generate_time_slots()
 
 def generate_extended_time_slots():
-    """Generate extended time slots from 7:00 to 19:00 in 30-minute intervals."""
+    """Generate extended time slots from 7:00 to 20:00 in 30-minute intervals."""
     extended_time_slots = []
     start_minutes = 7 * 60
-    end_minutes = 19 * 60
+    end_minutes = 20 * 60
     m = start_minutes
     while m <= end_minutes:
         hh = m // 60
@@ -179,18 +179,26 @@ from .logger import setup_logging
 logger = setup_logging()
 
 def load_qss_styles():
-    """Load QSS styles from external file with fallback"""
+    """Load themed QSS (light or dark per ThemeManager) with fallback."""
     try:
-        if os.path.exists(STYLES_FILE):
-            with open(STYLES_FILE, 'r', encoding='utf-8') as f:
-                qss_content = f.read()
-                logger.info(f"Successfully loaded styles from {STYLES_FILE}")
-                return qss_content
-        else:
-            logger.warning(f"QSS file not found: {STYLES_FILE}")
+        from .theme_manager import theme_manager
+        qss_content = theme_manager.build_qss()
+        if qss_content:
+            logger.info(
+                f"Successfully loaded '{theme_manager.effective_theme()}' styles "
+                f"(mode: {theme_manager.mode})"
+            )
+            return qss_content
+        logger.warning(f"Themed QSS build returned empty (base file: {STYLES_FILE})")
     except Exception as e:
-        logger.error(f"Error loading QSS file: {e}")
-    
+        logger.error(f"Error building themed QSS, falling back to light file: {e}")
+        try:
+            if os.path.exists(STYLES_FILE):
+                with open(STYLES_FILE, 'r', encoding='utf-8') as f:
+                    return f.read()
+        except Exception as fallback_err:
+            logger.error(f"Error loading fallback QSS file: {fallback_err}")
+
     logger.info("Using default Qt styles")
     return ""
 

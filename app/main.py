@@ -145,12 +145,12 @@ def main():
     language_manager.apply_font(app)
 
     try:
-        qss_styles = load_qss_styles()
-        if qss_styles:
-            app.setStyleSheet(qss_styles)
-            logger.info("Successfully applied QSS styles to application")
-        else:
-            logger.info("No QSS styles found, using default Qt styling")
+        from app.core.theme_manager import theme_manager
+        theme_manager.apply(app)
+        logger.info(
+            f"Successfully applied '{theme_manager.effective_theme()}' theme "
+            f"(mode: {theme_manager.mode})"
+        )
     except Exception as e:
         logger.error(f"Failed to apply styles: {e}")
 
