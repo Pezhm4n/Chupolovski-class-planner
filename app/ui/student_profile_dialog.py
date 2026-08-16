@@ -519,7 +519,7 @@ class StudentProfileDialog(QDialog):
             QWidget {{
                 background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
                     stop:0 #667eea, stop:1 #764ba2);
-                border: 2px solid #11111;
+                border: 2px solid #111111;
                 border-radius: {(self.PHOTO_SIZE + 16) // 2}px;
             }}
         """)

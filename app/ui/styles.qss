@@ -1,832 +1,383 @@
-/* 
-   Professional QSS styles for Course Selection Application
-   Enhanced UI/UX with harmonious color palette and improved typography
-*/
+/* =====================================================================
+   🌸 GOLESTOON MODERN DESIGN SYSTEM (PyQt5 QSS)
+   Inspired by TailwindCSS & shadcn/ui Design Tokens
+   Designed for Iranian University Students (Vazirmatn / Shabnam Typography)
+   ===================================================================== */
 
-/* Main Application Styles with Professional Typography */
+/* --- 1. Global Reset & Typography --- */
 * {
-    font-family: 'IRANSans UI', 'Shabnam', 'Tahoma', 'Arial Unicode MS', sans-serif;
+    font-family: "Vazirmatn", "Vazir", "Shabnam", "IRANSans", "Segoe UI", "Tahoma", sans-serif;
     font-size: 12px;
+    outline: none;
 }
 
+/* --- 2. Main Window & Backgrounds --- */
 QMainWindow {
-    background-color: #f5f7fa;
-    background: qlineargradient(x1: 0, y1: 0, x2: 1, y2: 1,
-                               stop: 0 #f5f7fa, stop: 1 #e4e7eb);
+    background-color: #f8fafc;
+    color: #0f172a;
 }
 
-/* Panel Styles */
-#left_panel, #center_panel, #right_panel {
-    background-color: white;
-    border: 1px solid #d5dbdb;
-    border-radius: 10px;
+/* Base Widget Surfaces */
+QWidget#centralwidget {
+    background-color: #f8fafc;
+}
+
+/* Left, Center, Right Surface Panels */
+#left_panel, #center_panel, #right_panel, #courses_panel, #schedule_panel, #info_panel {
+    background-color: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 12px;
     padding: 10px;
 }
 
-#left_panel {
-    background: qlineargradient(x1: 0, y1: 0, x2: 1, y2: 1,
-                               stop: 0 #ffffff, stop: 1 #f8f9fa);
-}
-
-#center_panel {
-    background: qlineargradient(x1: 0, y1: 0, x2: 1, y2: 1,
-                               stop: 0 #ffffff, stop: 1 #f8f9fa);
-}
-
-#right_panel {
-    background: qlineargradient(x1: 0, y1: 0, x2: 1, y2: 1,
-                               stop: 0 #ffffff, stop: 1 #f8f9fa);
-}
-
-/* Enhanced Button Styles with Harmonious Color Palette */
+/* --- 3. Modern Interactive Buttons --- */
 QPushButton {
-    background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
-                              stop: 0 #1976D2, stop: 1 #1565C0);
-    color: white;
-    border: none;
-    padding: 10px 18px;
-    border-radius: 20px;
-    font-weight: 500;
-    font-size: 13px;
-    min-height: 28px;
+    background-color: #2563eb;
+    color: #ffffff;
+    border: 1px solid #1d4ed8;
+    border-radius: 8px;
+    padding: 7px 14px;
+    font-size: 12px;
+    font-weight: bold;
+    min-height: 24px;
 }
 
 QPushButton:hover {
-    background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
-                              stop: 0 #1565C0, stop: 1 #1976D2);
+    background-color: #1d4ed8;
+    border-color: #1e40af;
 }
 
 QPushButton:pressed {
-    background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
-                              stop: 0 #0D47A1, stop: 1 #1565C0);
+    background-color: #1e40af;
 }
 
 QPushButton:disabled {
-    background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
-                              stop: 0 #bdc3c7, stop: 1 #95a5a6);
-    color: #7f8c8d;
+    background-color: #e2e8f0;
+    color: #94a3b8;
+    border: 1px solid #cbd5e1;
 }
 
-/* Success Button (Green) */
-QPushButton#success_btn {
-    background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
-                              stop: 0 #43A047, stop: 1 #388E3C);
-    color: white;
+/* Success Buttons (Emerald Green) */
+QPushButton#success_btn, QPushButton#add_to_auto_btn {
+    background-color: #10b981;
+    border: 1px solid #059669;
+    color: #ffffff;
+}
+
+QPushButton#success_btn:hover, QPushButton#add_to_auto_btn:hover {
+    background-color: #059669;
+}
+
+QPushButton#success_btn:pressed, QPushButton#add_to_auto_btn:pressed {
+    background-color: #047857;
+}
+
+/* Danger Buttons (Rose Red) */
+QPushButton#danger_btn, QPushButton#remove_course_btn, QPushButton#clear_schedule_btn, QPushButton#remove_from_auto_btn {
+    background-color: #ef4444;
+    border: 1px solid #dc2626;
+    color: #ffffff;
+}
+
+QPushButton#danger_btn:hover, QPushButton#remove_course_btn:hover, QPushButton#clear_schedule_btn:hover, QPushButton#remove_from_auto_btn:hover {
+    background-color: #dc2626;
+}
+
+QPushButton#danger_btn:pressed, QPushButton#remove_course_btn:pressed, QPushButton#clear_schedule_btn:pressed, QPushButton#remove_from_auto_btn:pressed {
+    background-color: #b91c1c;
+}
+
+/* Secondary & Neutral Buttons */
+QPushButton#secondary_btn, QPushButton#cancel_btn {
+    background-color: #f1f5f9;
+    color: #334155;
+    border: 1px solid #cbd5e1;
+}
+
+QPushButton#secondary_btn:hover, QPushButton#cancel_btn:hover {
+    background-color: #e2e8f0;
+    color: #0f172a;
+}
+
+/* Action Generator Button */
+QPushButton#optimal_schedule_btn {
+    background-color: #8b5cf6;
+    border: 1px solid #7c3aed;
+    color: #ffffff;
     font-weight: bold;
-    border-radius: 18px;
-    min-height: 35px;
-    max-height: 40px;
+    border-radius: 8px;
+    padding: 8px 16px;
 }
 
-QPushButton#success_btn:hover {
-    background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
-                              stop: 0 #388E3C, stop: 1 #43A047);
+QPushButton#optimal_schedule_btn:hover {
+    background-color: #7c3aed;
 }
 
-/* Danger Button (Red) */
-QPushButton#danger_btn, QPushButton#remove_course_btn, QPushButton#clear_schedule_btn {
-    background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
-                              stop: 0 #E53935, stop: 1 #D32F2F);
-    color: white;
-    font-weight: bold;
-    border-radius: 18px;
-    min-height: 35px;
-    max-height: 40px;
+/* --- 4. Form Controls, Text Inputs & Dropdowns --- */
+QLineEdit {
+    background-color: #ffffff;
+    color: #0f172a;
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+    padding: 6px 10px;
+    font-size: 12px;
+    selection-background-color: #2563eb;
+    selection-color: #ffffff;
 }
 
-QPushButton#danger_btn:hover, QPushButton#remove_course_btn:hover, QPushButton#clear_schedule_btn:hover {
-    background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
-                              stop: 0 #D32F2F, stop: 1 #E53935);
+QLineEdit:focus {
+    border: 1.5px solid #2563eb;
+    background-color: #ffffff;
 }
 
-/* Detailed Info Button (Blue) - Save Button */
-QPushButton#detailed_info_btn {
-    background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
-                              stop: 0 #1976D2, stop: 1 #1565C0);
-    color: white;
-    border: none;
-    padding: 10px 18px;
-    border-radius: 18px;
-    font-weight: 500;
-    font-size: 13px;
-    min-height: 35px;
-    max-height: 40px;
+QComboBox {
+    background-color: #ffffff;
+    color: #0f172a;
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+    padding: 5px 10px;
+    font-size: 12px;
+    min-height: 24px;
 }
 
-QPushButton#detailed_info_btn:hover {
-    background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
-                              stop: 0 #1565C0, stop: 1 #1976D2);
+QComboBox:hover {
+    border-color: #94a3b8;
 }
 
-/* GroupBox Styles with Professional Design */
+QComboBox:focus {
+    border: 1.5px solid #2563eb;
+}
+
+QComboBox::drop-down {
+    subcontrol-origin: padding;
+    subcontrol-position: top left;
+    width: 20px;
+    border-left: none;
+}
+
+QComboBox QAbstractItemView {
+    background-color: #ffffff;
+    color: #0f172a;
+    border: 1px solid #cbd5e1;
+    border-radius: 6px;
+    selection-background-color: #eff6ff;
+    selection-color: #1d4ed8;
+    padding: 4px;
+}
+
+/* --- 5. Group Boxes & Cards --- */
 QGroupBox {
+    background-color: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
+    margin-top: 14px;
+    padding-top: 12px;
     font-weight: bold;
-    font-size: 15px;
-    border: 1px solid #d5dbdb;
-    border-radius: 12px;
-    margin-top: 1.5ex;
-    padding-top: 10px;
-    background-color: rgba(255, 255, 255, 0.8);
-    font-family: 'IRANSans UI', 'Shabnam', 'Tahoma', sans-serif;
+    font-size: 13px;
+    color: #1e293b;
 }
 
 QGroupBox::title {
     subcontrol-origin: margin;
-    left: 15px;
-    padding: 0 10px 0 10px;
-    color: #2c3e50;
-    font-size: 15px;
+    subcontrol-position: top right;
+    right: 12px;
+    padding: 0 6px;
+    color: #2563eb;
+    background-color: #ffffff;
 }
 
-/* List Widget Styles with Enhanced Design */
+/* --- 6. List Widgets (Course & Saved Combos) --- */
 QListWidget {
-    border: 1px solid #d5dbdb;
-    border-radius: 10px;
-    background-color: white;
-    padding: 6px;
-    font-size: 12px;
-    spacing: 3px; /* Add spacing between items */
+    background-color: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 4px;
+    alternate-background-color: #f8fafc;
 }
 
 QListWidget::item {
-    border-bottom: 1px solid #ecf0f1;
-    padding: 8px 4px; /* Reduced right padding to allow full text display */
-    min-height: 45px; /* Ensure minimum height for proper display */
+    border-bottom: 1px solid #f1f5f9;
+    border-radius: 6px;
+    padding: 6px 8px;
+    color: #1e293b;
+    margin-bottom: 2px;
+}
+
+QListWidget::item:hover {
+    background-color: #f1f5f9;
 }
 
 QListWidget::item:selected {
-    background-color: #d6eaf8;
-    color: #2980b9;
+    background-color: #eff6ff;
+    border: 1px solid #93c5fd;
+    color: #1e40af;
+    font-weight: bold;
 }
 
-/* Course list label styling */
-QLabel#course_list_label {
-    min-height: 45px;
-    font-size: 12px;
-    color: #2c3e50;
-    padding: 2px 0;
-}
-
-/* Table Widget Styles - Enhanced Schedule Table */
-QTableWidget QHeaderView::section:vertical {
-    background: transparent;
-    border: none;
-    padding: 0px;
-    min-width: 50px;
-    max-width: 50px;
-}
-
-QTableWidget QHeaderView::section:vertical:hover {
-    background: transparent;
-}
-
+/* --- 7. Schedule Table Widget --- */
 QTableWidget {
-    border: 1px solid #d5dbdb;
-    gridline-color: #ecf0f1;
-    background-color: white;
+    background-color: #ffffff;
+    border: 1px solid #e2e8f0;
     border-radius: 8px;
-    selection-background-color: #d6eaf8;
-    selection-color: #2980b9;
-    alternate-background-color: #f8f9fa;
+    gridline-color: #f1f5f9;
+    selection-background-color: #eff6ff;
+    selection-color: #1d4ed8;
     font-size: 11px;
 }
 
 QTableWidget::item {
-    border: none;
-    padding: 2px;
-    margin: 0px;
-}
-
-QTableWidget QWidget {
+    padding: 1px;
     border: none;
 }
 
-/* Table Header Styles */
-QHeaderView::section {
-    background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
-                              stop: 0 #1976D2, stop: 1 #1565C0);
-    color: white;
-    padding: 8px;
+/* Table Horizontal Headers (Days) */
+QHeaderView::section:horizontal {
+    background-color: #1e293b;
+    color: #ffffff;
+    padding: 8px 4px;
     border: none;
+    border-left: 1px solid #334155;
     font-weight: bold;
-    font-size: 14px;
+    font-size: 12px;
 }
 
+/* Table Vertical Headers (Time Slots) */
 QHeaderView::section:vertical {
-    background-color: transparent;
-    /* background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1, stop: 0 #1976D2, stop: 1 #1565C0); */
-    color: black;
-    font-size: 12px;
-    font-family: 'IRANSans UI', sans-serif;
+    background-color: #f8fafc;
+    color: #64748b;
+    padding: 2px 6px;
     border: none;
+    border-bottom: 1px solid #e2e8f0;
+    font-weight: bold;
+    font-size: 11px;
     text-align: center;
 }
 
-QHeaderView::section:horizontal {
-    border-right: 1px solid rgba(255, 255, 255, 0.3);
-}
-
-/* Status Bar Styles */
-QStatusBar {
-    background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
-                              stop: 0 #f8f9fa, stop: 1 #e9ecef);
-    border-top: 2px solid #1976D2;
-    padding: 8px 15px;
-    font-size: 12px;
-    color: #2c3e50;
-    font-weight: bold;
-    font-family: 'IRANSans UI', 'Shabnam', 'Tahoma', sans-serif;
-}
-
-QStatusBar::item {
-    border: none;
-}
-
-/* Combination Course List Styles */
-QListWidget#combination_course_list {
-    border: 1px solid #d5dbdb;
-    border-radius: 10px;
+/* --- 8. Tab Widget & Pages --- */
+QTabWidget::pane {
+    border: 1px solid #e2e8f0;
     background-color: #ffffff;
+    border-radius: 8px;
     padding: 8px;
 }
 
-QListWidget#combination_course_list::item {
-    border-bottom: 1px solid #ecf0f1;
-    padding: 8px;
+QTabBar::tab {
+    background-color: #f1f5f9;
+    color: #64748b;
+    padding: 8px 16px;
+    margin-left: 3px;
+    border-top-left-radius: 8px;
+    border-top-right-radius: 8px;
+    font-weight: bold;
+    font-size: 12px;
 }
 
-QListWidget#combination_course_list::item:selected {
-    background-color: #d6eaf8;
-    color: #2980b9;
+QTabBar::tab:hover {
+    background-color: #e2e8f0;
+    color: #0f172a;
 }
 
-/* Combination card styling */
-QFrame#combination_card {
+QTabBar::tab:selected {
     background-color: #ffffff;
-    border: 2px solid #3498db;
-    border-radius: 15px;
-    margin: 12px;
-    padding: 15px;
+    color: #2563eb;
+    border-bottom: 2px solid #2563eb;
 }
 
-QFrame#combination_card:hover {
-    border: 2px solid #2980b9;
-    background-color: #f8f9fa;
-}
-
-/* Combination title styling */
-QLabel#combination_title {
-    font-size: 18px;
-    font-weight: bold;
-    color: #2c3e50;
-}
-
-/* Stats badges styling */
-QLabel#days_badge, QLabel#empty_badge, QLabel#courses_badge {
-    border-radius: 12px;
-    padding: 4px 12px;
-    font-size: 12px;
-    font-weight: bold;
-    color: white;
-}
-
-QLabel#days_badge {
-    background-color: #3498db;
-}
-
-QLabel#empty_badge {
-    background-color: #2ecc71;
-}
-
-QLabel#courses_badge {
-    background-color: #9b59b6;
-}
-
-
-/* Course Cell Styles - Enhanced with conflict detection */
-QWidget#course-cell {
-    border: none !important;
-    border-radius: 6px !important;
-    padding: 2px !important;
-    margin: 1px !important;
-    background-color: rgba(25, 118, 210, 0.2) !important;
-}
-
-/* Remove conflict indicators from schedule table cells */
-/* Note: visibility is not a valid QSS property in Qt stylesheets */
-/* Conflict indicators are hidden via hide()/show() in code (see widgets.py) */
-/* No QSS rule needed - handled programmatically */
-
-/* Ensure course name label is visible */
-QWidget#course-cell QLabel#course-name-label {
-    opacity: 1; /* Ensure course name is visible */
-    font-weight: 600;
-    font-size: 12px;
-    color: #2c3e50;
-}
-
-/* Elective course style (green) */
-QWidget#course-cell[elective="true"] {
-    border: none !important;
-    background-color: rgba(67, 160, 71, 0.2) !important;
-}
-
-/* Conflict course style (red) - Simplified to remove border */
-QWidget#course-cell[conflict="true"] {
-    background-color: rgba(229, 57, 53, 0.2) !important;
-}
-
-/* Course Name Label Style */
-QLabel#course-name-label {
-    font-weight: 600;
-    font-size: 12px;
-    color: #2c3e50;
-    border: none !important;
-    outline: none !important;
-    background: transparent !important;
-    margin: 0px;
-    padding: 1px;
-    font-family: 'IRANSans UI', 'Shabnam', 'Tahoma', sans-serif;
-    opacity: 1; /* Ensure course name is visible */
-}
-
-/* Professor Label Style */
-QLabel#professor-label {
-    font-weight: normal;
-    font-size: 12px;
-    color: #7f8c8d;
-    border: none !important;
-    outline: none !important;
-    background: transparent !important;
-    margin: 0px;
-    padding: 1px;
-    font-family: 'IRANSans UI', 'Shabnam', 'Tahoma', sans-serif;
-}
-
-/* Course Code Label Style */
-QLabel#code-label {
-    font-weight: 500;
-    font-size: 9px;
-    color: #95a5a6;
-    border: none !important;
-    outline: none !important;
-    background: transparent !important;
-    margin: 0px;
-    padding: 1px;
-    font-family: 'IRANSans UI', 'Shabnam', 'Tahoma', sans-serif;
-}
-
-/* Close/X Button Style - Smaller and more circular */
-QPushButton#close-btn {
-    background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
-                              stop: 0 #E53935, stop: 1 #D32F2F);
-    color: white;
-    border: none;
-    border-radius: 9px; /* Perfect circle for 18px */
-    font-weight: bold;
-    font-size: 12px;
-    font-family: 'Arial', sans-serif;
-    min-width: 18px;
-    min-height: 18px;
-    max-width: 18px;
-    max-height: 18px;
-    padding: 0px;
-}
-
-QPushButton#close-btn:hover {
-    background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
-                              stop: 0 #D32F2F, stop: 1 #E53935);
-}
-
-/* Edit button styling - Larger and more circular */
-QPushButton#edit_btn {
-    background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
-                              stop: 0 #1976D2, stop: 1 #1565C0);
-    color: white;
-    border: none;
-    border-radius: 12px; /* Perfect circle for 24px */
-    font-weight: bold;
-    font-size: 12px;
-    min-width: 24px;
-    min-height: 24px;
-    max-width: 24px;
-    max-height: 24px;
-    padding: 0px;
-}
-
-QPushButton#edit_btn:hover {
-    background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
-                              stop: 0 #1565C0, stop: 1 #1976D2);
-}
-
-/* Delete button styling - Larger and more circular */
-QPushButton#delete_btn {
-    background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
-                              stop: 0 #E53935, stop: 1 #D32F2F);
-    color: white;
-    border: none;
-    border-radius: 12px; /* Perfect circle for 24px */
-    font-weight: bold;
-    font-size: 12px;
-    min-width: 24px;
-    min-height: 24px;
-    max-width: 24px;
-    max-height: 24px;
-    padding: 0px;
-}
-
-QPushButton#delete_btn:hover {
-    background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
-                              stop: 0 #D32F2F, stop: 1 #E53935);
-}
-
-/* Parity label styling */
-QLabel#parity-label-even {
-    color: #D32F2F;
-    font-weight: bold;
-    font-size: 16px;
-    padding: 2px ;
-}
-
-QLabel#parity-label-odd {
-    color: #2980b9;
-    font-weight: bold;
-    font-size: 16px;
-    padding: 2px ;
-}
-
-QLabel#parity-label-all {
-    color: #e67e22; /* Darker orange for better visibility */
-    font-weight: bold;
-    font-size: 16px; /* Slightly larger font */
-    padding: 2px ;
-}
-
-/* Line Edit styling */
-QLineEdit {
-    padding: 8px 12px;
-    border: 1px solid #d5dbdb;
-    border-radius: 8px;
+/* --- 9. Menu Bar & Dropdown Menus --- */
+QMenuBar {
     background-color: #ffffff;
-    selection-background-color: #d6eaf8;
-    font-family: 'IRANSans UI', 'Shabnam', 'Tahoma', sans-serif;
-    font-size: 13px;
-}
-
-QLineEdit:focus {
-    border: 1px solid #1976D2;
-}
-
-/* Labels with proper typography */
-QLabel {
-    font-family: 'IRANSans UI', 'Shabnam', 'Tahoma', sans-serif;
+    color: #1e293b;
+    border-bottom: 1px solid #e2e8f0;
+    padding: 3px 6px;
     font-size: 12px;
-    color: #2c3e50;
 }
 
-/* Scrollbar styling */
-QScrollBar:vertical {
-    border: none;
-    background: #f8f9fa;
-    width: 10px;
-    border-radius: 0px;
-}
-
-QScrollBar::handle:vertical {
-    background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
-                              stop: 0 #1976D2, stop: 1 #1565C0);
+QMenuBar::item {
+    background: transparent;
+    padding: 6px 10px;
     border-radius: 6px;
-    min-height: 18px;
 }
 
-QScrollBar::handle:vertical:hover {
-    background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
-                              stop: 0 #1565C0, stop: 1 #1976D2);
+QMenuBar::item:selected {
+    background-color: #f1f5f9;
+    color: #2563eb;
 }
 
-/* Additional styles for exam schedule window */
-QToolBar {
-    background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
-                              stop: 0 #1976D2, stop: 1 #1565C0);
-    border: none;
-    spacing: 5px;
-}
-
-QToolBar QToolButton {
-    background: transparent;
-    color: white;
-    border: none;
-    padding: 8px 12px;
-    border-radius: 4px;
-    font-weight: 500;
-}
-
-QToolBar QToolButton:hover {
-    background: rgba(255, 255, 255, 0.2);
-}
-
-/* Additional styles for auto select buttons */
-QPushButton#add_to_auto_btn {
-    background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
-                              stop: 0 #43A047, stop: 1 #388E3C);
-    color: white;
-    font-weight: bold;
-    border-radius: 18px;
-    min-height: 25px;
-    max-height: 30px;
-}
-
-QPushButton#add_to_auto_btn:hover {
-    background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
-                              stop: 0 #388E3C, stop: 1 #43A047);
-}
-
-QPushButton#remove_from_auto_btn {
-    background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
-                              stop: 0 #E53935, stop: 1 #D32F2F);
-    color: white;
-    font-weight: bold;
-    border-radius: 18px;
-    min-height: 25px;
-    max-height: 30px;
-}
-
-QPushButton#remove_from_auto_btn:hover {
-    background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
-                              stop: 0 #D32F2F, stop: 1 #E53935);
-}
-
-/* Search clear button - Smaller and more circular */
-QPushButton#search_clear_button {
-    background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
-                              stop: 0 #95a5a6, stop: 1 #7f8c8d);
-    color: darkgrey;
-    border: none;
-    border-radius: 10px; /* Perfect circle for 20px */
-    font-weight: bold;
-    font-size: 14px;
-    min-width: 20px;
-    min-height: 20px;
-    max-width: 25px;
-    max-height: 25px;
-    padding: 0px;
-    margin: 0px 1px;
-}
-
-QPushButton#search_clear_button:hover {
-    background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
-                              stop: 0 #7f8c8d, stop: 1 #95a5a6);
-}
-
-/* Styles for combination cards */
-QFrame#combination_card {
+QMenu {
     background-color: #ffffff;
-    border: 2px solid #3498db;
-    border-radius: 15px;
-    margin: 12px;
-    padding: 15px;
-}
-
-QFrame#combination_card:hover {
-    border: 2px solid #2980b9;
-    background-color: #f8f9fa;
-}
-
-/* Preview widget styling */
-QWidget#preview_widget {
-    background-color: rgba(255, 255, 200, 0.80); /* Light yellow background */
-    border: 3px dashed #FFD700;
-    border-radius: 8px;
-    padding: 1px;
-}
-
-QWidget#preview_widget QLabel {
-    color: #444444;
-    font-weight: normal;
-}
-
-QWidget#preview_widget QLabel#course_name_label {
-    padding-top: 2px;
-    font-weight: bold;
-    font-size: 12px;
-    color: #333333;
-}
-
-QWidget#preview_widget QLabel#professor_label {
-    font-size: 10px;
-    color: #555555;
-}
-
-QWidget#preview_widget QLabel#code_label {
-    font-size: 10px;
-    color: #666666;
-    font-family: 'Consolas', 'Monaco', monospace;
-}
-
-/* Scroll area styling */
-QScrollArea {
-    border: none;
-    background: transparent;
-}
-
-QScrollArea QWidget {
-    background: transparent;
-}
-
-/* Course Details Dialog Buttons */
-QPushButton#copy_code {
-    background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
-                              stop: 0 #3498db, stop: 1 #2980b9);
-    color: white;
-    border: none;
-    padding: 6px 8px;
-    border-radius: 8px;
-    font-weight: 500;
-    font-size: 12px;
-    min-height: 15px;
-}
-
-QPushButton#copy_code:hover {
-    background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
-                              stop: 0 #2980b9, stop: 1 #3498db);
-}
-
-QPushButton#dialog_close {
-    background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
-                              stop: 0 #95a5a6, stop: 1 #7f8c8d);
-    color: white;
-    border: none;
-    padding: 6px 8px;
-    border-radius: 8px;
-    font-weight: 500;
-    font-size: 12px;
-    min-height: 15px;
-}
-
-QPushButton#dialog_close:hover {
-    background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1,
-                              stop: 0 #7f8c8d, stop: 1 #95a5a6);
-}
-
-/* RTL-specific adjustments for expanded overlay */
-[dir="rtl"] QWidget#expanded-course-overlay {
-    direction: rtl;
-}
-
-/* Enhanced Dual Course Widget Styles */
-
-/* Base dual course cell styling - match single course cell style */
-QWidget#dual-course-cell {
-    background: transparent;
-    border: none !important;
-    border-radius: 6px !important;
-    padding: 2px !important;
-    margin: 1px !important;
-    min-height: 60px;
-    min-width: 0px;
-}
-
-/* Hover state for dual course cells - no border */
-QWidget#dual-course-cell:hover {
-    border: none !important;
-    background: transparent;
-}
-
-/* Highlighted state - no border */
-QWidget#dual-course-cell[highlighted="true"] {
-    border: none !important;
-    border-radius: 6px;
-    background: transparent;
-}
-
-/* Dual course cell sections - no border, no shadow */
-QWidget#dual-course-cell QFrame {
-    border: none !important;
-    outline: none !important;
-}
-
-/* Dual course cell labels - no border, transparent background, simple text */
-QWidget#dual-course-cell QLabel {
-    border: none !important;
-    outline: none !important;
-    background: transparent !important;
-    padding: 0px !important;
-    margin: 0px !important;
-}
-
-QWidget#dual-course-cell QLabel:hover {
-    border: none !important;
-    outline: none !important;
-    background: transparent !important;
-}
-
-/* Dual course cell sections can have border on hover (around session) */
-QWidget#dual-course-cell QFrame:hover {
-    border: 2px solid #e74c3c !important;
-    border-radius: 4px;
-}
-
-/* Expanded overlay styling */
-QWidget#expanded-course-overlay {
-    background: qlineargradient(x1:0, y1:0, x2:1, y2:1,
-        stop:0 rgba(255, 255, 255, 250),
-        stop:1 rgba(245, 245, 245, 250));
-    border: 2px solid #3498db;
+    color: #1e293b;
+    border: 1px solid #cbd5e1;
     border-radius: 8px;
     padding: 6px;
 }
 
-/* Course name in overlay */
-QLabel#course-name-label {
-    font-family: 'IRANSans UI', 'Nazanin', 'Tahoma';
-    font-size: 11pt;
-    font-weight: bold;
-    color: #2c3e50;
-    padding: 2px;
+QMenu::item {
+    padding: 6px 20px 6px 24px;
+    border-radius: 6px;
 }
 
-/* Professor name in overlay */
-QLabel#professor-label {
-    font-family: 'IRANSans UI', 'Nazanin', 'Tahoma';
-    font-size: 9pt;
-    color: #7f8c8d;
-    padding: 2px;
+QMenu::item:selected {
+    background-color: #eff6ff;
+    color: #1d4ed8;
 }
 
-/* Course code in overlay */
-QLabel#code-label {
-    font-family: 'IRANSans UI', 'Nazanin', 'Tahoma';
-    font-size: 8pt;
-    color: #95a5a6;
-    padding: 2px;
+QMenu::separator {
+    height: 1px;
+    background-color: #e2e8f0;
+    margin: 4px 6px;
 }
 
-/* Parity indicator in overlay */
-QLabel#parity-indicator {
-    font-family: 'IRANSans UI', 'Nazanin', 'Tahoma';
-    font-size: 9pt;
-    font-weight: bold;
-    color: #3498db;
-    padding: 2px;
-    background: rgba(52, 152, 219, 0.1);
+/* --- 10. Status Bar --- */
+QStatusBar {
+    background-color: #ffffff;
+    color: #475569;
+    border-top: 1px solid #e2e8f0;
+    padding: 4px 10px;
+    font-size: 11.5px;
+    font-weight: 500;
+}
+
+/* --- 11. Scrollbars --- */
+QScrollBar:vertical {
+    background-color: #f8fafc;
+    width: 8px;
     border-radius: 4px;
-    margin: 2px;
+    margin: 0;
 }
 
-/* Close button in overlay */
-QPushButton#close-btn {
-    background: #e74c3c;
-    color: white;
+QScrollBar::handle:vertical {
+    background-color: #cbd5e1;
+    border-radius: 4px;
+    min-height: 24px;
+}
+
+QScrollBar::handle:vertical:hover {
+    background-color: #94a3b8;
+}
+
+QScrollBar::add-line:vertical, QScrollBar::sub-line:vertical {
+    height: 0;
     border: none;
-    border-radius: 10px;
-    font-weight: bold;
-    font-size: 12pt;
-    padding: 0px;
 }
 
-QPushButton#close-btn:hover {
-    background: #c0392b;
+QScrollBar:horizontal {
+    background-color: #f8fafc;
+    height: 8px;
+    border-radius: 4px;
+    margin: 0;
 }
 
-QPushButton#close-btn:pressed {
-    background: #a93226;
+QScrollBar::handle:horizontal {
+    background-color: #cbd5e1;
+    border-radius: 4px;
+    min-width: 24px;
 }
 
-/* Responsive adjustments for smaller screens */
-@media (max-width: 1200px) {
-    QWidget#dual-course-cell {
-        min-height: 70px;
-        min-width: 0px;
-    }
-    
-    QLabel#course-name-label {
-        font-size: 10pt;
-    }
-    
-    QLabel#professor-label {
-        font-size: 8pt;
-    }
-    
-    QLabel#code-label {
-        font-size: 7pt;
-    }
+QScrollBar::handle:horizontal:hover {
+    background-color: #94a3b8;
 }
 
-@media (max-width: 800px) {
-    QWidget#dual-course-cell {
-        min-height: 60px;
-        min-width: 0px;
-    }
-    
-    QLabel#course-name-label {
-        font-size: 9pt;
-    }
-    
-    QLabel#professor-label {
-        font-size: 7pt;
-    }
-    
-    QLabel#code-label {
-        font-size: 6pt;
-    }
+QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
+    width: 0;
+    border: none;
 }

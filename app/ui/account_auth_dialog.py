@@ -18,9 +18,6 @@ from app.core.network.clients.auth_client import AuthClient
 from app.core.auth.token_manager import TokenManager
 from app.core.network.models import AuthResponseModel, UserModel
 from app.core.network.exceptions import GolestoonNetworkError
-
-from app.core.auth import TokenManager
-from app.core.network import AuthClient, AuthResponseModel
 from app.core.error_humanizer import humanize_error
 
 logger = logging.getLogger("golestoon.ui.account_auth_dialog")
@@ -28,17 +25,18 @@ logger = logging.getLogger("golestoon.ui.account_auth_dialog")
 
 class CloudLoginWorker(QThread):
     """Background worker thread for cloud login."""
+    finished_signal = pyqtSignal(object)
     error_signal = pyqtSignal(str)
 
-    def __init__(self, auth_client: AuthClient, username: str, password: str) -> None:
+    def __init__(self, auth_client: AuthClient, email: str, password: str) -> None:
         super().__init__()
         self._client = auth_client
-        self._user = username
+        self._email = email
         self._pass = password
 
     def run(self) -> None:
         try:
-            res = self._client.login(self._user, self._pass)
+            res = self._client.login(email=self._email, password=self._pass)
             self.finished_signal.emit(res)
         except Exception as err:
             self.error_signal.emit(str(err))
@@ -46,18 +44,19 @@ class CloudLoginWorker(QThread):
 
 class CloudSignupWorker(QThread):
     """Background worker thread for cloud account signup."""
+    finished_signal = pyqtSignal(object)
     error_signal = pyqtSignal(str)
 
-    def __init__(self, auth_client: AuthClient, username: str, password: str, name: str) -> None:
+    def __init__(self, auth_client: AuthClient, full_name: str, email: str, password: str) -> None:
         super().__init__()
         self._client = auth_client
-        self._user = username
+        self._full_name = full_name
+        self._email = email
         self._pass = password
-        self._name = name
 
     def run(self) -> None:
         try:
-            res = self._client.signup(self._user, self._pass, self._name)
+            res = self._client.signup(full_name=self._full_name, email=self._email, password=self._pass)
             self.finished_signal.emit(res)
         except Exception as err:
             self.error_signal.emit(str(err))
@@ -67,6 +66,8 @@ class AccountAuthDialog(QtWidgets.QDialog):
     """
     Main PyQt5 Dialog for Golestoon Cloud Account Authentication & Session Management.
     """
+
+    account_changed = pyqtSignal()
 
     def __init__(
         self,
@@ -89,34 +90,60 @@ class AccountAuthDialog(QtWidgets.QDialog):
 
     def _setup_ui(self) -> None:
         main_layout = QtWidgets.QVBoxLayout(self)
-        main_layout.setContentsMargins(16, 16, 16, 16)
-        main_layout.setSpacing(12)
+        main_layout.setContentsMargins(20, 20, 20, 20)
+        main_layout.setSpacing(14)
 
         # Header Title
-        title_lbl = QtWidgets.QLabel("🔐 مدیریت حساب کاربری")
+        title_box = QtWidgets.QHBoxLayout()
+        icon_lbl = QtWidgets.QLabel("🔐")
+        icon_lbl.setStyleSheet("font-size: 20pt;")
+        title_box.addWidget(icon_lbl)
+
+        title_lbl = QtWidgets.QLabel("ورود و مدیریت حساب کاربری گلستون")
         title_lbl.setStyleSheet("font-size: 13pt; font-weight: bold; color: #f8fafc;")
-        main_layout.addWidget(title_lbl)
+        title_box.addWidget(title_lbl)
+        title_box.addStretch()
+        main_layout.addLayout(title_box)
 
-        # Main Tab Widget
+        # Subtitle description
+        desc_lbl = QtWidgets.QLabel(
+            "با ورود به حساب گلستون، برنامه‌های کلاسی شما به صورت ابری ذخیره شده "
+            "و امکان مشاهده نظرات اساتید و همگام‌سازی بین دستگاه‌ها فراهم می‌شود."
+        )
+        desc_lbl.setWordWrap(True)
+        desc_lbl.setStyleSheet("color: #94a3b8; font-size: 9.5pt;")
+        main_layout.addWidget(desc_lbl)
+
+        # Tabs for Login / Signup / Profile
         self.tab_widget = QtWidgets.QTabWidget()
-        self.tab_widget.setLayoutDirection(Qt.RightToLeft)
-
-        # Tab 1: Login
+        
         self.tab_login = QtWidgets.QWidget()
-        self._setup_login_tab()
-        self.tab_widget.addTab(self.tab_login, "🔑 ورود به حساب")
-
-        # Tab 2: Signup
         self.tab_signup = QtWidgets.QWidget()
-        self._setup_signup_tab()
-        self.tab_widget.addTab(self.tab_signup, "📝 ثبت‌نام جدید")
-
-        # Tab 3: Active Profile
         self.tab_profile = QtWidgets.QWidget()
-        self._setup_profile_tab()
-        self.tab_widget.addTab(self.tab_profile, "👤 پروفایل من")
+
+        self.tab_widget.addTab(self.tab_login, "ورود به حساب")
+        self.tab_widget.addTab(self.tab_signup, "ثبت‌نام کاربر جدید")
+        self.tab_widget.addTab(self.tab_profile, "وضعیت سشن")
 
         main_layout.addWidget(self.tab_widget)
+
+        self._setup_login_tab()
+        self._setup_signup_tab()
+        self._setup_profile_tab()
+
+        # Guest button / Footer
+        footer_layout = QtWidgets.QHBoxLayout()
+        self.btn_guest = QtWidgets.QPushButton("ورود به عنوان مهمان (آفلاین)")
+        self.btn_guest.setStyleSheet("background: transparent; color: #94a3b8; border: none; text-decoration: underline;")
+        self.btn_guest.setCursor(Qt.PointingHandCursor)
+        self.btn_guest.clicked.connect(self.reject)
+        footer_layout.addWidget(self.btn_guest)
+        footer_layout.addStretch()
+
+        btn_close = QtWidgets.QPushButton("بستن")
+        btn_close.clicked.connect(self.reject)
+        footer_layout.addWidget(btn_close)
+        main_layout.addLayout(footer_layout)
 
     # ─────────────────────────────────────────────────────────
     # Tab 1: Login
@@ -129,9 +156,9 @@ class AccountAuthDialog(QtWidgets.QDialog):
         form = QtWidgets.QFormLayout()
         form.setSpacing(10)
 
-        self.txt_login_user = QtWidgets.QLineEdit()
-        self.txt_login_user.setPlaceholderText("نام کاربری یا ایمیل...")
-        form.addRow("نام کاربری:", self.txt_login_user)
+        self.txt_login_email = QtWidgets.QLineEdit()
+        self.txt_login_email.setPlaceholderText("ایمیل خود را وارد کنید...")
+        form.addRow("ایمیل کاربر:", self.txt_login_email)
 
         self.txt_login_pass = QtWidgets.QLineEdit()
         self.txt_login_pass.setEchoMode(QtWidgets.QLineEdit.Password)
@@ -141,11 +168,11 @@ class AccountAuthDialog(QtWidgets.QDialog):
         layout.addLayout(form)
         layout.addSpacing(10)
 
-        btn_login = QtWidgets.QPushButton("🔑 ورود به حساب")
-        btn_login.setObjectName("primaryButton")
-        btn_login.setCursor(Qt.PointingHandCursor)
-        btn_login.clicked.connect(self._on_login_clicked)
-        layout.addWidget(btn_login)
+        self.btn_login = QtWidgets.QPushButton("🔑 ورود به حساب گلستون")
+        self.btn_login.setObjectName("primaryButton")
+        self.btn_login.setCursor(Qt.PointingHandCursor)
+        self.btn_login.clicked.connect(self._on_login_clicked)
+        layout.addWidget(self.btn_login)
         layout.addStretch()
 
     # ─────────────────────────────────────────────────────────
@@ -163,9 +190,9 @@ class AccountAuthDialog(QtWidgets.QDialog):
         self.txt_signup_name.setPlaceholderText("نام و نام خانوادگی...")
         form.addRow("نام کامل:", self.txt_signup_name)
 
-        self.txt_signup_user = QtWidgets.QLineEdit()
-        self.txt_signup_user.setPlaceholderText("نام کاربری دلخواه...")
-        form.addRow("نام کاربری:", self.txt_signup_user)
+        self.txt_signup_email = QtWidgets.QLineEdit()
+        self.txt_signup_email.setPlaceholderText("ایمیل معتبر (مثال: student@uni.ac.ir)...")
+        form.addRow("ایمیل کاربر:", self.txt_signup_email)
 
         self.txt_signup_pass = QtWidgets.QLineEdit()
         self.txt_signup_pass.setEchoMode(QtWidgets.QLineEdit.Password)
@@ -216,22 +243,25 @@ class AccountAuthDialog(QtWidgets.QDialog):
             self.btn_logout.hide()
 
     def _on_login_clicked(self) -> None:
-        username = self.txt_login_user.text().strip()
+        email = self.txt_login_email.text().strip()
         password = self.txt_login_pass.text().strip()
-        if not username or not password:
-            QtWidgets.QMessageBox.warning(self, "تکمیل اطلاعات", "لطفاً نام کاربری و رمز عبور را وارد کنید.")
+        if not email or not password:
+            QtWidgets.QMessageBox.warning(self, "تکمیل اطلاعات", "لطفاً ایمیل و رمز عبور را وارد کنید.")
             return
 
-        worker = CloudLoginWorker(auth_client=self._auth_client, username=username, password=password)
+        worker = CloudLoginWorker(auth_client=self._auth_client, email=email, password=password)
 
         def _on_success(auth_res: AuthResponseModel):
             self._token_manager.save_token(auth_res.token)
-            QtWidgets.QMessageBox.information(self, "موفقیت", f"خوش آمدید، {auth_res.user.username}!\nورود با موفقیت انجام شد.")
+            display_name = getattr(auth_res.user, 'email', 'کاربر گرامی')
+            if hasattr(auth_res.user, 'user_metadata') and auth_res.user.user_metadata and auth_res.user.user_metadata.full_name:
+                display_name = auth_res.user.user_metadata.full_name
+            QtWidgets.QMessageBox.information(self, "موفقیت", f"خوش آمدید، {display_name}!\nورود با موفقیت انجام شد.")
             self.account_changed.emit()
             self.accept()
 
         def _on_error(err_msg: str):
-            user_friendly = humanize_error(err_msg, "ورود به حساب انجام نشد. لطفاً نام کاربری و رمز عبور خود را بررسی کرده و مجدداً تلاش کنید.")
+            user_friendly = humanize_error(err_msg, "ورود به حساب انجام نشد. لطفاً ایمیل و رمز عبور خود را بررسی کرده و مجدداً تلاش کنید.")
             QtWidgets.QMessageBox.critical(self, "خطا در ورود", user_friendly)
 
         worker.finished_signal.connect(_on_success)
@@ -242,14 +272,14 @@ class AccountAuthDialog(QtWidgets.QDialog):
 
     def _on_signup_clicked(self) -> None:
         name = self.txt_signup_name.text().strip()
-        username = self.txt_signup_user.text().strip()
+        email = self.txt_signup_email.text().strip()
         password = self.txt_signup_pass.text().strip()
 
-        if not username or not password:
-            QtWidgets.QMessageBox.warning(self, "خطا", "لطفاً نام کاربری و رمز عبور را وارد کنید.")
+        if not email or not password:
+            QtWidgets.QMessageBox.warning(self, "خطا", "لطفاً ایمیل و رمز عبور را وارد کنید.")
             return
 
-        worker = CloudSignupWorker(auth_client=self._auth_client, username=username, password=password, name=name)
+        worker = CloudSignupWorker(auth_client=self._auth_client, full_name=name, email=email, password=password)
 
         def _on_success(auth_res: AuthResponseModel):
             self._token_manager.save_token(auth_res.token)
@@ -258,7 +288,7 @@ class AccountAuthDialog(QtWidgets.QDialog):
             self.accept()
 
         def _on_error(err_msg: str):
-            user_friendly = humanize_error(err_msg, "ساخت حساب کاربری انجام نشد. لطفاً اتصال اینترنت خود را بررسی کرده یا نام کاربری دیگری انتخاب کنید.")
+            user_friendly = humanize_error(err_msg, "ساخت حساب کاربری انجام نشد. لطفاً اتصال اینترنت خود را بررسی کرده یا ایمیل دیگری انتخاب کنید.")
             QtWidgets.QMessageBox.critical(self, "خطا در ثبت‌نام", user_friendly)
 
         worker.finished_signal.connect(_on_success)

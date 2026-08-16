@@ -126,7 +126,7 @@ class DialogCoordinator:
         if not course:
             return
             
-        dialog = DetailedInfoWindow(course, self.main_window)
+        dialog = DetailedInfoWindow(self.main_window)
         dialog.exec_()
 
     def open_detailed_info_window(self):
