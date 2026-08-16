@@ -1,530 +1,1208 @@
 # -*- coding: utf-8 -*-
 """
-Golestoon Professor Reviews PyQt5 Dialog.
+Golestoon Professor Reviews PyQt5 Dialog — redesigned, web-parity UI.
 
-This module provides the primary UI dialog for Professor Reviews, Rating Cards,
-3-Way Side-by-Side Comparison Matrix, and Popular Instructors list.
+UX principles applied (matching golestan-web ProfessorReview page):
+- Selection-first: department & instructor are NON-EDITABLE combos fed by the
+  server (no free typing that leads to invalid queries); an optional, clearly
+  labeled filter box narrows the instructor list.
+- Interactive: selecting an instructor instantly loads its stats (async) and
+  registers a view; double-clicking a popular row jumps to its stats.
+- Live feedback: slider values show numeric + descriptive preset labels with
+  web color thresholds; every async action shows a status line.
+- Give-to-Get gate, my-review edit/delete, 3-way compare, leaderboards and
+  instructor suggestion — all wired to the real backend contracts.
 
 Architecture Layer: Layer 5 (Presentation & UI)
-Dependencies: `PyQt5`, `ProfessorManager`, `DESIGN.md` Tokens.
+Dependencies: `ProfessorManager`, `theme_manager`, `AccountAuthDialog`.
 """
 
 import logging
-from typing import Optional, List, Dict, Any
-from PyQt5 import QtWidgets, QtCore, QtGui
-from PyQt5.QtCore import Qt, pyqtSignal, pyqtSlot
+from typing import Any, Dict, List, Optional
+
+from PyQt5 import QtWidgets, QtCore
+from PyQt5.QtCore import Qt
 
 from app.core.professor_manager import (
     ProfessorManager,
-    ProfessorStatsModel,
-    calc_overall_score,
+    ProfessorStats,
     calc_display_score,
     get_score_color_hex,
     get_inverse_score_color_hex,
 )
+from app.core.theme_manager import theme_manager
 
 logger = logging.getLogger("golestoon.ui.professor_dialog")
 
+ATTENDANCE_LABELS = {  # server enum → Persian
+    "very": "خیلی حساس",
+    "normal": "معمولی",
+    "not_important": "مهم نیست",
+}
+ATTENDANCE_VALUES = ("very", "normal", "not_important")
 
-class StatScoreCard(QtWidgets.QFrame):
-    """Custom widget rendering a single score criteria card with colored progress bar."""
+# Web-parity preset labels for each slider (value → (label, is_inverse))
+def _preset_for(kind: str, value: int) -> str:
+    if kind == "teaching":
+        if value >= 80: return "عالی"
+        if value >= 60: return "خوب"
+        if value >= 40: return "متوسط"
+        return "ضعیف"
+    if kind == "assignments":
+        if value >= 80: return "خیلی سنگین"
+        if value >= 60: return "سنگین"
+        if value >= 40: return "متوسط"
+        return "سبک"
+    if kind == "grading":
+        if value >= 80: return "خیلی آسان‌گیر"
+        if value >= 60: return "منصف"
+        if value >= 40: return "کمی سخت‌گیر"
+        return "سخت‌گیر"
+    if kind == "exam":
+        if value >= 80: return "خیلی سخت"
+        if value >= 60: return "سخت"
+        if value >= 40: return "متوسط"
+        return "آسان"
+    return ""
 
-    def __init__(
-        self,
-        title: str,
-        score: float,
-        is_inverse: bool = False,
-        sublabel: str = "",
-        parent: Optional[QtWidgets.QWidget] = None
-    ) -> None:
+
+class ScoreBar(QtWidgets.QFrame):
+    """A titled horizontal score bar with value + preset label (web style)."""
+
+    def __init__(self, title: str, value: float, inverse: bool = False,
+                 parent: Optional[QtWidgets.QWidget] = None) -> None:
         super().__init__(parent)
-        self.setFrameShape(QtWidgets.QFrame.StyledPanel)
-        self.setStyleSheet("""
-            QFrame {
-                background-color: #1e293b;
-                border: 1px solid #334155;
-                border-radius: 8px;
-                padding: 10px;
-            }
-        """)
-
-        layout = QtWidgets.QVBoxLayout(self)
-        layout.setContentsMargins(10, 10, 10, 10)
-        layout.setSpacing(6)
-
-        # Header Row
-        header_layout = QtWidgets.QHBoxLayout()
-        title_label = QtWidgets.QLabel(title)
-        title_label.setStyleSheet("color: #94a3b8; font-size: 9.5pt; font-weight: bold;")
-        header_layout.addWidget(title_label)
-
-        color_hex = get_inverse_score_color_hex(score) if is_inverse else get_score_color_hex(score)
-        val_label = QtWidgets.QLabel(f"{score:.1f}")
-        val_label.setStyleSheet(f"color: {color_hex}; font-size: 14pt; font-weight: bold;")
-        header_layout.addStretch()
-        header_layout.addWidget(val_label)
-        layout.addLayout(header_layout)
-
-        # Progress Bar
-        pbar = QtWidgets.QProgressBar()
-        pbar.setRange(0, 100)
-        pbar.setValue(int(score))
-        pbar.setTextVisible(False)
-        pbar.setFixedHeight(8)
-        pbar.setStyleSheet(f"""
+        p = theme_manager.palette()
+        v = max(0.0, min(100.0, float(value)))
+        color = get_inverse_score_color_hex(v) if inverse else get_score_color_hex(v)
+        preset = _preset_for(
+            "exam" if inverse else "grading", int(v)) if inverse else _preset_for("teaching", int(v))
+        self.setStyleSheet(f"""
+            ScoreBar {{ background: transparent; border: none; }}
             QProgressBar {{
-                background-color: #0f172a;
-                border: 1px solid #334155;
-                border-radius: 4px;
+                background-color: {p['bg']};
+                border: 1px solid {p['border']};
+                border-radius: 7px;
+                min-height: 14px;
+                max-height: 14px;
             }}
             QProgressBar::chunk {{
-                background-color: {color_hex};
-                border-radius: 3px;
+                background-color: {color};
+                border-radius: 6px;
             }}
         """)
-        layout.addWidget(pbar)
-
-        if sublabel:
-            sub_lbl = QtWidgets.QLabel(sublabel)
-            sub_lbl.setStyleSheet("color: #64748b; font-size: 8pt;")
-            layout.addWidget(sub_lbl)
+        lay = QtWidgets.QVBoxLayout(self)
+        lay.setContentsMargins(0, 2, 0, 6)
+        lay.setSpacing(3)
+        head = QtWidgets.QHBoxLayout()
+        t = QtWidgets.QLabel(title)
+        t.setStyleSheet(f"color: {p['text_mid']}; font-size: 10pt; font-weight: bold; border: none;")
+        head.addWidget(t)
+        head.addStretch()
+        val_lbl = QtWidgets.QLabel(f"{v:.0f}  ·  {preset}")
+        val_lbl.setStyleSheet(f"color: {color}; font-size: 10pt; font-weight: bold; border: none;")
+        head.addWidget(val_lbl)
+        lay.addLayout(head)
+        bar = QtWidgets.QProgressBar()
+        bar.setRange(0, 100)
+        bar.setValue(int(v))
+        bar.setTextVisible(False)
+        lay.addWidget(bar)
 
 
 class ProfessorReviewDialog(QtWidgets.QDialog):
-    """
-    PyQt5 Professor Review & Compare Dialog.
-    """
+    """Professor Review, Stats, Compare & Popular dialog (web parity, v2 UX)."""
 
-    def __init__(self, manager: ProfessorManager, parent: Optional[QtWidgets.QWidget] = None) -> None:
+    def __init__(
+        self,
+        manager: ProfessorManager,
+        parent: Optional[QtWidgets.QWidget] = None,
+        token_manager: Optional[Any] = None,
+        auth_client: Optional[Any] = None,
+    ) -> None:
         super().__init__(parent)
-        self._manager: ProfessorManager = manager
-        self.setWindowTitle("نظرسنجی و مقایسه اساتید")
-        self.resize(920, 680)
+        self._manager = manager
+        self._token_manager = token_manager
+        self._auth_client = auth_client
+
+        # Give-to-Get state (from /summary); None = unknown/open access
+        self._has_contributed: Optional[bool] = None
+        self._user_review_count: int = 0
+
+        # Caches
+        self._departments: List[str] = []
+        self._directory: List[Dict[str, Any]] = []  # full approved directory
+        self._last_stats: Optional[ProfessorStats] = None
+
+        self.setWindowTitle("👨‍🏫 نظرسنجی و مقایسه اساتید")
+        self.resize(1020, 740)
+        self.setMinimumSize(880, 620)
         self.setLayoutDirection(Qt.RightToLeft)
 
         self._setup_ui()
         self._apply_styles()
+        self._bootstrap_data()
 
+    # ═════════════════════════════════════════════════════════
+    # UI skeleton
+    # ═════════════════════════════════════════════════════════
     def _setup_ui(self) -> None:
-        main_layout = QtWidgets.QVBoxLayout(self)
-        main_layout.setContentsMargins(16, 16, 16, 16)
-        main_layout.setSpacing(12)
+        root = QtWidgets.QVBoxLayout(self)
+        root.setContentsMargins(16, 14, 16, 14)
+        root.setSpacing(10)
 
-        # Header Title Bar
-        header_box = QtWidgets.QHBoxLayout()
-        title_lbl = QtWidgets.QLabel("👨‍🏫 نظرسنجی و مقایسه اساتید")
-        title_lbl.setStyleSheet("font-size: 14pt; font-weight: bold; color: #f8fafc;")
-        header_box.addWidget(title_lbl)
-        header_box.addStretch()
+        # ── Header ──
+        header = QtWidgets.QHBoxLayout()
+        title = QtWidgets.QLabel("👨‍🏫 نظرسنجی و مقایسه اساتید")
+        title.setObjectName("dialogTitle")
+        header.addWidget(title)
+        header.addStretch()
+        self.lbl_summary_badge = QtWidgets.QLabel("در حال دریافت وضعیت…")
+        self.lbl_summary_badge.setObjectName("summaryBadge")
+        header.addWidget(self.lbl_summary_badge)
+        root.addLayout(header)
 
-        badge = QtWidgets.QLabel("✨ نظرسنجی زنده دانشجوها")
-        badge.setStyleSheet("background-color: #1e293b; color: #3b82f6; border: 1px solid #3b82f6; border-radius: 12px; padding: 4px 10px; font-size: 8.5pt;")
-        header_box.addWidget(badge)
-        main_layout.addLayout(header_box)
-
-        # Main Tab Widget
         self.tab_widget = QtWidgets.QTabWidget()
         self.tab_widget.setLayoutDirection(Qt.RightToLeft)
 
-        # Tab 1: Submit Review
-        self.tab_submit = QtWidgets.QWidget()
-        self._setup_submit_tab()
-        self.tab_widget.addTab(self.tab_submit, "✍️ ثبت نظر")
+        self.tab_stats = QtWidgets.QWidget(); self._setup_stats_tab()
+        self.tab_submit = QtWidgets.QWidget(); self._setup_submit_tab()
+        self.tab_compare = QtWidgets.QWidget(); self._setup_compare_tab()
+        self.tab_popular = QtWidgets.QWidget(); self._setup_popular_tab()
+        self.tab_suggest = QtWidgets.QWidget(); self._setup_suggest_tab()
 
-        # Tab 2: Stats & Ratings
-        self.tab_stats = QtWidgets.QWidget()
-        self._setup_stats_tab()
-        self.tab_widget.addTab(self.tab_stats, "📊 آمار و امتیازات استاد")
+        self.tab_widget.addTab(self.tab_stats, "🔍 جستجو و آمار")
+        self.tab_widget.addTab(self.tab_submit, "✍️ ثبت نظر من")
+        self.tab_widget.addTab(self.tab_compare, "⚔️ مقایسه")
+        self.tab_widget.addTab(self.tab_popular, "🔥 محبوب‌ها")
+        self.tab_widget.addTab(self.tab_suggest, "💡 پیشنهاد استاد")
+        self.tab_widget.currentChanged.connect(self._on_tab_changed)
+        root.addWidget(self.tab_widget)
 
-        # Tab 3: Compare
-        self.tab_compare = QtWidgets.QWidget()
-        self._setup_compare_tab()
-        self.tab_widget.addTab(self.tab_compare, "⚔️ مقایسه اساتید")
+    # ── helper: department selector (non-editable) ──
+    def _make_dept_combo(self, with_all: bool = False) -> QtWidgets.QComboBox:
+        combo = QtWidgets.QComboBox()
+        combo.setMinimumWidth(240)
+        if with_all:
+            combo.addItem("همه گروه‌ها", "")
+        for dept in self._departments:
+            combo.addItem(dept, dept)
+        combo.currentIndexChanged.connect(lambda _i, c=combo: self._on_dept_combo_changed(c))
+        return combo
 
-        # Tab 4: Popular
-        self.tab_popular = QtWidgets.QWidget()
-        self._setup_popular_tab()
-        self.tab_widget.addTab(self.tab_popular, "🔥 اساتید محبوب")
+    # ── helper: instructor selector (non-editable + filter) ──
+    def _make_inst_picker(self) -> Dict[str, Any]:
+        """Returns a dict with filter box + non-editable combo wired together."""
+        picker: Dict[str, Any] = {"filter": QtWidgets.QLineEdit(), "combo": QtWidgets.QComboBox()}
+        picker["filter"].setPlaceholderText("🔎 فیلتر نام استاد (اختیاری)…")
+        picker["filter"].setClearButtonEnabled(True)
+        picker["combo"].setMinimumWidth(260)
+        picker["filter"].textChanged.connect(lambda _t, p=picker: self._refill_inst_combo(p))
+        return picker
 
-        main_layout.addWidget(self.tab_widget)
+    # ═════════════════════════════════════════════════════════
+    # Tab 1: Search & Stats
+    # ═════════════════════════════════════════════════════════
+    def _setup_stats_tab(self) -> None:
+        lay = QtWidgets.QVBoxLayout(self.tab_stats)
+        lay.setContentsMargins(14, 14, 14, 14)
+        lay.setSpacing(10)
 
-    # ─────────────────────────────────────────────────────────
-    # Tab 1: Submit Review Layout
-    # ─────────────────────────────────────────────────────────
-    def _setup_submit_tab(self) -> None:
-        layout = QtWidgets.QVBoxLayout(self.tab_submit)
-        layout.setContentsMargins(16, 16, 16, 16)
-        layout.setSpacing(12)
+        selector_group = QtWidgets.QGroupBox("۱) استاد موردنظر را انتخاب کنید")
+        grid = QtWidgets.QGridLayout(selector_group)
+        grid.setHorizontalSpacing(12)
+        grid.setVerticalSpacing(8)
 
-        form_card = QtWidgets.QFrame()
-        form_card.setStyleSheet("background-color: #1e293b; border: 1px solid #334155; border-radius: 8px; padding: 16px;")
-        card_layout = QtWidgets.QVBoxLayout(form_card)
-
-        # Inputs Row
-        grid = QtWidgets.QGridLayout()
-        grid.setSpacing(10)
-
-        grid.addWidget(QtWidgets.QLabel("نام دانشکده / گروه:"), 0, 0)
-        self.txt_submit_dept = QtWidgets.QLineEdit()
-        self.txt_submit_dept.setPlaceholderText("مثال: مهندسی کامپیوتر")
-        grid.addWidget(self.txt_submit_dept, 0, 1)
+        grid.addWidget(QtWidgets.QLabel("گروه آموزشی:"), 0, 0)
+        self.cmb_stats_dept = self._make_dept_combo()
+        grid.addWidget(self.cmb_stats_dept, 0, 1)
 
         grid.addWidget(QtWidgets.QLabel("نام استاد:"), 1, 0)
-        self.txt_submit_inst = QtWidgets.QLineEdit()
-        self.txt_submit_inst.setPlaceholderText("مثال: دکتر علی رضایی")
-        grid.addWidget(self.txt_submit_inst, 1, 1)
+        inst_row = QtWidgets.QHBoxLayout()
+        self.stats_picker = self._make_inst_picker()
+        inst_row.addWidget(self.stats_picker["filter"])
+        inst_row.addWidget(self.stats_picker["combo"], stretch=1)
+        grid.addLayout(inst_row, 1, 1)
+        lay.addWidget(selector_group)
 
-        card_layout.addLayout(grid)
-        card_layout.addSpacing(10)
+        self.lbl_stats_status = QtWidgets.QLabel("برای شروع، یک گروه و سپس یک استاد انتخاب کنید.")
+        self.lbl_stats_status.setObjectName("statusLabel")
+        self.lbl_stats_status.setWordWrap(True)
+        lay.addWidget(self.lbl_stats_status)
 
-        # Slider Criteria
-        self.slider_teaching = self._add_slider_row(card_layout, "کیفیت تدریس (۰ تا ۱۰۰):", 75)
-        self.slider_grading = self._add_slider_row(card_layout, "نمره‌دهی و ارفاق (۰ تا ۱۰۰):", 70)
-        self.slider_exam = self._add_slider_row(card_layout, "سختی امتحان (۰ = خیلی آسان, ۱۰۰ = خیلی سخت):", 50)
-        self.slider_assign = self._add_slider_row(card_layout, "حجم تکالیف و پروژه (۰ تا ۱۰۰):", 60)
+        # Give-to-Get lock card
+        self.gate_card = QtWidgets.QFrame()
+        self.gate_card.setObjectName("gateCard")
+        gate_lay = QtWidgets.QVBoxLayout(self.gate_card)
+        gate_title = QtWidgets.QLabel("🔒 این بخش قفل است — «نظر بده تا ببینی»")
+        gate_title.setObjectName("gateTitle")
+        gate_lay.addWidget(gate_title)
+        gate_text = QtWidgets.QLabel(
+            "برای باز شدن آمار و مقایسه اساتید، ابتدا برای یک استاد نظر ثبت کنید. "
+            "نظرات کاملاً ناشناس است و فقط چند ثانیه زمان می‌برد."
+        )
+        gate_text.setWordWrap(True)
+        gate_lay.addWidget(gate_text)
+        gate_btn_row = QtWidgets.QHBoxLayout()
+        gate_btn_row.addStretch()
+        gate_btn = QtWidgets.QPushButton("➕ می‌خواهم نظر بدهم")
+        gate_btn.setObjectName("primaryButton")
+        gate_btn.setMinimumWidth(200)
+        gate_btn.clicked.connect(lambda: self.tab_widget.setCurrentWidget(self.tab_submit))
+        gate_btn_row.addWidget(gate_btn)
+        gate_lay.addLayout(gate_btn_row)
+        self.gate_card.hide()
+        lay.addWidget(self.gate_card)
 
-        # Radio Attendance
-        radio_box = QtWidgets.QHBoxLayout()
-        radio_box.addWidget(QtWidgets.QLabel("حضور و غیاب:"))
-        self.radio_att_strict = QtWidgets.QRadioButton("خیلی حساس")
-        self.radio_att_normal = QtWidgets.QRadioButton("معمولی")
-        self.radio_att_normal.setChecked(True)
-        self.radio_att_easy = QtWidgets.QRadioButton("بی‌خیال")
-        radio_box.addWidget(self.radio_att_strict)
-        radio_box.addWidget(self.radio_att_normal)
-        radio_box.addWidget(self.radio_att_easy)
-        radio_box.addStretch()
-        card_layout.addLayout(radio_box)
-        card_layout.addSpacing(12)
+        # Stats area (scrollable)
+        self.stats_scroll = QtWidgets.QScrollArea()
+        self.stats_scroll.setWidgetResizable(True)
+        self.stats_scroll.setFrameShape(QtWidgets.QFrame.NoFrame)
+        self.stats_container = QtWidgets.QWidget()
+        self.stats_lay = QtWidgets.QVBoxLayout(self.stats_container)
+        self.stats_lay.setContentsMargins(0, 0, 0, 0)
+        self.stats_lay.setSpacing(8)
+        self.stats_scroll.setWidget(self.stats_container)
+        lay.addWidget(self.stats_scroll, stretch=1)
 
-        # Submit Button
-        btn_submit = QtWidgets.QPushButton("🚀 ثبت و ارسال نظر")
+        self.stats_picker["combo"].currentIndexChanged.connect(self._on_stats_inst_selected)
+
+    # ═════════════════════════════════════════════════════════
+    # Tab 2: My review
+    # ═════════════════════════════════════════════════════════
+    def _setup_submit_tab(self) -> None:
+        lay = QtWidgets.QVBoxLayout(self.tab_submit)
+        lay.setContentsMargins(14, 14, 14, 14)
+        lay.setSpacing(10)
+
+        sel_group = QtWidgets.QGroupBox("۱) استاد موردنظر را انتخاب کنید")
+        grid = QtWidgets.QGridLayout(sel_group)
+        grid.addWidget(QtWidgets.QLabel("گروه آموزشی:"), 0, 0)
+        self.cmb_submit_dept = self._make_dept_combo()
+        grid.addWidget(self.cmb_submit_dept, 0, 1)
+
+        grid.addWidget(QtWidgets.QLabel("نام استاد:"), 1, 0)
+        submit_row = QtWidgets.QHBoxLayout()
+        self.submit_picker = self._make_inst_picker()
+        submit_row.addWidget(self.submit_picker["filter"])
+        submit_row.addWidget(self.submit_picker["combo"], stretch=1)
+        grid.addLayout(submit_row, 1, 1)
+        lay.addWidget(sel_group)
+
+        scores_group = QtWidgets.QGroupBox("۲) امتیازها (۰ تا ۱۰۰)")
+        scores_lay = QtWidgets.QVBoxLayout(scores_group)
+        scores_lay.setSpacing(4)
+        self.slider_teaching = self._add_slider_row(scores_lay, "کیفیت تدریس:", "teaching", 75)
+        self.slider_grading = self._add_slider_row(scores_lay, "نمره‌دهی و ارفاق:", "grading", 70)
+        self.slider_assign = self._add_slider_row(scores_lay, "حجم تکالیف و پروژه:", "assignments", 60)
+        self.slider_exam = self._add_slider_row(scores_lay, "سختی امتحان:", "exam", 50)
+        lay.addWidget(scores_group)
+
+        att_group = QtWidgets.QGroupBox("۳) حساسیت حضور و غیاب")
+        att_lay = QtWidgets.QHBoxLayout(att_group)
+        self.radio_att: Dict[str, QtWidgets.QRadioButton] = {}
+        for value in ATTENDANCE_VALUES:
+            radio = QtWidgets.QRadioButton(ATTENDANCE_LABELS[value])
+            if value == "normal":
+                radio.setChecked(True)
+            self.radio_att[value] = radio
+            att_lay.addWidget(radio)
+        att_lay.addStretch()
+        lay.addWidget(att_group)
+
+        self.lbl_myreview_state = QtWidgets.QLabel("")
+        self.lbl_myreview_state.setObjectName("statusLabel")
+        self.lbl_myreview_state.setWordWrap(True)
+        lay.addWidget(self.lbl_myreview_state)
+
+        btn_row = QtWidgets.QHBoxLayout()
+        btn_load = QtWidgets.QPushButton("📥 بارگذاری نظر قبلی من")
+        btn_load.setObjectName("secondaryButton")
+        btn_load.setMinimumWidth(190)
+        btn_load.clicked.connect(self._on_load_my_review_clicked)
+        btn_delete = QtWidgets.QPushButton("🗑️ حذف نظر من")
+        btn_delete.setObjectName("secondaryButton")
+        btn_delete.setMinimumWidth(160)
+        btn_delete.clicked.connect(self._on_delete_my_review_clicked)
+        btn_row.addWidget(btn_load)
+        btn_row.addWidget(btn_delete)
+        btn_row.addStretch()
+        lay.addLayout(btn_row)
+
+        btn_submit = QtWidgets.QPushButton("🚀 ثبت نظر (کاملاً ناشناس)")
         btn_submit.setObjectName("primaryButton")
+        btn_submit.setMinimumHeight(44)
         btn_submit.setCursor(Qt.PointingHandCursor)
         btn_submit.clicked.connect(self._on_submit_review_clicked)
-        card_layout.addWidget(btn_submit)
+        lay.addWidget(btn_submit)
+        lay.addStretch()
 
-        layout.addWidget(form_card)
-        layout.addStretch()
-
-    def _add_slider_row(self, layout: QtWidgets.QVBoxLayout, title: str, default_val: int) -> QtWidgets.QSlider:
-        box = QtWidgets.QHBoxLayout()
-        lbl_title = QtWidgets.QLabel(title)
-        lbl_title.setFixedWidth(240)
-        box.addWidget(lbl_title)
-
+    def _add_slider_row(self, parent_lay, title: str, kind: str, default: int) -> QtWidgets.QSlider:
+        p = theme_manager.palette()
+        row = QtWidgets.QHBoxLayout()
+        lbl = QtWidgets.QLabel(title)
+        lbl.setFixedWidth(150)
+        row.addWidget(lbl)
         slider = QtWidgets.QSlider(Qt.Horizontal)
         slider.setRange(0, 100)
-        slider.setValue(default_val)
-        box.addWidget(slider)
+        slider.setValue(default)
+        row.addWidget(slider, stretch=1)
 
-        val_lbl = QtWidgets.QLabel(str(default_val))
-        val_lbl.setFixedWidth(35)
+        def _color_for(v: int) -> str:
+            if kind == "exam":
+                return get_inverse_score_color_hex(v)
+            if kind == "assignments":
+                return get_inverse_score_color_hex(v)
+            return get_score_color_hex(v)
+
+        val_lbl = QtWidgets.QLabel()
+        val_lbl.setFixedWidth(130)
         val_lbl.setAlignment(Qt.AlignCenter)
-        slider.valueChanged.connect(lambda v: val_lbl.setText(str(v)))
-        box.addWidget(val_lbl)
 
-        layout.addLayout(box)
+        def _update(v: int) -> None:
+            val_lbl.setText(f"{v} · {_preset_for(kind, v)}")
+            val_lbl.setStyleSheet(
+                f"color: {_color_for(v)}; font-weight: bold; border: none; background: transparent;"
+            )
+
+        slider.valueChanged.connect(_update)
+        _update(default)
+        row.addWidget(val_lbl)
+        parent_lay.addLayout(row)
         return slider
 
-    # ─────────────────────────────────────────────────────────
-    # Tab 2: Stats & Ratings Layout
-    # ─────────────────────────────────────────────────────────
-    def _setup_stats_tab(self) -> None:
-        layout = QtWidgets.QVBoxLayout(self.tab_stats)
-        layout.setContentsMargins(16, 16, 16, 16)
-        layout.setSpacing(12)
-
-        # Search Bar
-        search_box = QtWidgets.QHBoxLayout()
-        self.txt_stats_dept = QtWidgets.QLineEdit()
-        self.txt_stats_dept.setPlaceholderText("دانشکده...")
-        self.txt_stats_inst = QtWidgets.QLineEdit()
-        self.txt_stats_inst.setPlaceholderText("نام استاد...")
-
-        btn_search = QtWidgets.QPushButton("🔍 دریافت آمار")
-        btn_search.setObjectName("primaryButton")
-        btn_search.clicked.connect(self._on_fetch_stats_clicked)
-
-        search_box.addWidget(self.txt_stats_dept)
-        search_box.addWidget(self.txt_stats_inst)
-        search_box.addWidget(btn_search)
-        layout.addLayout(search_box)
-
-        # Cards Container Grid
-        self.stats_cards_widget = QtWidgets.QWidget()
-        self.cards_layout = QtWidgets.QGridLayout(self.stats_cards_widget)
-        self.cards_layout.setSpacing(12)
-
-        # Placeholder Banner
-        self.lbl_stats_placeholder = QtWidgets.QLabel("لطفاً نام دانشکده و استاد را وارد کنید تا آمار نمایش داده شود.")
-        self.lbl_stats_placeholder.setAlignment(Qt.AlignCenter)
-        self.lbl_stats_placeholder.setStyleSheet("color: #94a3b8; font-size: 11pt; padding: 40px;")
-
-        layout.addWidget(self.lbl_stats_placeholder)
-        layout.addWidget(self.stats_cards_widget)
-        self.stats_cards_widget.hide()
-        layout.addStretch()
-
-    # ─────────────────────────────────────────────────────────
-    # Tab 3: Compare Layout
-    # ─────────────────────────────────────────────────────────
+    # ═════════════════════════════════════════════════════════
+    # Tab 3: Compare
+    # ═════════════════════════════════════════════════════════
     def _setup_compare_tab(self) -> None:
-        layout = QtWidgets.QVBoxLayout(self.tab_compare)
-        layout.setContentsMargins(16, 16, 16, 16)
-        layout.setSpacing(12)
+        lay = QtWidgets.QVBoxLayout(self.tab_compare)
+        lay.setContentsMargins(14, 14, 14, 14)
+        lay.setSpacing(10)
 
-        # 3 Instructor Inputs
-        inputs_box = QtWidgets.QHBoxLayout()
-        self.txt_cmp1 = QtWidgets.QLineEdit()
-        self.txt_cmp1.setPlaceholderText("استاد ۱ (مثال: رضایی)")
-        self.txt_cmp2 = QtWidgets.QLineEdit()
-        self.txt_cmp2.setPlaceholderText("استاد ۲ (مثال: احمدی)")
-        self.txt_cmp3 = QtWidgets.QLineEdit()
-        self.txt_cmp3.setPlaceholderText("استاد ۳ (اختیاری)")
+        hint = QtWidgets.QLabel("برای مقایسه، در دو یا سه ردیف زیر گروه و استاد انتخاب کنید:")
+        hint.setObjectName("statusLabel")
+        lay.addWidget(hint)
 
-        btn_cmp = QtWidgets.QPushButton("⚔️ مقایسه همزمان")
+        self.cmp_rows: List[Dict[str, Any]] = []
+        for i in range(3):
+            row = QtWidgets.QHBoxLayout()
+            num_lbl = QtWidgets.QLabel(f"استاد {i + 1}:")
+            num_lbl.setFixedWidth(60)
+            dept = self._make_dept_combo()
+            picker = self._make_inst_picker()
+            row.addWidget(num_lbl)
+            row.addWidget(dept, 1)
+            row.addWidget(picker["filter"])
+            row.addWidget(picker["combo"], 2)
+            lay.addLayout(row)
+            self.cmp_rows.append({"dept": dept, "picker": picker})
+
+        btn_cmp = QtWidgets.QPushButton("⚔️ مقایسه کن")
         btn_cmp.setObjectName("primaryButton")
+        btn_cmp.setMinimumHeight(40)
         btn_cmp.clicked.connect(self._on_compare_clicked)
+        lay.addWidget(btn_cmp)
 
-        inputs_box.addWidget(self.txt_cmp1)
-        inputs_box.addWidget(self.txt_cmp2)
-        inputs_box.addWidget(self.txt_cmp3)
-        inputs_box.addWidget(btn_cmp)
-        layout.addLayout(inputs_box)
+        self.lbl_cmp_status = QtWidgets.QLabel("")
+        self.lbl_cmp_status.setObjectName("statusLabel")
+        lay.addWidget(self.lbl_cmp_status)
 
-        # Comparison Table
         self.cmp_table = QtWidgets.QTableWidget()
         self.cmp_table.setColumnCount(4)
-        self.cmp_table.setHorizontalHeaderLabels(["معیار مقایسه", "استاد ۱", "استاد ۲", "استاد ۳"])
+        self.cmp_table.setHorizontalHeaderLabels(["معیار", "استاد ۱", "استاد ۲", "استاد ۳"])
         self.cmp_table.horizontalHeader().setSectionResizeMode(QtWidgets.QHeaderView.Stretch)
-        layout.addWidget(self.cmp_table)
+        self.cmp_table.verticalHeader().setVisible(False)
+        self.cmp_table.setAlternatingRowColors(True)
+        lay.addWidget(self.cmp_table, stretch=1)
 
-    # ─────────────────────────────────────────────────────────
-    # Tab 4: Popular Layout
-    # ─────────────────────────────────────────────────────────
+    # ═════════════════════════════════════════════════════════
+    # Tab 4: Popular
+    # ═════════════════════════════════════════════════════════
     def _setup_popular_tab(self) -> None:
-        layout = QtWidgets.QVBoxLayout(self.tab_popular)
-        layout.setContentsMargins(16, 16, 16, 16)
-        layout.setSpacing(12)
+        lay = QtWidgets.QVBoxLayout(self.tab_popular)
+        lay.setContentsMargins(14, 14, 14, 14)
+        lay.setSpacing(10)
 
-        btn_load_popular = QtWidgets.QPushButton("🔄 بارگذاری اساتید محبوب و برتر")
-        btn_load_popular.setObjectName("secondaryButton")
-        btn_load_popular.clicked.connect(self._on_load_popular_clicked)
-        layout.addWidget(btn_load_popular)
+        filter_row = QtWidgets.QHBoxLayout()
+        filter_row.addWidget(QtWidgets.QLabel("مرتب‌سازی بر اساس:"))
+        self.cmb_popular_kind = QtWidgets.QComboBox()
+        self.cmb_popular_kind.addItem("⭐ بیشترین امتیاز", "score")
+        self.cmb_popular_kind.addItem("👁️ بیشترین بازدید", "views")
+        self.cmb_popular_kind.addItem("🗳️ بیشترین رأی", "voters")
+        filter_row.addWidget(self.cmb_popular_kind)
+        filter_row.addWidget(QtWidgets.QLabel("گروه:"))
+        self.cmb_popular_dept = self._make_dept_combo(with_all=True)
+        filter_row.addWidget(self.cmb_popular_dept)
+        btn_load = QtWidgets.QPushButton("🔄 بارگذاری")
+        btn_load.setObjectName("primaryButton")
+        btn_load.setMinimumWidth(120)
+        btn_load.clicked.connect(self._on_load_popular_clicked)
+        filter_row.addWidget(btn_load)
+        filter_row.addStretch()
+        lay.addLayout(filter_row)
+
+        hint = QtWidgets.QLabel("💡 روی هر ردیف دوبار کلیک کنید تا آمار همان استاد باز شود.")
+        hint.setObjectName("statusLabel")
+        lay.addWidget(hint)
 
         self.popular_table = QtWidgets.QTableWidget()
-        self.popular_table.setColumnCount(4)
-        self.popular_table.setHorizontalHeaderLabels(["استاد", "دانشکده", "امتیاز کل", "تعداد نظرات"])
+        self.popular_table.setColumnCount(5)
+        self.popular_table.setHorizontalHeaderLabels(["رتبه", "استاد", "گروه", "امتیاز", "تعداد رأی"])
         self.popular_table.horizontalHeader().setSectionResizeMode(QtWidgets.QHeaderView.Stretch)
-        layout.addWidget(self.popular_table)
+        self.popular_table.verticalHeader().setVisible(False)
+        self.popular_table.setAlternatingRowColors(True)
+        self.popular_table.setEditTriggers(QtWidgets.QAbstractItemView.NoEditTriggers)
+        self.popular_table.setSelectionBehavior(QtWidgets.QAbstractItemView.SelectRows)
+        self.popular_table.cellDoubleClicked.connect(self._on_popular_row_activated)
+        lay.addWidget(self.popular_table, stretch=1)
 
-    # ─────────────────────────────────────────────────────────
-    # Slot Callbacks & Business Logic
-    # ─────────────────────────────────────────────────────────
-    def _on_submit_review_clicked(self) -> None:
-        dept = self.txt_submit_dept.text().strip()
-        inst = self.txt_submit_inst.text().strip()
-        if not dept or not inst:
-            QtWidgets.QMessageBox.warning(self, "خطا", "لطفاً نام دانشکده و استاد را وارد کنید.")
+    # ═════════════════════════════════════════════════════════
+    # Tab 5: Suggest
+    # ═════════════════════════════════════════════════════════
+    def _setup_suggest_tab(self) -> None:
+        lay = QtWidgets.QVBoxLayout(self.tab_suggest)
+        lay.setContentsMargins(14, 14, 14, 14)
+        lay.setSpacing(10)
+
+        group = QtWidgets.QGroupBox("استاد موردنظر در فهرست نیست؟")
+        grid = QtWidgets.QGridLayout(group)
+        grid.addWidget(QtWidgets.QLabel("گروه آموزشی:"), 0, 0)
+        self.cmb_suggest_dept = self._make_dept_combo()
+        grid.addWidget(self.cmb_suggest_dept, 0, 1)
+        grid.addWidget(QtWidgets.QLabel("نام استاد:"), 1, 0)
+        self.txt_suggest_inst = QtWidgets.QLineEdit()
+        self.txt_suggest_inst.setPlaceholderText("مثال: دکتر مریم حسینی")
+        grid.addWidget(self.txt_suggest_inst, 1, 1)
+        lay.addWidget(group)
+
+        note = QtWidgets.QLabel(
+            "پیشنهاد شما پس از بررسی مسئولین به فهرست اضافه می‌شود. با تشکر از کمک شما 🌸"
+        )
+        note.setObjectName("statusLabel")
+        note.setWordWrap(True)
+        lay.addWidget(note)
+
+        btn = QtWidgets.QPushButton("💡 ارسال پیشنهاد")
+        btn.setObjectName("primaryButton")
+        btn.setMinimumHeight(40)
+        btn.clicked.connect(self._on_suggest_clicked)
+        lay.addWidget(btn)
+        lay.addStretch()
+
+    # ═════════════════════════════════════════════════════════
+    # Data bootstrap & selectors
+    # ═════════════════════════════════════════════════════════
+    def _bootstrap_data(self) -> None:
+        """Load departments + full instructor directory + summary in parallel."""
+        def _deps_success(departments: List[str]):
+            self._departments = departments or []
+            # (Re)fill every department combo in the dialog
+            for combo in (self.cmb_stats_dept, self.cmb_submit_dept,
+                          self.cmb_suggest_dept, self.cmb_popular_dept):
+                current = combo.currentData()
+                combo.blockSignals(True)
+                combo.clear()
+                if combo is self.cmb_popular_dept:
+                    combo.addItem("همه گروه‌ها", "")
+                for d in self._departments:
+                    combo.addItem(d, d)
+                if current is not None:
+                    idx = combo.findData(current)
+                    combo.setCurrentIndex(max(0, idx))
+                combo.blockSignals(False)
+            for row in self.cmp_rows:
+                current = row["dept"].currentData()
+                row["dept"].blockSignals(True)
+                row["dept"].clear()
+                for d in self._departments:
+                    row["dept"].addItem(d, d)
+                if current is not None:
+                    idx = row["dept"].findData(current)
+                    row["dept"].setCurrentIndex(max(0, idx))
+                row["dept"].blockSignals(False)
+            self.lbl_stats_status.setText(
+                f"✅ {len(self._departments)} گروه دریافت شد — اکنون یک گروه و استاد انتخاب کنید."
+            )
+
+        def _deps_error(err: str):
+            self.lbl_stats_status.setText(f"⚠️ دریافت فهرست گروه‌ها ناموفق بود: {err}")
+
+        self._manager.fetch_departments(_deps_success, _deps_error)
+
+        def _dir_success(rows: List[Dict[str, Any]]):
+            self._directory = rows or []
+            self._reload_stats_instructors()
+            self._refill_inst_combo(self.submit_picker)
+
+        def _dir_error(err: str):
+            logger.warning("Instructor directory load failed: %s", err)
+
+        self._manager.search_directory(query="", department="", on_success=_dir_success, on_error=_dir_error)
+        self._refresh_summary()
+
+    def _dept_of_row(self, row: Dict[str, Any]) -> str:
+        return str(row.get("department_name", "") or "")
+
+    def _instructor_names_for(self, dept: str, filter_text: str = "") -> List[str]:
+        """Distinct instructor names for a department, optionally filtered."""
+        def _norm(s: str) -> str:
+            return (s or "").replace("ي", "ی").replace("ك", "ک").replace("‌", " ").strip()
+
+        names = set()
+        for row in self._directory:
+            if dept and self._dept_of_row(row) != dept:
+                continue
+            name = str(row.get("instructor_name", "") or "").strip()
+            if name:
+                names.add(name)
+        result = sorted(names)
+        if filter_text:
+            q = _norm(filter_text)
+            result = [n for n in result if q in _norm(n)]
+        return result
+
+    def _refill_inst_combo(self, picker: Dict[str, Any]) -> None:
+        """Refill an instructor combo for its (own) department context."""
+        combo: QtWidgets.QComboBox = picker["combo"]
+        combo.blockSignals(True)
+        combo.clear()
+        dept = self._combo_dept_for(picker)
+        filter_text = picker["filter"].text().strip()
+        names = self._instructor_names_for(dept, filter_text)
+        if names:
+            for name in names:
+                combo.addItem(name, name)  # userData=name distinguishes real items
+        else:
+            combo.addItem("— استادی یافت نشد —", None)
+        combo.blockSignals(False)
+
+    def _combo_dept_for(self, picker: Dict[str, Any]) -> str:
+        """Resolve which department combo belongs to a picker (by identity)."""
+        if picker is self.stats_picker:
+            return str(self.cmb_stats_dept.currentData() or "")
+        if picker is self.submit_picker:
+            return str(self.cmb_submit_dept.currentData() or "")
+        for row in self.cmp_rows:
+            if picker is row["picker"]:
+                return str(row["dept"].currentData() or "")
+        return ""
+
+    def _on_dept_combo_changed(self, combo: QtWidgets.QComboBox) -> None:
+        """Department changed anywhere → refresh dependent instructor combos."""
+        if combo is self.cmb_stats_dept:
+            self._reload_stats_instructors()
+        elif combo is self.cmb_submit_dept:
+            self._refill_inst_combo(self.submit_picker)
+        elif combo is self.cmb_popular_dept:
+            return  # refreshed on demand
+        else:
+            for row in self.cmp_rows:
+                if row["dept"] is combo:
+                    self._refill_inst_combo(row["picker"])
+                    return
+
+    def _reload_stats_instructors(self) -> None:
+        self._refill_inst_combo(self.stats_picker)
+        combo = self.stats_picker["combo"]
+        if combo.count() > 0 and combo.currentData() is not None:
+            # Auto-fetch stats for the (auto-selected) first instructor so the
+            # panel is never blank after a department switch.
+            self._on_stats_inst_selected()
+        elif combo.count() > 0:
+            self.lbl_stats_status.setText("در این گروه استادی ثبت نشده است؛ گروه دیگری را انتخاب کنید.")
+
+    def _refresh_summary(self) -> None:
+        def _ok(res: Dict[str, Any]):
+            self._user_review_count = int(res.get("userReviewCount", 0) or 0)
+            self._has_contributed = bool(res.get("hasContributed", self._user_review_count > 0))
+            self.lbl_summary_badge.setText(
+                f"✨ {res.get('departmentCount', '—')} گروه · {res.get('instructorCount', '—')} استاد"
+                f" · نظرات شما: {self._user_review_count}"
+            )
+            self._apply_gate()
+
+        def _err(_err: str):
+            self._has_contributed = None  # unknown → open access
+            self.lbl_summary_badge.setText("✨ نظرسنجی زنده دانشجوها")
+            self._apply_gate()
+
+        self._manager.fetch_summary(_ok, _err)
+
+    def _apply_gate(self) -> None:
+        locked = self._has_contributed is False
+        self.gate_card.setVisible(locked)
+        self.stats_scroll.setVisible(not locked)
+        self.lbl_stats_status.setVisible(not locked)
+
+    # ═════════════════════════════════════════════════════════
+    # Tab-switch syncing
+    # ═════════════════════════════════════════════════════════
+    def _on_tab_changed(self, index: int) -> None:
+        if self.tab_widget.widget(index) is self.tab_submit:
+            # Mirror the current search-tab selection into the submit tab
+            dept = str(self.cmb_stats_dept.currentData() or "")
+            if dept:
+                idx = self.cmb_submit_dept.findData(dept)
+                if idx >= 0:
+                    self.cmb_submit_dept.setCurrentIndex(idx)
+            inst = self.stats_picker["combo"].currentText()
+            if inst and not inst.startswith("—"):
+                idx = self.submit_picker["combo"].findText(inst)
+                if idx >= 0:
+                    self.submit_picker["combo"].setCurrentIndex(idx)
+            self.lbl_myreview_state.setText(
+                "اگر قبلاً برای این استاد نظر داده‌اید، با «بارگذاری نظر قبلی من» آن را ویرایش کنید."
+            )
+
+    # ═════════════════════════════════════════════════════════
+    # Stats flow
+    # ═════════════════════════════════════════════════════════
+    def _on_stats_inst_selected(self) -> None:
+        inst = self.stats_picker["combo"].currentText()
+        if not inst or inst.startswith("—"):
             return
+        dept = str(self.cmb_stats_dept.currentData() or "")
+        self._fetch_stats(dept, inst)
 
-        att = "normal"
-        if self.radio_att_strict.isChecked():
-            att = "strict"
-        elif self.radio_att_easy.isChecked():
-            att = "easy"
+    def _fetch_stats(self, dept: str, inst: str) -> None:
+        self.lbl_stats_status.setText(f"⏳ در حال دریافت آمار «{inst}»…")
 
-        payload = {
-            "department_name": dept,
-            "instructor_name": inst,
-            "teaching_score": float(self.slider_teaching.value()),
-            "grading_score": float(self.slider_grading.value()),
-            "exam_difficulty_score": float(self.slider_exam.value()),
-            "assignments_score": float(self.slider_assign.value()),
-            "attendance_sensitivity": att,
-        }
-
-        def _on_success(res: dict):
-            QtWidgets.QMessageBox.information(self, "موفقیت", "نظر شما با موفقیت به صورت ناشناس ثبت شد.")
-
-        def _on_error(err_msg: str):
-            QtWidgets.QMessageBox.critical(self, "خطا در ثبت نظر", f"ثبت نظر با خطا مواجه شد:\n{err_msg}")
-
-        self._manager.submit_review(review_data=payload, on_success=_on_success, on_error=_on_error)
-
-    def _on_fetch_stats_clicked(self) -> None:
-        dept = self.txt_stats_dept.text().strip()
-        inst = self.txt_stats_inst.text().strip()
-        if not inst:
-            QtWidgets.QMessageBox.warning(self, "خطا", "لطفاً نام استاد را وارد کنید.")
-            return
-
-        def _on_success(stats: Optional[ProfessorStatsModel]):
-            if not stats:
-                self.lbl_stats_placeholder.setText(f"هیچ آماری برای استاد '{inst}' یافت نشد.")
-                self.lbl_stats_placeholder.show()
-                self.stats_cards_widget.hide()
+        def _ok(stats: Optional[ProfessorStats]):
+            self._last_stats = stats
+            if stats is None:
+                self._clear_stats_area()
+                self.lbl_stats_status.setText(
+                    f"برای «{inst}» هنوز آماری ثبت نشده. می‌توانید اولین نظر را شما ثبت کنید!"
+                )
                 return
+            self._render_stats(stats, dept or stats.department_name, inst)
+            self.lbl_stats_status.setText(
+                f"✅ آمار «{inst}» بر اساس {stats.total_voters} رأی نمایش داده شد."
+            )
+            self._manager.track_view(department=dept or stats.department_name, instructor=inst)
 
-            self._render_stats_cards(stats)
-            self.lbl_stats_placeholder.hide()
-            self.stats_cards_widget.show()
+        def _err(err: str):
+            self._clear_stats_area()
+            self.lbl_stats_status.setText(f"⚠️ دریافت آمار ناموفق بود: {err}")
 
-        def _on_error(err_msg: str):
-            QtWidgets.QMessageBox.critical(self, "خطا", f"خطا در دریافت آمار:\n{err_msg}")
+        self._manager.fetch_stats(department=dept, instructor=inst, on_success=_ok, on_error=_err)
 
-        self._manager.fetch_stats(department=dept, instructor=inst, on_success=_on_success, on_error=_on_error)
+    def _clear_stats_area(self) -> None:
+        while self.stats_lay.count():
+            item = self.stats_lay.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
 
-    def _render_stats_cards(self, stats: ProfessorStatsModel) -> None:
-        # Clear existing cards
-        for i in reversed(range(self.cards_layout.count())):
-            item = self.cards_layout.itemAt(i)
-            if item and item.widget():
-                item.widget().setParent(None)
+    def _render_stats(self, stats: ProfessorStats, dept: str, inst: str) -> None:
+        self._clear_stats_area()
+        p = theme_manager.palette()
 
-        disp_score = calc_display_score(stats)
-        card_overall = StatScoreCard("امتیاز کل ترکیبی", disp_score, sublabel=f"بر اساس {stats.total_reviews} نظر سایت + تلگرام")
-        card_teaching = StatScoreCard("کیفیت تدریس", stats.teaching_score)
-        card_grading = StatScoreCard("نمره‌دهی و ارفاق", stats.grading_score)
-        card_exam = StatScoreCard("سختی امتحان", stats.exam_difficulty_score, is_inverse=True, sublabel="عدد کمتر = امتحان آسان‌تر")
+        # Header card with big overall score
+        head = QtWidgets.QFrame()
+        head.setObjectName("statHeadCard")
+        head_lay = QtWidgets.QHBoxLayout(head)
+        head_lay.setContentsMargins(14, 10, 14, 10)
 
-        self.cards_layout.addWidget(card_overall, 0, 0)
-        self.cards_layout.addWidget(card_teaching, 0, 1)
-        self.cards_layout.addWidget(card_grading, 1, 0)
-        self.cards_layout.addWidget(card_exam, 1, 1)
+        name_col = QtWidgets.QVBoxLayout()
+        name_lbl = QtWidgets.QLabel(f"👤 {inst}")
+        name_lbl.setStyleSheet(f"font-size: 14pt; font-weight: bold; color: {p['text']}; border: none;")
+        dept_lbl = QtWidgets.QLabel(f"🏫 {dept}" if dept else "")
+        dept_lbl.setStyleSheet(f"color: {p['muted']}; font-size: 10pt; border: none;")
+        name_col.addWidget(name_lbl)
+        name_col.addWidget(dept_lbl)
+        head_lay.addLayout(name_col, stretch=1)
 
-    def _on_compare_clicked(self) -> None:
-        inst1 = self.txt_cmp1.text().strip()
-        inst2 = self.txt_cmp2.text().strip()
-        inst3 = self.txt_cmp3.text().strip()
+        score = calc_display_score(stats)
+        color = get_score_color_hex(score)
+        score_lbl = QtWidgets.QLabel(f"{score:.1f}")
+        score_lbl.setStyleSheet(f"font-size: 30pt; font-weight: bold; color: {color}; border: none;")
+        score_cap = QtWidgets.QLabel("امتیاز کلی")
+        score_cap.setStyleSheet(f"color: {p['muted']}; font-size: 8.5pt; border: none;")
+        score_col = QtWidgets.QVBoxLayout()
+        score_col.addWidget(score_lbl, alignment=Qt.AlignCenter)
+        score_col.addWidget(score_cap, alignment=Qt.AlignCenter)
+        head_lay.addLayout(score_col)
+        self.stats_lay.addWidget(head)
 
-        targets = [inst for inst in [inst1, inst2, inst3] if inst]
-        if len(targets) < 2:
-            QtWidgets.QMessageBox.warning(self, "خطا", "لطفاً حداقل نام ۲ استاد را برای مقایسه وارد کنید.")
+        # Score bars
+        self.stats_lay.addWidget(ScoreBar("🎙️ کیفیت تدریس", stats.teaching_avg))
+        self.stats_lay.addWidget(ScoreBar("📝 نمره‌دهی و ارفاق", stats.grading_avg))
+        self.stats_lay.addWidget(ScoreBar("📚 حجم تکالیف", stats.assignments_avg))
+        self.stats_lay.addWidget(ScoreBar("🔥 سختی امتحان", stats.exam_difficulty_avg, inverse=True))
+
+        # Meta info line
+        meta_parts = [f"🗳️ {stats.total_voters} رأی", f"👁️ {stats.view_count} بازدید"]
+        if stats.telegram_has_data and stats.telegram_effective_voters:
+            meta_parts.append(
+                f"📊 شامل {stats.telegram_effective_voters} رأی تلگرام (وزن ۰٫۴)"
+            )
+        meta = QtWidgets.QLabel("   ·   ".join(meta_parts))
+        meta.setStyleSheet(f"color: {p['muted']}; font-size: 9.5pt; border: none;")
+        self.stats_lay.addWidget(meta)
+
+        # Jump to review button
+        review_row = QtWidgets.QHBoxLayout()
+        review_row.addStretch()
+        btn_review = QtWidgets.QPushButton(f"✍️ ثبت / ویرایش نظر من برای «{inst}»")
+        btn_review.setObjectName("primaryButton")
+        btn_review.setMinimumWidth(300)
+        btn_review.setMinimumHeight(38)
+        btn_review.clicked.connect(lambda: self.tab_widget.setCurrentWidget(self.tab_submit))
+        review_row.addWidget(btn_review)
+        self.stats_lay.addLayout(review_row)
+        self.stats_lay.addStretch()
+
+    # ═════════════════════════════════════════════════════════
+    # Cloud auth helper
+    # ═════════════════════════════════════════════════════════
+    def _ensure_cloud_auth(self) -> bool:
+        if self._token_manager is not None:
+            try:
+                if self._token_manager.has_valid_token():
+                    return True
+            except Exception:  # noqa: BLE001
+                pass
+        try:
+            from app.ui.account_auth_dialog import AccountAuthDialog
+            if self._auth_client is not None:
+                dialog = AccountAuthDialog(
+                    auth_client=self._auth_client,
+                    token_manager=self._token_manager,
+                    parent=self,
+                )
+                dialog.exec_()
+                if self._token_manager is not None and self._token_manager.has_valid_token():
+                    return True
+        except Exception as err:  # noqa: BLE001
+            logger.warning("Cloud auth prompt failed: %s", err)
+        QtWidgets.QMessageBox.warning(
+            self, "ورود لازم است",
+            "برای ثبت نظر ابتدا باید به حساب کاربری گلستون وارد شوید."
+        )
+        return False
+
+    def _selected_attendance(self) -> str:
+        for value, radio in self.radio_att.items():
+            if radio.isChecked():
+                return value
+        return "normal"
+
+    def _submit_selection(self) -> Optional[tuple]:
+        dept = str(self.cmb_submit_dept.currentData() or "").strip()
+        inst = self.submit_picker["combo"].currentText().strip()
+        if not dept or not inst or inst.startswith("—"):
+            QtWidgets.QMessageBox.warning(
+                self, "انتخاب ناقص",
+                "لطفاً ابتدا گروه آموزشی و نام استاد را از فهرست‌ها انتخاب کنید."
+            )
+            return None
+        return (dept, inst)
+
+    # ═════════════════════════════════════════════════════════
+    # My-review actions
+    # ═════════════════════════════════════════════════════════
+    def _on_submit_review_clicked(self) -> None:
+        if not self._ensure_cloud_auth():
+            return
+        selection = self._submit_selection()
+        if selection is None:
+            return
+        dept, inst = selection
+
+        def _ok(_res: dict):
+            QtWidgets.QMessageBox.information(
+                self, "ثبت شد 🎉",
+                "نظر شما به‌صورت کاملاً ناشناس ثبت شد.\n"
+                "با ثبت نظر، آمار و مقایسه اساتید برایتان باز می‌شود."
+            )
+            self._manager._cache_stats.clear()
+            self._refresh_summary()
+            if self.stats_picker["combo"].currentText() == inst:
+                self._fetch_stats(dept, inst)
+
+        def _err(err: str):
+            QtWidgets.QMessageBox.critical(self, "خطا در ثبت نظر", f"ثبت نظر ناموفق بود:\n{err}")
+
+        self._manager.submit_review(
+            department_name=dept,
+            instructor_name=inst,
+            teaching_score=self.slider_teaching.value(),
+            assignments_score=self.slider_assign.value(),
+            grading_score=self.slider_grading.value(),
+            exam_difficulty_score=self.slider_exam.value(),
+            attendance_sensitivity=self._selected_attendance(),
+            on_success=_ok,
+            on_error=_err,
+        )
+
+    def _on_load_my_review_clicked(self) -> None:
+        if not self._ensure_cloud_auth():
+            return
+        selection = self._submit_selection()
+        if selection is None:
+            return
+        dept, inst = selection
+
+        def _ok(review):
+            if review is None:
+                self.lbl_myreview_state.setText(
+                    f"برای «{inst}» هنوز نظری از شما ثبت نشده است."
+                )
+                return
+            self.slider_teaching.setValue(int(review.teaching_score))
+            self.slider_assign.setValue(int(review.assignments_score))
+            self.slider_grading.setValue(int(review.grading_score))
+            self.slider_exam.setValue(int(review.exam_difficulty_score))
+            for value, radio in self.radio_att.items():
+                radio.setChecked(review.attendance_sensitivity == value)
+            updated = (review.updated_at or "")[:19].replace("T", " ")
+            self.lbl_myreview_state.setText(
+                f"✅ نظر قبلی بارگذاری شد (آخرین به‌روزرسانی: {updated or '—'}). "
+                "با ثبت مجدد، نظر قبلی جایگزین می‌شود."
+            )
+
+        def _err(err: str):
+            QtWidgets.QMessageBox.critical(self, "خطا", f"دریافت نظر شما ناموفق بود:\n{err}")
+
+        self._manager.fetch_my_review(department=dept, instructor=inst, on_success=_ok, on_error=_err)
+
+    def _on_delete_my_review_clicked(self) -> None:
+        if not self._ensure_cloud_auth():
+            return
+        selection = self._submit_selection()
+        if selection is None:
+            return
+        dept, inst = selection
+        confirm = QtWidgets.QMessageBox.question(
+            self, "حذف نظر",
+            f"نظر شما برای «{inst}» حذف شود؟",
+            QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
+            QtWidgets.QMessageBox.No,
+        )
+        if confirm != QtWidgets.QMessageBox.Yes:
             return
 
-        def _on_success(results: List[ProfessorStatsModel]):
+        def _ok(_res: dict):
+            QtWidgets.QMessageBox.information(self, "موفقیت", "نظر شما حذف شد.")
+            self._manager._cache_stats.clear()
+            self._refresh_summary()
+
+        def _err(err: str):
+            QtWidgets.QMessageBox.critical(self, "خطا", f"حذف نظر ناموفق بود:\n{err}")
+
+        self._manager.delete_my_review(department=dept, instructor=inst, on_success=_ok, on_error=_err)
+
+    # ═════════════════════════════════════════════════════════
+    # Compare
+    # ═════════════════════════════════════════════════════════
+    def _on_compare_clicked(self) -> None:
+        targets = []
+        for row in self.cmp_rows:
+            dept = str(row["dept"].currentData() or "")
+            inst = row["picker"]["combo"].currentText().strip()
+            if inst and not inst.startswith("—"):
+                targets.append({"department": dept, "instructor": inst})
+        if len(targets) < 2:
+            QtWidgets.QMessageBox.warning(
+                self, "تعداد ناکافی",
+                "برای مقایسه، حداقل در دو ردیف استاد انتخاب کنید."
+            )
+            return
+
+        self.lbl_cmp_status.setText("⏳ در حال دریافت آمار اساتید انتخاب‌شده…")
+
+        def _ok(results: List[ProfessorStats]):
+            self.lbl_cmp_status.setText(f"✅ مقایسه {len(results)} استاد آماده است.")
             self._render_compare_table(results)
 
-        def _on_error(err_msg: str):
-            QtWidgets.QMessageBox.critical(self, "خطا", f"خطا در مقایسه اساتید:\n{err_msg}")
+        def _err(err: str):
+            self.lbl_cmp_status.setText(f"⚠️ مقایسه ناموفق بود: {err}")
 
-        cmp_list = [{"department_name": "", "instructor_name": inst} for inst in targets]
-        # Execute comparison asynchronously
-        def _run_compare():
-            try:
-                res = self._manager.client.compare_professors(cmp_list)
-                _on_success(res)
-            except Exception as e:
-                _on_error(str(e))
+        def _job():
+            return self._manager.client.compare_professors(targets)
 
-        QtCore.QTimer.singleShot(0, _run_compare)
+        from app.core.professor_manager import _Worker
+        worker = _Worker(_job)
+        worker.finished_signal.connect(_ok)
+        worker.error_signal.connect(_err)
+        worker.finished.connect(worker.deleteLater)
+        worker.start()
 
-    def _render_compare_table(self, results: List[ProfessorStatsModel]) -> None:
-        self.cmp_table.setRowCount(5)
-        headers = ["معیار"] + [s.instructor_name for s in results]
+    def _render_compare_table(self, results: List[ProfessorStats]) -> None:
+        if not results:
+            self.lbl_cmp_status.setText("برای اساتید انتخاب‌شده آماری یافت نشد.")
+            return
+        headers = ["معیار"] + [s.instructor_name or "—" for s in results]
         self.cmp_table.setColumnCount(len(headers))
         self.cmp_table.setHorizontalHeaderLabels(headers)
-
-        att_map = {"strict": "خیلی حساس", "normal": "معمولی", "easy": "بی‌خیال"}
-        att_labels = [att_map.get(s.attendance_sensitivity.lower(), s.attendance_sensitivity) for s in results]
-
         rows = [
-            ("امتیاز کل ترکیبی", [f"{calc_display_score(s):.1f}" for s in results]),
-            ("کیفیت تدریس", [f"{s.teaching_score:.1f}" for s in results]),
-            ("نمره‌دهی و ارفاق", [f"{s.grading_score:.1f}" for s in results]),
-            ("سختی امتحان", [f"{s.exam_difficulty_score:.1f}" for s in results]),
-            ("حضور و غیاب", att_labels),
+            ("امتیاز کلی", [f"{calc_display_score(s):.1f}" for s in results]),
+            ("کیفیت تدریس", [f"{s.teaching_avg:.1f}" for s in results]),
+            ("نمره‌دهی", [f"{s.grading_avg:.1f}" for s in results]),
+            ("حجم تکالیف", [f"{s.assignments_avg:.1f}" for s in results]),
+            ("سختی امتحان", [f"{s.exam_difficulty_avg:.1f}" for s in results]),
+            ("تعداد رأی", [str(s.total_voters) for s in results]),
         ]
+        self.cmp_table.setRowCount(len(rows))
+        for r, (criteria, vals) in enumerate(rows):
+            c0 = QtWidgets.QTableWidgetItem(criteria)
+            c0.setFont(QtWidgets.QApplication.font())
+            self.cmp_table.setItem(r, 0, c0)
+            for c, val in enumerate(vals):
+                self.cmp_table.setItem(r, c + 1, QtWidgets.QTableWidgetItem(val))
 
-        for r_idx, (criteria, vals) in enumerate(rows):
-            self.cmp_table.setItem(r_idx, 0, QtWidgets.QTableWidgetItem(criteria))
-            for c_idx, val in enumerate(vals):
-                self.cmp_table.setItem(r_idx, c_idx + 1, QtWidgets.QTableWidgetItem(val))
-
+    # ═════════════════════════════════════════════════════════
+    # Popular
+    # ═════════════════════════════════════════════════════════
     def _on_load_popular_clicked(self) -> None:
-        def _run():
-            try:
-                popular = self._manager.client.get_popular_professors()
-                self.popular_table.setRowCount(len(popular))
-                for idx, p in enumerate(popular):
-                    self.popular_table.setItem(idx, 0, QtWidgets.QTableWidgetItem(p.instructor_name))
-                    self.popular_table.setItem(idx, 1, QtWidgets.QTableWidgetItem(p.department_name))
-                    self.popular_table.setItem(idx, 2, QtWidgets.QTableWidgetItem(f"{calc_display_score(p):.1f}"))
-                    self.popular_table.setItem(idx, 3, QtWidgets.QTableWidgetItem(str(p.total_reviews)))
-            except Exception as e:
-                user_msg = humanize_error(e, "دریافت اطلاعات اساتید محبوب با خطا مواجه شد.")
-                QtWidgets.QMessageBox.critical(self, "خطا", user_msg)
+        kind = self.cmb_popular_kind.currentData() or "score"
+        dept = str(self.cmb_popular_dept.currentData() or "")
 
-        QtCore.QTimer.singleShot(0, _run)
+        def _ok(rows: List[ProfessorStats]):
+            self.popular_table.setRowCount(len(rows))
+            for idx, row_stat in enumerate(rows):
+                rank = QtWidgets.QTableWidgetItem(f"{idx + 1}")
+                rank.setTextAlignment(Qt.AlignCenter)
+                self.popular_table.setItem(idx, 0, rank)
+                self.popular_table.setItem(idx, 1, QtWidgets.QTableWidgetItem(row_stat.instructor_name))
+                self.popular_table.setItem(idx, 2, QtWidgets.QTableWidgetItem(row_stat.department_name))
+                score_item = QtWidgets.QTableWidgetItem(f"{calc_display_score(row_stat):.1f}")
+                score_item.setTextAlignment(Qt.AlignCenter)
+                self.popular_table.setItem(idx, 3, score_item)
+                voters_item = QtWidgets.QTableWidgetItem(str(row_stat.total_voters))
+                voters_item.setTextAlignment(Qt.AlignCenter)
+                self.popular_table.setItem(idx, 4, voters_item)
+            if not rows:
+                QtWidgets.QMessageBox.information(self, "محبوب‌ها", "موردی یافت نشد.")
 
+        def _err(err: str):
+            QtWidgets.QMessageBox.critical(self, "خطا", f"دریافت اساتید محبوب ناموفق بود:\n{err}")
+
+        self._manager.fetch_popular(kind=kind, department=dept, on_success=_ok, on_error=_err)
+
+    def _on_popular_row_activated(self, row: int, _col: int) -> None:
+        """Double-click a leaderboard row → open that instructor's stats."""
+        inst_item = self.popular_table.item(row, 1)
+        dept_item = self.popular_table.item(row, 2)
+        if not inst_item or not dept_item:
+            return
+        inst, dept = inst_item.text(), dept_item.text()
+
+        idx = self.cmb_stats_dept.findData(dept)
+        if idx >= 0:
+            self.cmb_stats_dept.setCurrentIndex(idx)
+        # Wait a tick so the instructor combo refills for the department
+        QtCore.QTimer.singleShot(60, lambda: self._select_instructor_and_show(inst))
+
+    def _select_instructor_and_show(self, inst: str) -> None:
+        combo = self.stats_picker["combo"]
+        idx = combo.findText(inst)
+        if idx >= 0:
+            combo.setCurrentIndex(idx)  # triggers _on_stats_inst_selected
+        else:
+            self.lbl_stats_status.setText(f"«{inst}» در فهرست این گروه پیدا نشد.")
+        self.tab_widget.setCurrentWidget(self.tab_stats)
+
+    # ═════════════════════════════════════════════════════════
+    # Suggest
+    # ═════════════════════════════════════════════════════════
+    def _on_suggest_clicked(self) -> None:
+        if not self._ensure_cloud_auth():
+            return
+        dept = str(self.cmb_suggest_dept.currentData() or "").strip()
+        inst = self.txt_suggest_inst.text().strip()
+        if not dept or not inst:
+            QtWidgets.QMessageBox.warning(self, "خطا", "لطفاً گروه و نام استاد را وارد کنید.")
+            return
+
+        def _after_check(exists_info: Dict[str, Any]):
+            if exists_info.get("exists"):
+                QtWidgets.QMessageBox.warning(
+                    self, "استاد تکراری",
+                    exists_info.get("message") or "این استاد قبلاً در سیستم ثبت یا پیشنهاد شده است."
+                )
+                return
+
+            def _ok(_res: dict):
+                QtWidgets.QMessageBox.information(
+                    self, "پیشنهاد ثبت شد 🌸",
+                    "پیشنهاد شما ثبت شد و پس از بررسی مسئولین اضافه می‌شود."
+                )
+                self.txt_suggest_inst.clear()
+
+            def _err(err: str):
+                QtWidgets.QMessageBox.critical(self, "خطا", f"ارسال پیشنهاد ناموفق بود:\n{err}")
+
+            self._manager.suggest_instructor(department_name=dept, instructor_name=inst,
+                                             on_success=_ok, on_error=_err)
+
+        def _check_err(err: str):
+            QtWidgets.QMessageBox.critical(self, "خطا", f"بررسی تکراری‌بودن ناموفق بود:\n{err}")
+
+        self._manager.check_instructor_exists(department_name=dept, instructor_name=inst,
+                                              on_success=_after_check, on_error=_check_err)
+
+    # ═════════════════════════════════════════════════════════
+    # Styling
+    # ═════════════════════════════════════════════════════════
     def _apply_styles(self) -> None:
-        self.setStyleSheet("""
-            QDialog {
-                background-color: #0f172a;
-                color: #f8fafc;
+        p = theme_manager.palette()
+        self.setStyleSheet(f"""
+            QDialog {{
+                background-color: {p['bg']};
+                color: {p['text']};
                 font-family: "Vazirmatn", "Segoe UI", sans-serif;
-            }
-            QTabWidget::pane {
-                border: 1px solid #334155;
-                background-color: #0f172a;
+                font-size: 10pt;
+            }}
+            QLabel#dialogTitle {{ font-size: 15pt; font-weight: bold; color: {p['text']}; }}
+            QLabel#statusLabel {{ color: {p['muted']}; font-size: 9.5pt; }}
+            QLabel#summaryBadge {{
+                background-color: {p['tint']};
+                color: {p['primary']};
+                border-radius: 13px;
+                padding: 5px 14px;
+                font-size: 9.5pt;
+                font-weight: bold;
+            }}
+            QGroupBox {{
+                font-weight: bold;
+                border: 1px solid {p['border']};
+                border-radius: 10px;
+                margin-top: 12px;
+                padding: 14px 10px 10px 10px;
+                background-color: {p['surface']};
+                color: {p['text_mid']};
+            }}
+            QGroupBox::title {{
+                subcontrol-origin: margin;
+                right: 12px; padding: 0 6px;
+                color: {p['primary']};
+            }}
+            QComboBox {{
+                background-color: {p['surface']};
+                color: {p['text']};
+                border: 1px solid {p['border']};
                 border-radius: 8px;
-            }
-            QTabBar::tab {
-                background: #1e293b;
-                color: #94a3b8;
+                padding: 8px 12px;
+                min-height: 18px;
+                font-size: 10pt;
+            }}
+            QComboBox:focus {{ border: 2px solid {p['primary']}; }}
+            QComboBox::drop-down {{ border: none; width: 26px; }}
+            QComboBox::down-arrow {{
+                image: none;
+                border-left: 5px solid transparent;
+                border-right: 5px solid transparent;
+                border-top: 7px solid {p['muted']};
+                margin-right: 8px;
+            }}
+            QComboBox QAbstractItemView {{
+                background-color: {p['surface']};
+                color: {p['text']};
+                selection-background-color: {p['tint']};
+                selection-color: {p['text']};
+                border: 1px solid {p['border']};
+                outline: none;
+            }}
+            QLineEdit {{
+                background-color: {p['surface']};
+                color: {p['text']};
+                border: 1px solid {p['border']};
+                border-radius: 8px;
+                padding: 8px 12px;
+                min-height: 18px;
+                font-size: 10pt;
+            }}
+            QLineEdit:focus {{ border: 2px solid {p['primary']}; }}
+            QPushButton {{
+                background-color: {p['surface']};
+                color: {p['text']};
+                border: 1px solid {p['border']};
+                border-radius: 8px;
+                padding: 9px 16px;
+                min-height: 20px;
+                font-size: 10pt;
+            }}
+            QPushButton:hover {{ border-color: {p['primary']}; color: {p['primary']}; }}
+            QPushButton:disabled {{ color: {p['muted']}; }}
+            QPushButton#primaryButton {{
+                background-color: {p['primary']};
+                color: {p['primary_text']};
+                border: none;
+                font-weight: bold;
+            }}
+            QPushButton#primaryButton:hover {{ background-color: {p['primary_hover']}; }}
+            QPushButton#primaryButton:disabled {{ background-color: {p['border']}; color: {p['muted']}; }}
+            QPushButton#secondaryButton {{
+                background-color: {p['surface']};
+                color: {p['text']};
+                border: 1px solid {p['border']};
+            }}
+            QPushButton#secondaryButton:hover {{ border-color: {p['primary']}; color: {p['primary']}; }}
+            QTabWidget::pane {{
+                border: 1px solid {p['border']};
+                background-color: {p['surface']};
+                border-radius: 10px;
+            }}
+            QTabBar::tab {{
+                background: {p['bg']};
+                color: {p['muted']};
                 padding: 10px 20px;
                 margin-right: 4px;
-                border-top-left-radius: 6px;
-                border-top-right-radius: 6px;
+                border-top-left-radius: 8px;
+                border-top-right-radius: 8px;
+                font-size: 10.5pt;
+                font-weight: bold;
+            }}
+            QTabBar::tab:selected {{
+                background: {p['primary']};
+                color: {p['primary_text']};
+            }}
+            QSlider::groove:horizontal {{
+                height: 8px; border-radius: 4px; background: {p['border']};
+            }}
+            QSlider::sub-page:horizontal {{
+                background: {p['primary']}; border-radius: 4px;
+            }}
+            QSlider::handle:horizontal {{
+                background: {p['surface']}; border: 2px solid {p['primary']};
+                width: 18px; margin: -7px 0; border-radius: 9px;
+            }}
+            QRadioButton {{ color: {p['text']}; font-size: 10pt; spacing: 6px; }}
+            QTableWidget {{
+                background-color: {p['surface']};
+                color: {p['text']};
+                gridline-color: {p['border']};
+                border: 1px solid {p['border']};
+                border-radius: 8px;
+                alternate-background-color: {p['bg']};
                 font-size: 10pt;
+            }}
+            QHeaderView::section {{
+                background-color: {p['bg']};
+                color: {p['muted']};
+                padding: 9px;
                 font-weight: bold;
-            }
-            QTabBar::tab:selected {
-                background: #3b82f6;
-                color: #ffffff;
-            }
-            QLineEdit {
-                background-color: #1e293b;
-                color: #f8fafc;
-                border: 1px solid #334155;
-                border-radius: 6px;
-                padding: 8px 12px;
-                font-size: 9.5pt;
-            }
-            QLineEdit:focus {
-                border: 1px solid #3b82f6;
-            }
-            QPushButton#primaryButton {
-                background-color: #3b82f6;
-                color: #ffffff;
-                border-radius: 6px;
-                padding: 8px 16px;
-                font-weight: bold;
+                border: none;
+                border-bottom: 2px solid {p['border']};
                 font-size: 10pt;
-            }
-            QPushButton#primaryButton:hover {
-                background-color: #2563eb;
-            }
-            QPushButton#secondaryButton {
-                background-color: #334155;
-                color: #f8fafc;
-                border-radius: 6px;
-                padding: 8px 16px;
-            }
-            QTableWidget {
-                background-color: #0f172a;
-                color: #f8fafc;
-                gridline-color: #334155;
-                border: 1px solid #334155;
-                border-radius: 6px;
-            }
-            QHeaderView::section {
-                background-color: #1e293b;
-                color: #f8fafc;
-                padding: 8px;
+            }}
+            QFrame#gateCard {{
+                background-color: {p['tint']};
+                border: 2px dashed {p['primary']};
+                border-radius: 12px;
+            }}
+            QLabel#gateTitle {{
+                font-size: 13pt;
                 font-weight: bold;
-                border: 1px solid #334155;
-            }
+                color: {p['primary']};
+                border: none;
+                background: transparent;
+            }}
+            QFrame#statHeadCard {{
+                background-color: {p['bg']};
+                border: 1px solid {p['border']};
+                border-radius: 12px;
+            }}
+            QScrollArea {{ background: transparent; border: none; }}
         """)

@@ -2,19 +2,24 @@
 """
 Golestoon Professor Reviews Manager (ViewModel & Business Logic Layer).
 
-This module provides the ProfessorManager handling business logic, background QThread worker tasks,
-caching, score formulas, and state management for professor ratings and comparisons.
+Bridges the PyQt5 professor-review UI with `ProfessorClient` (server-accurate
+contracts: `*_avg` aggregates for reading, `*_score` for submitting) through
+background QThread workers, caching and web-parity score formulas.
 
 Architecture Layer: Layer 4 (Application Logic & Manager)
-Dependencies: `ProfessorClient`, `ProfessorStatsModel`, `ProfessorReviewModel`, `PyQt5.QtCore` (QThread, pyqtSignal).
+Dependencies: `ProfessorClient`, `ProfessorStats`, `ProfessorReview`, PyQt5.
 """
 
 import logging
-from typing import List, Dict, Any, Optional
+from typing import Any, Callable, Dict, List, Optional, Set
+
 from PyQt5.QtCore import QObject, QThread, pyqtSignal
 
-from app.core.network.clients.professor_client import ProfessorClient
-from app.core.network.models import ProfessorStatsModel, ProfessorReviewModel
+from app.core.network.clients.professor_client import (
+    ProfessorClient,
+    ProfessorStats,
+    ProfessorReview,
+)
 from app.core.network.exceptions import GolestoonNetworkError
 
 logger = logging.getLogger("golestoon.professors.manager")
@@ -28,51 +33,45 @@ def clamp_score(val: float) -> float:
 
 
 def get_score_color_hex(score: float) -> str:
-    """Get color hex code for score value (Green >= 80, Blue >= 60, Orange >= 40, Red < 40)."""
+    """Get color hex for score (Green >= 80, Blue >= 60, Amber >= 40, Red < 40) — web thresholds."""
     score = clamp_score(score)
     if score >= 80.0:
-        return "#16a34a"  # Green
+        return "#16a34a"
     elif score >= 60.0:
-        return "#3b82f6"  # Blue
+        return "#3b82f6"
     elif score >= 40.0:
-        return "#f59e0b"  # Amber / Orange
-    else:
-        return "#ef4444"  # Red
+        return "#f59e0b"
+    return "#ef4444"
 
 
 def get_inverse_score_color_hex(difficulty_score: float) -> str:
-    """Get color hex code for difficulty (Higher difficulty = Red, Lower difficulty = Green)."""
+    """Color for difficulty (higher = harder = red)."""
     difficulty_score = clamp_score(difficulty_score)
     if difficulty_score >= 80.0:
-        return "#ef4444"  # Red (Very Hard)
+        return "#ef4444"
     elif difficulty_score >= 60.0:
-        return "#f59e0b"  # Orange (Hard)
+        return "#f59e0b"
     elif difficulty_score >= 40.0:
-        return "#3b82f6"  # Blue (Normal)
-    else:
-        return "#16a34a"  # Green (Easy)
+        return "#3b82f6"
+    return "#16a34a"
 
 
-def calc_overall_score(stats: Optional[ProfessorStatsModel]) -> float:
+def calc_overall_score(stats: Optional[ProfessorStats]) -> float:
     """
-    Compute site composite overall score matching web formula:
-    Overall = (Teaching * 0.30) + (Grading * 0.40) + ((100 - ExamDifficulty) * 0.30)
+    Web-formula composite: Overall = Teaching*0.30 + Grading*0.40 + (100-ExamDifficulty)*0.30.
+    Server-computed `overall_avg` takes precedence when present.
     """
     if not stats:
         return 0.0
-    exam_ease = clamp_score(100.0 - stats.exam_difficulty_score)
-    overall = (
-        (stats.teaching_score * 0.30) +
-        (stats.grading_score * 0.40) +
-        (exam_ease * 0.30)
-    )
+    if stats.overall_avg is not None:
+        return clamp_score(stats.overall_avg)
+    exam_ease = clamp_score(100.0 - stats.exam_difficulty_avg)
+    overall = (stats.teaching_avg * 0.30) + (stats.grading_avg * 0.40) + (exam_ease * 0.30)
     return clamp_score(overall)
 
 
-def calc_display_score(stats: Optional[ProfessorStatsModel]) -> float:
-    """
-    Compute weighted display score combining site reviews and Telegram voters matching web formula.
-    """
+def calc_display_score(stats: Optional[ProfessorStats]) -> float:
+    """Site+Telegram weighted display score (web TELEGRAM_WEIGHT = 0.4)."""
     if not stats:
         return 0.0
 
@@ -83,148 +82,194 @@ def calc_display_score(stats: Optional[ProfessorStatsModel]) -> float:
     telegram_weight = telegram_voters * TELEGRAM_WEIGHT
 
     if site_reviews > 0 and telegram_voters > 0:
-        display_score = ((site_composite * site_reviews) + (telegram_score * telegram_weight)) / (site_reviews + telegram_weight)
+        display = ((site_composite * site_reviews) + (telegram_score * telegram_weight)) / (site_reviews + telegram_weight)
     elif site_reviews > 0:
-        display_score = site_composite
+        display = site_composite
     elif telegram_voters > 0:
-        display_score = telegram_score
+        display = telegram_score
     else:
-        display_score = 0.0
-
-    return clamp_score(display_score)
+        display = 0.0
+    return clamp_score(display)
 
 
 # ─────────────────────────────────────────────────────────────
 #  Background QThread Workers
 # ─────────────────────────────────────────────────────────────
 
-class FetchStatsWorker(QThread):
-    """Background worker thread to fetch professor stats without freezing UI."""
+def _run_worker(worker: "_Worker", on_success: Any, on_error: Any, manager_ref: "ProfessorManager") -> None:
+    """Start a worker while keeping it referenced until it finishes.
 
-    finished_signal = pyqtSignal(object)  # ProfessorStatsModel or None
+    A running QThread whose Python wrapper gets garbage-collected aborts the
+    whole process ("QThread: Destroyed while thread is still running"), so
+    every active worker is held in a set and released only on completion.
+    """
+    worker.finished_signal.connect(on_success)
+    worker.error_signal.connect(on_error)
+    manager_ref._active_workers.add(worker)
+
+    def _release():
+        manager_ref._active_workers.discard(worker)
+        worker.deleteLater()
+
+    worker.finished.connect(_release)
+    worker.start()
+
+
+class _Worker(QThread):
+    """Generic one-call worker wrapping a client callable."""
+
+    finished_signal = pyqtSignal(object)
     error_signal = pyqtSignal(str)
 
-    def __init__(self, client: ProfessorClient, department: str, instructor: str, parent: Optional[QObject] = None) -> None:
+    def __init__(self, fn: Callable[[], Any], parent: Optional[QObject] = None) -> None:
         super().__init__(parent)
-        self._client: ProfessorClient = client
-        self._department: str = department
-        self._instructor: str = instructor
+        self._fn = fn
 
     def run(self) -> None:
         try:
-            stats = self._client.get_stats(department=self._department, instructor=self._instructor)
-            self.finished_signal.emit(stats)
+            self.finished_signal.emit(self._fn())
         except GolestoonNetworkError as err:
             self.error_signal.emit(err.message)
-        except Exception as err:
-            self.error_signal.emit(str(err))
-
-
-class SearchProfessorsWorker(QThread):
-    """Background worker thread to search professors."""
-
-    finished_signal = pyqtSignal(list)  # List[ProfessorStatsModel]
-    error_signal = pyqtSignal(str)
-
-    def __init__(self, client: ProfessorClient, query: str, department: str = "", parent: Optional[QObject] = None) -> None:
-        super().__init__(parent)
-        self._client: ProfessorClient = client
-        self._query: str = query
-        self._department: str = department
-
-    def run(self) -> None:
-        try:
-            results = self._client.search_professor(query=self._query, department=self._department)
-            self.finished_signal.emit(results)
-        except GolestoonNetworkError as err:
-            self.error_signal.emit(err.message)
-        except Exception as err:
-            self.error_signal.emit(str(err))
-
-
-class SubmitReviewWorker(QThread):
-    """Background worker thread to submit professor review."""
-
-    finished_signal = pyqtSignal(dict)
-    error_signal = pyqtSignal(str)
-
-    def __init__(self, client: ProfessorClient, review_data: dict, parent: Optional[QObject] = None) -> None:
-        super().__init__(parent)
-        self._client: ProfessorClient = client
-        self._review_data: dict = review_data
-
-    def run(self) -> None:
-        try:
-            res = self._client.submit_review(review_data=self._review_data)
-            self.finished_signal.emit(res)
-        except GolestoonNetworkError as err:
-            self.error_signal.emit(err.message)
-        except Exception as err:
+        except Exception as err:  # noqa: BLE001 — worker boundary
+            logger.exception("Professor worker failed")
             self.error_signal.emit(str(err))
 
 
 # ─────────────────────────────────────────────────────────────
-#  ProfessorManager Manager Class
+#  ProfessorManager
 # ─────────────────────────────────────────────────────────────
 
 class ProfessorManager(QObject):
     """
-    Manager and ViewModel bridging PyQt5 UI views with ProfessorClient network client.
-    Handles caching, asynchronous thread execution, and math formulas.
+    Manager bridging PyQt5 UI views with ProfessorClient:
+    caching, async thread execution, and score math.
     """
 
     def __init__(self, client: ProfessorClient, parent: Optional[QObject] = None) -> None:
         super().__init__(parent)
         self._client: ProfessorClient = client
-        self._cache_stats: Dict[str, ProfessorStatsModel] = {}
-        self._active_worker: Optional[QThread] = None
+        self._cache_stats: Dict[str, ProfessorStats] = {}
+        self._active_workers: Set["_Worker"] = set()
 
     @property
     def client(self) -> ProfessorClient:
         """Get underlying network client."""
         return self._client
 
+    # ── Stats & search ───────────────────────────────────────
     def fetch_stats(
         self,
         department: str,
         instructor: str,
         on_success: Any,
         on_error: Any,
-        force_refresh: bool = False
+        force_refresh: bool = False,
     ) -> None:
-        """Fetch professor stats asynchronously."""
+        """Fetch professor aggregated stats asynchronously (cached)."""
         cache_key = f"{department.strip()}:::{instructor.strip()}"
         if not force_refresh and cache_key in self._cache_stats:
             on_success(self._cache_stats[cache_key])
             return
 
-        worker = FetchStatsWorker(client=self._client, department=department, instructor=instructor)
+        def _job() -> Optional[ProfessorStats]:
+            return self._client.get_stats(department=department, instructor=instructor)
 
-        def _handle_success(stats: Optional[ProfessorStatsModel]):
+        def _handle_success(stats: Optional[ProfessorStats]):
             if stats:
                 self._cache_stats[cache_key] = stats
             on_success(stats)
 
-        worker.finished_signal.connect(_handle_success)
-        worker.error_signal.connect(on_error)
-        if hasattr(worker, 'finished'): worker.finished.connect(worker.deleteLater)
-        worker.start()
-        self._active_worker = worker
+        _run_worker(_Worker(_job), _handle_success, on_error, self)
 
-    def search(self, query: str, department: str, on_success: Any, on_error: Any) -> None:
-        """Search professors asynchronously."""
-        worker = SearchProfessorsWorker(client=self._client, query=query, department=department)
-        worker.finished_signal.connect(on_success)
-        worker.error_signal.connect(on_error)
-        if hasattr(worker, 'finished'): worker.finished.connect(worker.deleteLater)
-        worker.start()
-        self._active_worker = worker
+    def search_directory(self, query: str, department: str, on_success: Any, on_error: Any) -> None:
+        """
+        Search instructors through the approved directory (web InstructorSearch parity):
+        fetches the (optionally department-filtered) directory and filters by name locally.
+        The full directory (~hundreds of rows) is cached client-side so switching
+        departments is instant.
+        """
+        def _job() -> List[Dict[str, Any]]:
+            rows = self._client.get_approved_instructors(department=department)
+            q = (query or "").strip()
+            if not q:
+                return rows[:1000]  # effectively the whole directory
+            # Normalize Persian variants (ي→ی, ك→ک) for tolerant matching
+            def norm(s: str) -> str:
+                return (s or "").replace("ي", "ی").replace("ك", "ک").replace("‌", " ").strip()
+            qn = norm(q)
+            return [r for r in rows if qn in norm(str(r.get("instructor_name", "")))][:1000]
 
-    def submit_review(self, review_data: dict, on_success: Any, on_error: Any) -> None:
-        """Submit review asynchronously."""
-        worker = SubmitReviewWorker(client=self._client, review_data=review_data)
-        worker.finished_signal.connect(on_success)
-        worker.error_signal.connect(on_error)
-        if hasattr(worker, 'finished'): worker.finished.connect(worker.deleteLater)
-        worker.start()
-        self._active_worker = worker
+        _run_worker(_Worker(_job), on_success, on_error, self)
+
+    # ── Lists & leaderboards ─────────────────────────────────
+    def fetch_departments(self, on_success: Any, on_error: Any) -> None:
+        _run_worker(_Worker(lambda: self._client.get_departments()), on_success, on_error, self)
+
+    def fetch_summary(self, on_success: Any, on_error: Any) -> None:
+        _run_worker(_Worker(lambda: self._client.get_summary()), on_success, on_error, self)
+
+    def fetch_popular(self, kind: str, department: str, on_success: Any, on_error: Any, limit: int = 6) -> None:
+        _run_worker(
+            _Worker(lambda: self._client.get_popular(kind=kind, department=department, limit=limit)),
+            on_success, on_error, self,
+        )
+
+    # ── My review lifecycle ──────────────────────────────────
+    def fetch_my_review(self, department: str, instructor: str, on_success: Any, on_error: Any) -> None:
+        _run_worker(
+            _Worker(lambda: self._client.get_my_review(department=department, instructor=instructor)),
+            on_success, on_error, self,
+        )
+
+    def submit_review(
+        self,
+        department_name: str,
+        instructor_name: str,
+        teaching_score: int,
+        assignments_score: int,
+        grading_score: int,
+        exam_difficulty_score: int,
+        attendance_sensitivity: str,
+        on_success: Any,
+        on_error: Any,
+    ) -> None:
+        _run_worker(
+            _Worker(lambda: self._client.submit_review(
+                department_name=department_name,
+                instructor_name=instructor_name,
+                teaching_score=teaching_score,
+                assignments_score=assignments_score,
+                grading_score=grading_score,
+                exam_difficulty_score=exam_difficulty_score,
+                attendance_sensitivity=attendance_sensitivity,
+            )),
+            on_success, on_error, self,
+        )
+
+    def delete_my_review(self, department: str, instructor: str, on_success: Any, on_error: Any) -> None:
+        _run_worker(
+            _Worker(lambda: self._client.delete_my_review(department=department, instructor=instructor)),
+            on_success, on_error, self,
+        )
+
+    # ── Instructor suggestions ───────────────────────────────
+    def check_instructor_exists(self, department_name: str, instructor_name: str, on_success: Any, on_error: Any) -> None:
+        _run_worker(
+            _Worker(lambda: self._client.instructor_exists(
+                department_name=department_name, instructor_name=instructor_name)),
+            on_success, on_error, self,
+        )
+
+    def suggest_instructor(self, department_name: str, instructor_name: str, on_success: Any, on_error: Any) -> None:
+        _run_worker(
+            _Worker(lambda: self._client.suggest_instructor(
+                department_name=department_name, instructor_name=instructor_name)),
+            on_success, on_error, self,
+        )
+
+    def track_view(self, department: str, instructor: str) -> None:
+        """Fire-and-forget view counter (no worker needed, swallows errors)."""
+        try:
+            self._client.track_view(department=department, instructor=instructor)
+        except Exception:  # noqa: BLE001 — analytics only
+            pass
