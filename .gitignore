@@ -83,3 +83,15 @@ app/core/services/__pycache__/
 app/ui/controllers/__pycache__/
 
 app/ui/builders/__pycache__/
+
+# ── Security & repo hygiene ─────────────────────────────
+# Agent/session plan artifacts
+.zcode/
+
+# Python bytecode (never commit caches)
+__pycache__/
+*.pyc
+
+# Dev screenshots & rendered previews
+/*.png
+scripts/*.png
