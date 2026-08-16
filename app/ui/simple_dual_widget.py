@@ -10,8 +10,6 @@ import re
 from app.core.logger import setup_logging
 
 logger = setup_logging()
-
-
 class SimpleDualCourseWidget(QtWidgets.QWidget):
     """Simple widget that displays two courses (odd/even weeks) side by side"""
     
@@ -125,7 +123,7 @@ class SimpleDualCourseWidget(QtWidgets.QWidget):
         instructor_label.setAlignment(QtCore.Qt.AlignmentFlag.AlignRight | QtCore.Qt.AlignmentFlag.AlignVCenter)
         instructor_label.setStyleSheet("""
             font-size: 7pt; 
-            color: #333; 
+             
             border: none;
             background: transparent;
             padding: 0px;
@@ -354,8 +352,6 @@ class SimpleDualCourseWidget(QtWidgets.QWidget):
         if removed_course_key == self.odd_data['course_key']:
             return self.even_data
         return self.odd_data
-
-
 def create_simple_dual_widget(odd_course_data, even_course_data, parent):
     """
     Create a simple widget that displays two courses (odd/even weeks) side by side
@@ -365,6 +361,4 @@ def create_simple_dual_widget(odd_course_data, even_course_data, parent):
     - Stable and crash-free
     """
     return SimpleDualCourseWidget(odd_course_data, even_course_data, parent)
-
-
 create_dual_course_widget = create_simple_dual_widget

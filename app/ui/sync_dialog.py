@@ -20,8 +20,6 @@ from app.core.network import ScheduleModel
 from app.core.error_humanizer import humanize_error
 
 logger = logging.getLogger("golestoon.ui.sync_dialog")
-
-
 class SyncConflictDialog(QtWidgets.QDialog):
     """
     PyQt5 Dialog for resolving conflicts between local table and cloud schedule.
@@ -73,7 +71,7 @@ class SyncConflictDialog(QtWidgets.QDialog):
 
         # Side-by-Side Comparison Box
         compare_frame = QtWidgets.QFrame()
-        compare_frame.setStyleSheet("background-color: #1e293b; border: 1px solid #334155; border-radius: 8px; padding: 12px;")
+        compare_frame.setStyleSheet("background- border: 1px solid #334155; border-radius: 8px; padding: 12px;")
         cmp_layout = QtWidgets.QHBoxLayout(compare_frame)
 
         # Local Box
@@ -131,7 +129,7 @@ class SyncConflictDialog(QtWidgets.QDialog):
     def _apply_styles(self) -> None:
         self.setStyleSheet("""
             QDialog {
-                background-color: #0f172a;
+                background-
                 color: #f8fafc;
                 font-family: "Vazirmatn", "Segoe UI", sans-serif;
             }
@@ -143,15 +141,13 @@ class SyncConflictDialog(QtWidgets.QDialog):
                 font-weight: bold;
             }
             QPushButton#secondaryButton {
-                background-color: #1e293b;
+                background-
                 color: #cbd5e1;
                 border: 1px solid #334155;
                 border-radius: 6px;
                 padding: 8px 14px;
             }
         """)
-
-
 class CloudScheduleDialog(QtWidgets.QDialog):
     """
     Main PyQt5 Dialog for Cloud Schedule Sync, Management, and Local Integration.
@@ -199,7 +195,7 @@ class CloudScheduleDialog(QtWidgets.QDialog):
 
         # Status Bar Banner
         self.status_banner = QtWidgets.QFrame()
-        self.status_banner.setStyleSheet("background-color: #1e293b; border: 1px solid #334155; border-radius: 6px; padding: 8px;")
+        self.status_banner.setStyleSheet("background- border: 1px solid #334155; border-radius: 6px; padding: 8px;")
         banner_layout = QtWidgets.QHBoxLayout(self.status_banner)
         banner_layout.setContentsMargins(10, 4, 10, 4)
 
@@ -207,7 +203,7 @@ class CloudScheduleDialog(QtWidgets.QDialog):
         self.lbl_status_text = QtWidgets.QLabel("وضعیت: آماده به کار")
         self.lbl_status_text.setStyleSheet("color: #f8fafc; font-size: 9.5pt;")
         self.lbl_last_sync = QtWidgets.QLabel("آخرین همگام‌سازی: ثبت نشده")
-        self.lbl_last_sync.setStyleSheet("color: #64748b; font-size: 8.5pt;")
+        self.lbl_last_sync.setStyleSheet(" font-size: 8.5pt;")
 
         banner_layout.addWidget(self.lbl_status_icon)
         banner_layout.addWidget(self.lbl_status_text)
@@ -377,7 +373,7 @@ class CloudScheduleDialog(QtWidgets.QDialog):
     def _apply_styles(self) -> None:
         self.setStyleSheet("""
             QDialog {
-                background-color: #0f172a;
+                background-
                 color: #f8fafc;
                 font-family: "Vazirmatn", "Segoe UI", sans-serif;
             }
@@ -398,14 +394,14 @@ class CloudScheduleDialog(QtWidgets.QDialog):
                 padding: 8px 14px;
             }
             QTableWidget {
-                background-color: #0f172a;
+                background-
                 color: #f8fafc;
                 gridline-color: #334155;
                 border: 1px solid #334155;
                 border-radius: 6px;
             }
             QHeaderView::section {
-                background-color: #1e293b;
+                background-
                 color: #f8fafc;
                 padding: 8px;
                 font-weight: bold;

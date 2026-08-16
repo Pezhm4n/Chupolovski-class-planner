@@ -21,8 +21,6 @@ from app.core.network.exceptions import GolestoonNetworkError
 from app.core.error_humanizer import humanize_error
 
 logger = logging.getLogger("golestoon.ui.account_auth_dialog")
-
-
 class CloudLoginWorker(QThread):
     """Background worker thread for cloud login."""
     finished_signal = pyqtSignal(object)
@@ -40,8 +38,6 @@ class CloudLoginWorker(QThread):
             self.finished_signal.emit(res)
         except Exception as err:
             self.error_signal.emit(str(err))
-
-
 class CloudSignupWorker(QThread):
     """Background worker thread for cloud account signup."""
     finished_signal = pyqtSignal(object)
@@ -60,8 +56,6 @@ class CloudSignupWorker(QThread):
             self.finished_signal.emit(res)
         except Exception as err:
             self.error_signal.emit(str(err))
-
-
 class AccountAuthDialog(QtWidgets.QDialog):
     """
     Main PyQt5 Dialog for Golestoon Cloud Account Authentication & Session Management.
@@ -306,13 +300,13 @@ class AccountAuthDialog(QtWidgets.QDialog):
     def _apply_styles(self) -> None:
         self.setStyleSheet("""
             QDialog {
-                background-color: #0f172a;
+                background-
                 color: #f8fafc;
                 font-family: "Vazirmatn", "Segoe UI", sans-serif;
             }
             QTabWidget::pane {
                 border: 1px solid #334155;
-                background-color: #0f172a;
+                background-
                 border-radius: 8px;
             }
             QTabBar::tab {
@@ -330,7 +324,7 @@ class AccountAuthDialog(QtWidgets.QDialog):
                 color: #ffffff;
             }
             QLineEdit {
-                background-color: #1e293b;
+                background-
                 color: #f8fafc;
                 border: 1px solid #334155;
                 border-radius: 6px;

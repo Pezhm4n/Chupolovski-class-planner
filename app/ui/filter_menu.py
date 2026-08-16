@@ -73,8 +73,6 @@ for course in GENERAL_COURSES_CORE:
         GENERAL_COURSES.add(f"{normalized_course} {persian_num}")
 
 GENERAL_COURSES = sorted(GENERAL_COURSES)
-
-
 class FilterMenu(QtWidgets.QWidget):
     """Floating filter menu widget"""
     
@@ -112,13 +110,11 @@ class FilterMenu(QtWidgets.QWidget):
         self.apply_language_direction()
         self.setStyleSheet("""
             QWidget {
-                background-color: #ffffff;
-                border: 1px solid #dee2e6;
                 border-radius: 8px;
             }
             QGroupBox {
                 font-weight: bold;
-                border: 1px solid #dee2e6;
+                
                 border-radius: 4px;
                 margin-top: 8px;
                 padding-top: 8px;
@@ -144,8 +140,6 @@ class FilterMenu(QtWidgets.QWidget):
                 background-color: #1565C0;
             }
             QPushButton#clear_btn {
-                background-color: #f5f5f5;
-                color: #333;
             }
             QPushButton#clear_btn:hover {
                 background-color: #e0e0e0;

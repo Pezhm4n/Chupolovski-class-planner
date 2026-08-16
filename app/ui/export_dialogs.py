@@ -285,7 +285,7 @@ class ExportMixin:
                         margin: 20px; 
                         background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
                         min-height: 100vh;
-                        color: #2c3e50;
+                        
                         direction: rtl;
                         text-align: right;
                     }}
@@ -338,7 +338,7 @@ class ExportMixin:
                     
                     .stat-label {{
                         font-size: 12px;
-                        color: #7f8c8d;
+                        
                         font-weight: normal;
                     }}
                     
@@ -356,7 +356,7 @@ class ExportMixin:
                     th, td {{ 
                         padding: 15px 10px; 
                         text-align: right; 
-                        border-bottom: 1px solid #ecf0f1;
+                        
                         font-size: 13px;
                     }}
                     
@@ -375,7 +375,7 @@ class ExportMixin:
                     
                     .course-name {{
                         font-weight: bold;
-                        color: #2c3e50;
+                        
                         font-size: 14px;
                         text-align: right;
                     }}
@@ -400,13 +400,13 @@ class ExportMixin:
                     }}
                     
                     .instructor {{
-                        color: #34495e;
+                        
                         font-size: 12px;
                         text-align: right;
                     }}
                     
                     .location {{
-                        color: #7f8c8d;
+                        
                         font-size: 11px;
                         font-style: italic;
                         text-align: right;
@@ -436,10 +436,10 @@ class ExportMixin:
                     .footer {{ 
                         text-align: center; 
                         margin-top: 40px; 
-                        color: #7f8c8d; 
+                         
                         font-size: 12px;
                         padding: 20px;
-                        background: #ecf0f1;
+                        
                         border-radius: 8px;
                         border-right: 3px solid #3498db;
                         direction: rtl;
@@ -886,7 +886,7 @@ class ExportMixin:
                 body {{
                     font-family: 'Tajawal', 'Nazanin', 'Noto Sans Arabic', 'Tahoma', 'Arial Unicode MS', 'Segoe UI', sans-serif;
                     background: white;
-                    color: #2c3e50;
+                    
                     line-height: 1.4;
                     margin: 0;
                     padding: 15px;
@@ -944,7 +944,7 @@ class ExportMixin:
                 
                 .stat-label {{
                     font-size: 10px;
-                    color: #2c3e50;
+                    
                     margin-top: 3px;
                 }}
                 
@@ -973,12 +973,12 @@ class ExportMixin:
                 .exam-table td {{
                     padding: 8px 6px;
                     text-align: center;
-                    border-bottom: 1px solid #ecf0f1;
+                    
                     vertical-align: middle;
                 }}
                 
                 .even-row {{
-                    background-color: #f8f9fa;
+                    
                 }}
                 
                 .odd-row {{
@@ -987,14 +987,14 @@ class ExportMixin:
                 
                 .course-name {{
                     font-weight: bold;
-                    color: #2c3e50;
+                    
                     text-align: right;
                     font-size: 11px;
                 }}
                 
                 .course-code {{
                     font-family: 'Courier New', monospace;
-                    background: #ecf0f1;
+                    
                     border-radius: 4px;
                     padding: 4px 6px;
                     font-weight: bold;
@@ -1013,13 +1013,13 @@ class ExportMixin:
                 }}
                 
                 .instructor {{
-                    color: #34495e;
+                    
                     font-size: 10px;
                     text-align: right;
                 }}
                 
                 .location {{
-                    color: #7f8c8d;
+                    
                     font-size: 9px;
                     text-align: right;
                 }}
@@ -1033,7 +1033,7 @@ class ExportMixin:
                 
                 .schedule {{
                     font-size: 8px;
-                    color: #34495e;
+                    
                     text-align: right;
                     line-height: 1.2;
                 }}
@@ -1063,9 +1063,9 @@ class ExportMixin:
                     margin-top: 30px;
                     padding: 15px;
                     text-align: center;
-                    background: #ecf0f1;
+                    
                     border-radius: 8px;
-                    color: #7f8c8d;
+                    
                     font-size: 10px;
                     border-top: 3px solid #3498db;
                     direction: rtl;

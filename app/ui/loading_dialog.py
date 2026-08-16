@@ -8,8 +8,6 @@ Non-blocking loading dialog with QThread support
 from PyQt5 import QtWidgets, QtCore, QtGui
 import os
 from pathlib import Path
-
-
 class LoadingDialog(QtWidgets.QDialog):
     """Non-blocking loading dialog with animation support"""
     
@@ -30,7 +28,7 @@ class LoadingDialog(QtWidgets.QDialog):
                 border-radius: 10px;
             }
             QLabel {
-                color: #2c3e50;
+                
                 font-size: 14px;
                 font-weight: bold;
                 font-family: 'IRANSans UI', 'Shabnam', 'Tahoma', sans-serif;
@@ -100,8 +98,6 @@ class LoadingDialog(QtWidgets.QDialog):
         if self.movie:
             self.movie.stop()
         super().closeEvent(event)
-
-
 class GolestanWorker(QtCore.QThread):
     """Worker thread for Golestan operations"""
     

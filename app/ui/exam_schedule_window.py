@@ -24,8 +24,6 @@ except ImportError:
     from ..core.translator import translator
 
 logger = setup_logging()
-
-
 class ExamScheduleWindow(QtWidgets.QMainWindow):
     """Window for displaying exam schedule information loaded from UI file"""
 
@@ -629,7 +627,7 @@ class ExamScheduleWindow(QtWidgets.QMainWindow):
         self.exam_table.setStyleSheet(
             "QTableWidget {"
             "background-color: white;"
-            "border: 1px solid #d5dbdb;"
+            ""
             "border-radius: 8px;"
             "gridline-color: #ecf0f1;"
             "font-size: 12px;"
@@ -638,10 +636,10 @@ class ExamScheduleWindow(QtWidgets.QMainWindow):
             "QTableWidget::item {"
             "border: none;"
             "padding: 10px;"
-            "border-bottom: 1px solid #ecf0f1;"
+            ""
             "}"
             "QTableWidget::item:alternate {"
-            "background-color: #f8f9fa;"
+            ""
             "}"
             "QTableWidget::item:selected {"
             "background-color: #d6eaf8;"
@@ -706,7 +704,7 @@ class ExamScheduleWindow(QtWidgets.QMainWindow):
             else:
                 self.stats_label.setStyleSheet(
                     "background-color: #E1BEE7;"
-                    "color: #333;"
+                    ""
                     "padding: 15px;"
                     "border-radius: 8px;"
                     "font-weight: normal;"
@@ -965,7 +963,7 @@ class ExamScheduleWindow(QtWidgets.QMainWindow):
 
         body {{
             font-family: 'Vazir', 'Vazir Matn', 'IRANSans', 'Tahoma', 'Arial', sans-serif;
-            background-color: #fff;
+            
             margin: 0;
             padding: 20px;
             direction: rtl;
@@ -985,7 +983,7 @@ class ExamScheduleWindow(QtWidgets.QMainWindow):
         }}
         .summary {{
             background-color: #E1BEE7;
-            color: #333;
+            
             padding: 20px;
             border-radius: 8px;
             text-align: center;
@@ -1000,7 +998,7 @@ class ExamScheduleWindow(QtWidgets.QMainWindow):
         .exam-table {{
             width: 100%;
             border-collapse: collapse;
-            background-color: #fff;
+            
         }}
         .exam-table thead {{
             background-color: #9C27B0;
@@ -1018,7 +1016,7 @@ class ExamScheduleWindow(QtWidgets.QMainWindow):
             vertical-align: middle;
         }}
         .exam-table tr:nth-child(even) {{
-            background-color: #fff;
+            
         }}
         .exam-table tr:nth-child(odd) {{
             background-color: #f9f9f9;
@@ -1030,11 +1028,11 @@ class ExamScheduleWindow(QtWidgets.QMainWindow):
             text-align: center;
         }}
         .explanation {{
-            color: #7f8c8d;
+            
             font-size: 14px;
             text-align: right;
             padding: 15px;
-            background-color: #f8f9fa;
+            
             border-radius: 4px;
         }}
         .footer {{
@@ -1156,12 +1154,59 @@ class ExamScheduleWindow(QtWidgets.QMainWindow):
             )
 
     def export_as_pdf(self):
-        """Export exam schedule as PDF (placeholder implementation)"""
-        QtWidgets.QMessageBox.information(
-            self,
-            self._t("export_pdf_placeholder_title"),
-            self._t("export_pdf_placeholder_text")
-        )
+        """Export exam schedule as a real PDF (QPrinter + QTextDocument)."""
+        try:
+            import os
+            import tempfile
+            from datetime import datetime
+            from PyQt5.QtPrintSupport import QPrinter
+            from PyQt5.QtCore import QSizeF
+            from PyQt5.QtGui import QTextDocument
+
+            suggested = f"exam_schedule_{datetime.now().strftime('%Y%m%d_%H%M')}.pdf"
+            filename, _ = QtWidgets.QFileDialog.getSaveFileName(
+                self, self._t("export_title"), suggested, "PDF (*.pdf)"
+            )
+            if not filename:
+                return
+            if not filename.lower().endswith('.pdf'):
+                filename += '.pdf'
+
+            # Reuse the battle-tested HTML generator via a temp file
+            fd, html_path = tempfile.mkstemp(suffix='.html')
+            os.close(fd)
+            try:
+                self.export_as_html_to_file(html_path)
+                with open(html_path, 'r', encoding='utf-8') as html_file:
+                    html_content = html_file.read()
+            finally:
+                try:
+                    os.unlink(html_path)
+                except OSError:
+                    pass
+
+            document = QTextDocument()
+            document.setHtml(html_content)
+
+            printer = QPrinter(QPrinter.HighResolution)
+            printer.setOutputFormat(QPrinter.PdfFormat)
+            printer.setOutputFileName(filename)
+            printer.setPageSize(QPrinter.A4)
+            page_rect = printer.pageRect()
+            document.setPageSize(QSizeF(page_rect.width(), page_rect.height()))
+            document.print_(printer)
+
+            QtWidgets.QMessageBox.information(
+                self,
+                self._t("export_success_title"),
+                self._t("export_success_text", path=filename)
+            )
+        except Exception as e:
+            QtWidgets.QMessageBox.critical(
+                self,
+                self._t("export_error_title"),
+                self._t("export_error_text", error=str(e))
+            )
 
     def export_as_html_to_file(self, path):
         """Generate HTML file for exam schedule without QFileDialog (used for PDF export)"""
@@ -1222,7 +1267,7 @@ class ExamScheduleWindow(QtWidgets.QMainWindow):
     <style>
     body {{
         font-family: 'IRANSans', 'Tahoma', sans-serif;
-        background-color: #fff;
+        
         margin: 0;
         padding: 20px;
         direction: rtl;
@@ -1247,7 +1292,7 @@ class ExamScheduleWindow(QtWidgets.QMainWindow):
         text-align:center;
         word-wrap: break-word;
     }}
-    tr:nth-child(even) {{ background-color:#fff; }}
+    tr:nth-child(even) {{  }}
     tr:nth-child(odd) {{ background-color:#f9f9f9; }}
     .course-code {{
         font-size: 0.8em; /* کوچک کردن کد درس */

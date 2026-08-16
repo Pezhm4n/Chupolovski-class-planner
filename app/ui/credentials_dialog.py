@@ -66,15 +66,13 @@ class GolestanCredentialsDialog(QDialog):
         # Apply improved light theme to dialog
         self.setStyleSheet("""
             QDialog {
-                background-color: #f8f9fa;
-                color: #333333;
             }
             QLabel {
-                color: #333333;
+                
                 font-size: 13px;
             }
             QCheckBox {
-                color: #333333;
+                
                 font-size: 12px;
                 spacing: 8px;
             }
@@ -104,7 +102,7 @@ class GolestanCredentialsDialog(QDialog):
         title_label.setStyleSheet("""
             font-size: 18px; 
             font-weight: bold; 
-            color: #2c3e50;
+            
             padding: 0px;
             margin: 0px;
         """)
@@ -116,7 +114,7 @@ class GolestanCredentialsDialog(QDialog):
         desc_label.setAlignment(Qt.AlignCenter)
         desc_label.setWordWrap(True)
         desc_label.setStyleSheet("""
-            color: #7f8c8d; 
+             
             font-size: 11px;
             padding: 0px;
             margin: 0px;
@@ -132,7 +130,7 @@ class GolestanCredentialsDialog(QDialog):
         student_container.setContentsMargins(0, 0, 0, 0)
         student_label = QLabel()
         student_label.setStyleSheet("""
-            color: #34495e; 
+             
             font-weight: 600; 
             font-size: 12px;
             padding: 0px;
@@ -151,14 +149,14 @@ class GolestanCredentialsDialog(QDialog):
                 border: 2px solid #e1e8ed;
                 border-radius: 6px;
                 background-color: white;
-                color: #2c3e50;
+                
             }
             QLineEdit:focus {
                 border: 2px solid #3498db;
                 background-color: #fefefe;
             }
             QLineEdit:hover {
-                border: 2px solid #bdc3c7;
+                
             }
         """)
         student_container.addWidget(self.student_input)
@@ -185,7 +183,7 @@ class GolestanCredentialsDialog(QDialog):
         password_container.setContentsMargins(0, 0, 0, 0)
         password_label = QLabel()
         password_label.setStyleSheet("""
-            color: #34495e; 
+             
             font-weight: 600; 
             font-size: 12px;
             padding: 0px;
@@ -205,14 +203,14 @@ class GolestanCredentialsDialog(QDialog):
                 border: 2px solid #e1e8ed;
                 border-radius: 6px;
                 background-color: white;
-                color: #2c3e50;
+                
             }
             QLineEdit:focus {
                 border: 2px solid #3498db;
                 background-color: #fefefe;
             }
             QLineEdit:hover {
-                border: 2px solid #bdc3c7;
+                
             }
         """)
         password_container.addWidget(self.password_input)
@@ -245,7 +243,7 @@ class GolestanCredentialsDialog(QDialog):
         self.show_password_checkbox.setChecked(False)
         self.show_password_checkbox.setStyleSheet("""
             QCheckBox {
-                color: #34495e;
+                
                 font-size: 12px;
                 spacing: 0px;
                 padding: 0px;
@@ -270,7 +268,7 @@ class GolestanCredentialsDialog(QDialog):
         show_password_label = QLabel()
         show_password_label.setWordWrap(True)
         show_password_label.setStyleSheet("""
-            color: #34495e;
+            
             font-size: 12px;
             padding: 0px;
             margin: 0px;
@@ -289,7 +287,7 @@ class GolestanCredentialsDialog(QDialog):
         self.remember_checkbox.setChecked(True)
         self.remember_checkbox.setStyleSheet("""
             QCheckBox {
-                color: #34495e;
+                
                 font-size: 12px;
                 spacing: 0px;
                 padding: 0px;
@@ -314,7 +312,7 @@ class GolestanCredentialsDialog(QDialog):
         remember_label = QLabel()
         remember_label.setWordWrap(True)
         remember_label.setStyleSheet("""
-            color: #34495e;
+            
             font-size: 12px;
             padding: 0px;
             margin: 0px;
@@ -339,21 +337,19 @@ class GolestanCredentialsDialog(QDialog):
         self.cancel_button.setMinimumWidth(90)
         self.cancel_button.setStyleSheet("""
             QPushButton {
-                background-color: #ffffff;
-                color: #34495e;
-                border: 2px solid #bdc3c7;
+                
                 border-radius: 6px;
                 padding: 8px 20px;
                 font-size: 12px;
                 font-weight: 600;
             }
             QPushButton:hover {
-                background-color: #f8f9fa;
+                
                 border: 2px solid #95a5a6;
-                color: #2c3e50;
+                
             }
             QPushButton:pressed {
-                background-color: #ecf0f1;
+                
                 border: 2px solid #7f8c8d;
             }
         """)
@@ -374,7 +370,7 @@ class GolestanCredentialsDialog(QDialog):
                 font-weight: bold;
             }
             QPushButton:hover {
-                background-color: #95a5a6;
+                background-
             }
         """)
         
@@ -480,14 +476,14 @@ class GolestanCredentialsDialog(QDialog):
                     border: 2px solid #e1e8ed;
                     border-radius: 6px;
                     background-color: white;
-                    color: #2c3e50;
+                    
                 }
                 QLineEdit:focus {
                     border: 2px solid #3498db;
                     background-color: #fefefe;
                 }
                 QLineEdit:hover {
-                    border: 2px solid #bdc3c7;
+                    
                 }
             """)
         else:
@@ -498,7 +494,7 @@ class GolestanCredentialsDialog(QDialog):
                     border: 2px solid #e74c3c;
                     border-radius: 6px;
                     background-color: #fff5f5;
-                    color: #2c3e50;
+                    
                 }
                 QLineEdit:focus {
                     border: 2px solid #e74c3c;
@@ -531,7 +527,7 @@ class GolestanCredentialsDialog(QDialog):
                     font-weight: bold;
                 }
                 QPushButton:hover {
-                    background-color: #95a5a6;
+                    background-
                 }
             """)
         else:
