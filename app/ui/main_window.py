@@ -123,7 +123,9 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         self.setup_responsive_layout()
         
         # Set layout direction
-        self.setLayoutDirection(QtCore.Qt.RightToLeft)
+        from app.core.language_manager import language_manager
+        current_app_lang = language_manager.get_current_language()
+        self.setLayoutDirection(QtCore.Qt.LeftToRight if current_app_lang == 'en' else QtCore.Qt.RightToLeft)
         
         # Enable responsive design
         self.installEventFilter(self)
@@ -1029,34 +1031,117 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         menus, actions = MenuBuilder.build_menu_bar(self, logger)
         
         # Wire actions
-        if 'student_profile' in actions:
+        if 'student_dashboard' in actions:
+            actions['student_dashboard'].triggered.connect(self.show_student_profile)
+        elif 'student_profile' in actions:
             actions['student_profile'].triggered.connect(self.show_student_profile)
+
         if 'cloud_auth' in actions:
             actions['cloud_auth'].triggered.connect(self.show_cloud_account_dialog)
         if 'cloud_sync' in actions:
             actions['cloud_sync'].triggered.connect(self.show_cloud_schedule_dialog)
+        if 'fetch_golestan' in actions:
+            actions['fetch_golestan'].triggered.connect(self.manual_fetch_from_golestan)
+        if 'reset_creds' in actions:
+            actions['reset_creds'].triggered.connect(self.reset_golestan_credentials)
         if 'prof_review' in actions:
             actions['prof_review'].triggered.connect(self.show_professor_review_dialog)
-        if 'academic' in actions:
-            actions['academic'].triggered.connect(self.show_academic_center_dialog)
+        if 'show_exam_schedule' in actions:
+            actions['show_exam_schedule'].triggered.connect(self.on_show_exam_schedule)
+        if 'export_exam_schedule' in actions:
+            actions['export_exam_schedule'].triggered.connect(self.on_export_exam_schedule)
         if 'settings' in actions:
             actions['settings'].triggered.connect(self.show_settings_dialog)
+        if 'tutorial' in actions:
+            actions['tutorial'].triggered.connect(self.show_tutorial_dialog)
+        if 'about' in actions:
+            actions['about'].triggered.connect(self.show_about_dialog)
+
+        # Language selection
+        if 'persian_lang' in actions and 'english_lang' in actions:
+            from app.core.language_manager import language_manager
+            current_lang = language_manager.get_current_language()
+            actions['persian_lang'].setChecked(current_lang == 'fa')
+            actions['english_lang'].setChecked(current_lang == 'en')
+            actions['persian_lang'].triggered.connect(lambda: self.switch_language('fa'))
+            actions['english_lang'].triggered.connect(lambda: self.switch_language('en'))
             
         if 'history_menu' in menus:
             menus['history_menu'].aboutToShow.connect(self.populate_backup_history_menu)
 
-    def show_student_profile(self):
-        """Show the student profile dialog."""
+    def show_tutorial_dialog(self):
+        """Show the interactive tutorial dialog"""
         try:
-            # Create and show the student profile dialog
-            dialog = StudentProfileDialog(self)
+            from app.ui.tutorial_dialog import TutorialDialog
+            dialog = TutorialDialog(self)
             dialog.exec_()
         except Exception as e:
-            logger.error(f"Error showing student profile: {e}")
+            logger.error(f"Error showing tutorial dialog: {e}")
+            QtWidgets.QMessageBox.critical(self, "خطا", f"خطا در نمایش آموزش: {str(e)}")
+
+    def show_about_dialog(self):
+        """Show About Golestoon dialog"""
+        try:
+            QtWidgets.QMessageBox.about(
+                self,
+                "درباره گلستون (Golestoon)",
+                "<h3>🌸 گلستون (Golestoon Desktop)</h3>"
+                "<p>نسخه دسکتاپ رسمی سامانه برنامه‌ریزی کلاسی، کارنامه و نظرسنجی اساتید دانشگاه</p>"
+                "<p><b>نسخه:</b> 1.5.2</p>"
+                "<p><b>وبسایت:</b> <a href='https://golestoon-app.ir'>golestoon-app.ir</a></p>"
+                "<p>ساخته شده با افتخار برای دانشجویان دانشگاه‌های ایران 🇮🇷</p>"
+            )
+        except Exception as e:
+            logger.error(f"Error showing about dialog: {e}")
+
+    def switch_language(self, lang_code: str):
+        """Switch application language dynamically with RTL/LTR layout propagation"""
+        try:
+            from app.core.language_manager import language_manager
+            from app.core.translator import translator
+            
+            language_manager.set_language(lang_code)
+            translator.load_translations(lang_code)
+
+            # Apply layout direction
+            app = QtWidgets.QApplication.instance()
+            if lang_code == 'fa':
+                if app: app.setLayoutDirection(QtCore.Qt.RightToLeft)
+                self.setLayoutDirection(QtCore.Qt.RightToLeft)
+            else:
+                if app: app.setLayoutDirection(QtCore.Qt.LeftToRight)
+                self.setLayoutDirection(QtCore.Qt.LeftToRight)
+
+            if app:
+                language_manager.apply_font(app)
+
+            # Refresh menus and status
+            self.create_menu_bar()
+            self.update_status()
+            self.update_stats_panel()
+            
+            lang_name = "فارسی" if lang_code == 'fa' else "English"
+            if os.environ.get('QT_QPA_PLATFORM') != 'offscreen':
+                QtWidgets.QMessageBox.information(
+                    self,
+                    "تغییر زبان" if lang_code == 'fa' else "Language Changed",
+                    f"زبان برنامه به {lang_name} تغییر یافت." if lang_code == 'fa' else f"Application language changed to {lang_name}."
+                )
+        except Exception as e:
+            logger.error(f"Error switching language: {e}")
+
+    def show_student_profile(self):
+        """Show the unified student academic & transcript dashboard."""
+        try:
+            from app.ui.unified_student_dashboard import UnifiedStudentDashboard
+            dialog = UnifiedStudentDashboard(self)
+            dialog.exec_()
+        except Exception as e:
+            logger.error(f"Error showing unified student dashboard: {e}")
             QtWidgets.QMessageBox.critical(
                 self, 
                 "خطا", 
-                f"خطا در نمایش پروفایل دانشجو: {str(e)}"
+                f"خطا در نمایش داشبورد تحصیلی دانشجو: {str(e)}"
             )
 
     def save_user_data(self):
