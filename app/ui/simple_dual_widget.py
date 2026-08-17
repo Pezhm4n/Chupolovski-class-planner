@@ -164,6 +164,8 @@ class SimpleDualCourseWidget(QtWidgets.QWidget):
         remove_button = QtWidgets.QPushButton('✕')
         remove_button.setFixedSize(16, 16)
         remove_button.setObjectName('close-btn')
+        remove_button.setToolTip('حذف این درس از برنامه')
+        remove_button.setCursor(QtCore.Qt.PointingHandCursor)
         remove_button.setStyleSheet("""
             QPushButton#close-btn {
                 background-color: transparent;
@@ -183,6 +185,7 @@ class SimpleDualCourseWidget(QtWidgets.QWidget):
         """)
         course_key = course_data['course_key']
         remove_button.clicked.connect(lambda: self.remove_course(course_key))
+        remove_button.hide()
 
         top_right_widget = QtWidgets.QWidget()
         top_right_widget.setContentsMargins(0, 0, 0, 0)
@@ -201,6 +204,25 @@ class SimpleDualCourseWidget(QtWidgets.QWidget):
 
         section.mousePressEvent = lambda event: self.show_course_details(course_key)
         section.setCursor(QtCore.Qt.PointingHandCursor)
+
+        def section_enter(event, btn=remove_button):
+            try:
+                import sip
+                if btn and not sip.isdeleted(btn):
+                    btn.show()
+            except Exception:
+                pass
+
+        def section_leave(event, btn=remove_button):
+            try:
+                import sip
+                if btn and not sip.isdeleted(btn):
+                    btn.hide()
+            except Exception:
+                pass
+
+        section.enterEvent = section_enter
+        section.leaveEvent = section_leave
 
         return section
 

@@ -64,13 +64,23 @@ class ScheduleTableController:
             self.logger.error(f"Error in pulse_cell: {e}")
 
     def clear_table_silent(self, placed_dict: Optional[dict] = None):
-        """Clears all cells in schedule table silently."""
+        """Clears all cells, widgets, and spans in schedule table silently."""
         try:
             if not self.schedule_table:
                 return
             for row in range(self.schedule_table.rowCount()):
                 for col in range(self.schedule_table.columnCount()):
-                    self.schedule_table.setCellWidget(row, col, None)
+                    self.schedule_table.removeCellWidget(row, col)
+                    try:
+                        if self.schedule_table.rowSpan(row, col) > 1 or self.schedule_table.columnSpan(row, col) > 1:
+                            self.schedule_table.setSpan(row, col, 1, 1)
+                    except Exception:
+                        pass
+                    item = self.schedule_table.item(row, col)
+                    if item:
+                        item.setText('')
+                        item.setData(QtCore.Qt.UserRole, None)
+                        item.setBackground(QtGui.QBrush())
             if placed_dict is not None:
                 placed_dict.clear()
         except Exception as e:

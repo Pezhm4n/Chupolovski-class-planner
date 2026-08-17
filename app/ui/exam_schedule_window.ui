@@ -43,9 +43,6 @@
         <bold>true</bold>
        </font>
       </property>
-      <property name="styleSheet">
-       <string notr="true">color: #2c3e50; margin: 0;</string>
-      </property>
       <property name="text">
        <string>📅 برنامه امتحانات (فقط دروس انتخابی)</string>
       </property>
@@ -59,11 +56,8 @@
       <property name="font">
        <font>
         <family>IRANSans UI</family>
-        <pointsize>12</pointsize>
+        <pointsize>11</pointsize>
        </font>
-      </property>
-      <property name="styleSheet">
-       <string notr="true">color: #7f8c8d; font-style: italic; text-align: center; background: linear-gradient(135deg, #ecf0f1 0%, #bdc3c7 100%); padding: 10px; border-radius: 8px; margin: 6px;</string>
       </property>
       <property name="text">
        <string>فقط دروسی که در جدول اصلی قرار داده‌اید نمایش داده می‌شوند</string>
@@ -142,9 +136,6 @@
         <pointsize>11</pointsize>
        </font>
       </property>
-      <property name="styleSheet">
-       <string notr="true">background: linear-gradient(135deg, #d4edda 0%, #c3e6cb 100%); border: 1px solid #c3e6cb; border-radius: 8px; padding: 6px; font-weight: 500; color: #155724;</string>
-      </property>
       <property name="text">
        <string>آمار برنامه در اینجا نمایش داده می‌شود</string>
       </property>
@@ -160,9 +151,6 @@
         <family>IRANSans UI</family>
         <pointsize>10</pointsize>
        </font>
-      </property>
-      <property name="styleSheet">
-       <string notr="true">color: #7f8c8d; background: #f8f9fa; padding: 8px; border-radius: 5px; border: 1px solid #e9ecef;</string>
       </property>
       <property name="text">
        <string>توضیحات:

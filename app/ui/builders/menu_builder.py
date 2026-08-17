@@ -37,10 +37,6 @@ class MenuBuilder:
             data_menu.addAction(act_cloud_auth)
             actions['cloud_auth'] = act_cloud_auth
 
-            act_cloud_sync = QtWidgets.QAction(t("menu.cloud_sync"), window)
-            data_menu.addAction(act_cloud_sync)
-            actions['cloud_sync'] = act_cloud_sync
-
             data_menu.addSeparator()
 
             act_fetch_golestan = QtWidgets.QAction(t("menu.fetch_golestan"), window)
@@ -51,31 +47,20 @@ class MenuBuilder:
             data_menu.addAction(act_reset_creds)
             actions['reset_creds'] = act_reset_creds
 
-            data_menu.addSeparator()
-
-            history_menu = data_menu.addMenu(t("menu.backup_history"))
-            menus['history_menu'] = history_menu
-
             # -------------------------------------------------------------
-            # 2. 🎓 خدمات تحصیلی (Academic Services)
+            # 2. 📊 کارنامه گلستان (Direct Click Action)
             # -------------------------------------------------------------
-            acad_menu = menubar.addMenu(t("menu.academic_menu"))
-            menus['acad_menu'] = acad_menu
-
-            act_student_dashboard = QtWidgets.QAction(t("menu.student_dashboard"), window)
-            acad_menu.addAction(act_student_dashboard)
+            act_student_dashboard = QtWidgets.QAction(t("menu.academic_menu"), window)
+            menubar.addAction(act_student_dashboard)
             actions['student_dashboard'] = act_student_dashboard
             actions['student_profile'] = act_student_dashboard
             actions['academic'] = act_student_dashboard
 
             # -------------------------------------------------------------
-            # 3. 👨‍🏫 نظرسنجی اساتید (Professor Reviews)
+            # 3. 👨‍🏫 نظرسنجی اساتید (Direct Click Action)
             # -------------------------------------------------------------
-            prof_menu = menubar.addMenu(t("menu.professors_menu"))
-            menus['prof_menu'] = prof_menu
-
-            act_prof_review = QtWidgets.QAction(t("menu.prof_review"), window)
-            prof_menu.addAction(act_prof_review)
+            act_prof_review = QtWidgets.QAction(t("menu.professors_menu"), window)
+            menubar.addAction(act_prof_review)
             actions['prof_review'] = act_prof_review
 
             # -------------------------------------------------------------

@@ -16,12 +16,14 @@ try:
     from app.core.logger import setup_logging
     from app.core.language_manager import language_manager
     from app.core.translator import translator
+    from app.core.theme_manager import theme_manager
 except ImportError:
     # Fallback to relative imports for package execution
     from ..core.config import COURSES, BASE_DIR, get_day_label
     from ..core.logger import setup_logging
     from ..core.language_manager import language_manager
     from ..core.translator import translator
+    from ..core.theme_manager import theme_manager
 
 logger = setup_logging()
 class ExamScheduleWindow(QtWidgets.QMainWindow):
@@ -54,6 +56,9 @@ class ExamScheduleWindow(QtWidgets.QMainWindow):
                 self._t("ui_load_error", error=str(e))
             )
             return
+
+        # Apply application theme
+        self.load_and_apply_styles()
 
         # Connect signals
         self.connect_signals()
@@ -93,6 +98,27 @@ class ExamScheduleWindow(QtWidgets.QMainWindow):
         copy_shortcut.activated.connect(self._copy_selected_rows)
         
         self.update_content()
+
+    def load_and_apply_styles(self):
+        """Apply active theme stylesheet and listen for live changes."""
+        try:
+            qss = theme_manager.build_qss()
+            if qss:
+                self.setStyleSheet(qss)
+            try:
+                theme_manager.theme_changed.connect(self._on_theme_changed)
+            except (RuntimeError, TypeError):
+                pass
+        except Exception as e:
+            logger.warning(f"Failed to apply theme in ExamScheduleWindow: {e}")
+
+    def _on_theme_changed(self, effective_theme: str) -> None:
+        """Handle live theme switches."""
+        try:
+            self.setStyleSheet(theme_manager.build_qss())
+            self.update_content()
+        except Exception as e:
+            logger.warning(f"Theme switch error in ExamScheduleWindow: {e}")
     
     def _lock_widget_positions(self):
         """Lock all widget positions to prevent movement"""
@@ -562,20 +588,6 @@ class ExamScheduleWindow(QtWidgets.QMainWindow):
         header.setSectionResizeMode(5, QtWidgets.QHeaderView.ResizeToContents)  # Credits
         header.setSectionResizeMode(6, QtWidgets.QHeaderView.ResizeToContents)  # Location
 
-        # Style the table header to match main schedule table
-        self.exam_table.horizontalHeader().setStyleSheet(
-            "QHeaderView::section {"
-            "background: qlineargradient(x1: 0, y1: 0, x2: 0, y2: 1, "
-            "stop: 0 #1976D2, stop: 1 #1565C0);"
-            "color: white;"
-            "font-weight: bold;"
-            "font-size: 14px;"
-            "padding: 10px;"
-            "border: none;"
-            "font-family: 'IRANSans UI', 'Shabnam', 'Tahoma', sans-serif;"
-            "}"
-        )
-
         for row, data in enumerate(exam_data):
             # Course name
             name_item = QtWidgets.QTableWidgetItem(data['name'])
@@ -621,36 +633,20 @@ class ExamScheduleWindow(QtWidgets.QMainWindow):
 
         # Set consistent row height for all rows
         for row in range(self.exam_table.rowCount()):
-            self.exam_table.setRowHeight(row, 60)
-
-        # Apply improved styling to match main schedule table
-        self.exam_table.setStyleSheet(
-            "QTableWidget {"
-            "background-color: white;"
-            ""
-            "border-radius: 8px;"
-            "gridline-color: #ecf0f1;"
-            "font-size: 12px;"
-            "font-family: 'IRANSans UI', 'Shabnam', 'Tahoma', sans-serif;"
-            "}"
-            "QTableWidget::item {"
-            "border: none;"
-            "padding: 10px;"
-            ""
-            "}"
-            "QTableWidget::item:alternate {"
-            ""
-            "}"
-            "QTableWidget::item:selected {"
-            "background-color: #d6eaf8;"
-            "color: #2980b9;"
-            "}"
-            "QTableWidget::item:hover {"
-            "background-color: #e3f2fd;"
-            "}"
-        )
+            self.exam_table.setRowHeight(row, 48)
 
         # Calculate and display statistics
+        p = theme_manager.palette()
+        if hasattr(self, 'title_label'):
+            self.title_label.setStyleSheet(f"color: {p['text']}; font-weight: bold; margin: 0;")
+        if hasattr(self, 'info_label'):
+            self.info_label.setStyleSheet(f"color: {p['muted']}; background: transparent; padding: 4px;")
+        if hasattr(self, 'explanation_label'):
+            self.explanation_label.setStyleSheet(
+                f"color: {p['text_mid']}; background-color: {p['surface']}; "
+                f"padding: 10px; border-radius: 8px; border: 1px solid {p['border']};"
+            )
+
         if hasattr(self, 'stats_label'):
             if placed_courses:
                 total_units = 0
@@ -689,25 +685,35 @@ class ExamScheduleWindow(QtWidgets.QMainWindow):
             else:
                 self.stats_label.setText(self._t("stats_empty"))
 
-            # Set style - red if conflicts exist, otherwise default
+            # Set dynamic style - red accent if conflicts exist, otherwise theme surface
             conflicts = self.check_exam_conflicts() if placed_courses else []
             if conflicts:
                 self.stats_label.setStyleSheet(
-                    "background-color: #FFEBEE;"
-                    "color: #C62828;"
-                    "padding: 15px;"
+                    "background-color: rgba(239, 68, 68, 0.15);"
+                    "color: #ef4444;"
+                    "padding: 12px;"
                     "border-radius: 8px;"
                     "font-weight: bold;"
                     "text-align: center;"
-                    "border: 2px solid #E53935;"
+                    "border: 1.5px solid #ef4444;"
+                )
+            elif placed_courses:
+                self.stats_label.setStyleSheet(
+                    f"background-color: {p['surface']};"
+                    f"color: {p['text']};"
+                    f"border: 1px solid {p['border']};"
+                    "padding: 12px;"
+                    "border-radius: 8px;"
+                    "font-weight: 500;"
+                    "text-align: center;"
                 )
             else:
                 self.stats_label.setStyleSheet(
-                    "background-color: #E1BEE7;"
-                    ""
-                    "padding: 15px;"
+                    f"background-color: {p['surface']};"
+                    f"color: {p['muted']};"
+                    f"border: 1px dashed {p['border']};"
+                    "padding: 12px;"
                     "border-radius: 8px;"
-                    "font-weight: normal;"
                     "text-align: center;"
                 )
 

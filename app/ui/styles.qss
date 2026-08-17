@@ -1,6 +1,6 @@
 /* =====================================================================
    🌸 GOLESTOON MODERN DESIGN SYSTEM (PyQt5 QSS)
-   Inspired by TailwindCSS & shadcn/ui Design Tokens
+   TailwindCSS & shadcn Slate Design Tokens
    Designed for Iranian University Students (Vazirmatn / Shabnam Typography)
    ===================================================================== */
 
@@ -22,12 +22,33 @@ QWidget#centralwidget {
     background-color: #f8fafc;
 }
 
+/* Base text labels */
+QLabel {
+    color: #0f172a;
+    background: transparent;
+}
+
+QLabel:disabled {
+    color: #94a3b8;
+}
+
 /* Left, Center, Right Surface Panels */
 #left_panel, #center_panel, #right_panel, #courses_panel, #schedule_panel, #info_panel {
     background-color: #ffffff;
     border: 1px solid #e2e8f0;
     border-radius: 12px;
-    padding: 10px;
+    padding: 8px;
+}
+
+/* Splitter dividers */
+QSplitter::handle {
+    background-color: #e2e8f0;
+    width: 2px;
+    height: 2px;
+}
+
+QSplitter::handle:hover {
+    background-color: #2563eb;
 }
 
 /* --- 3. Modern Interactive Buttons --- */
@@ -39,7 +60,7 @@ QPushButton {
     padding: 7px 14px;
     font-size: 12px;
     font-weight: bold;
-    min-height: 24px;
+    min-height: 26px;
 }
 
 QPushButton:hover {
@@ -58,59 +79,65 @@ QPushButton:disabled {
 }
 
 /* Success Buttons (Emerald Green) */
-QPushButton#success_btn, QPushButton#add_to_auto_btn {
+QPushButton#success_btn, QPushButton#add_to_auto_btn, QPushButton#add_custom_course_btn {
     background-color: #10b981;
     border: 1px solid #059669;
     color: #ffffff;
+    font-weight: bold;
 }
 
-QPushButton#success_btn:hover, QPushButton#add_to_auto_btn:hover {
+QPushButton#success_btn:hover, QPushButton#add_to_auto_btn:hover, QPushButton#add_custom_course_btn:hover {
     background-color: #059669;
+    border-color: #047857;
 }
 
-QPushButton#success_btn:pressed, QPushButton#add_to_auto_btn:pressed {
+QPushButton#success_btn:pressed, QPushButton#add_to_auto_btn:pressed, QPushButton#add_custom_course_btn:pressed {
     background-color: #047857;
 }
 
 /* Danger Buttons (Rose Red) */
-QPushButton#danger_btn, QPushButton#remove_course_btn, QPushButton#clear_schedule_btn, QPushButton#remove_from_auto_btn {
+QPushButton#danger_btn, QPushButton#remove_course_btn, QPushButton#clear_schedule_btn, QPushButton#remove_from_auto_btn, QPushButton#delete_combination_btn {
     background-color: #ef4444;
     border: 1px solid #dc2626;
     color: #ffffff;
+    font-weight: bold;
 }
 
-QPushButton#danger_btn:hover, QPushButton#remove_course_btn:hover, QPushButton#clear_schedule_btn:hover, QPushButton#remove_from_auto_btn:hover {
+QPushButton#danger_btn:hover, QPushButton#remove_course_btn:hover, QPushButton#clear_schedule_btn:hover, QPushButton#remove_from_auto_btn:hover, QPushButton#delete_combination_btn:hover {
     background-color: #dc2626;
+    border-color: #b91c1c;
 }
 
-QPushButton#danger_btn:pressed, QPushButton#remove_course_btn:pressed, QPushButton#clear_schedule_btn:pressed, QPushButton#remove_from_auto_btn:pressed {
+QPushButton#danger_btn:pressed, QPushButton#remove_course_btn:pressed, QPushButton#clear_schedule_btn:pressed, QPushButton#remove_from_auto_btn:pressed, QPushButton#delete_combination_btn:pressed {
     background-color: #b91c1c;
 }
 
 /* Secondary & Neutral Buttons */
-QPushButton#secondary_btn, QPushButton#cancel_btn {
+QPushButton#secondary_btn, QPushButton#cancel_btn, QPushButton#save_schedule_btn, QPushButton#save_combination_btn {
     background-color: #f1f5f9;
-    color: #334155;
+    color: #0f172a;
     border: 1px solid #cbd5e1;
+    font-weight: 600;
 }
 
-QPushButton#secondary_btn:hover, QPushButton#cancel_btn:hover {
+QPushButton#secondary_btn:hover, QPushButton#cancel_btn:hover, QPushButton#save_schedule_btn:hover, QPushButton#save_combination_btn:hover {
     background-color: #e2e8f0;
     color: #0f172a;
+    border-color: #94a3b8;
 }
 
 /* Action Generator Button */
-QPushButton#optimal_schedule_btn {
-    background-color: #8b5cf6;
-    border: 1px solid #7c3aed;
+QPushButton#optimal_schedule_btn, QPushButton#generate_schedule_btn {
+    background-color: #2563eb;
+    border: 1px solid #1d4ed8;
     color: #ffffff;
     font-weight: bold;
     border-radius: 8px;
     padding: 8px 16px;
 }
 
-QPushButton#optimal_schedule_btn:hover {
-    background-color: #7c3aed;
+QPushButton#optimal_schedule_btn:hover, QPushButton#generate_schedule_btn:hover {
+    background-color: #1d4ed8;
 }
 
 /* --- 4. Form Controls, Text Inputs & Dropdowns --- */
@@ -130,6 +157,12 @@ QLineEdit:focus {
     background-color: #ffffff;
 }
 
+QLineEdit:disabled {
+    background-color: #f1f5f9;
+    color: #94a3b8;
+    border-color: #e2e8f0;
+}
+
 QComboBox {
     background-color: #ffffff;
     color: #0f172a;
@@ -137,7 +170,7 @@ QComboBox {
     border-radius: 8px;
     padding: 5px 10px;
     font-size: 12px;
-    min-height: 24px;
+    min-height: 26px;
 }
 
 QComboBox:hover {
@@ -171,85 +204,118 @@ QGroupBox {
     border: 1px solid #e2e8f0;
     border-radius: 10px;
     margin-top: 14px;
-    padding-top: 12px;
+    padding-top: 14px;
     font-weight: bold;
-    font-size: 13px;
-    color: #1e293b;
+    font-size: 12px;
+    color: #0f172a;
 }
 
 QGroupBox::title {
     subcontrol-origin: margin;
     subcontrol-position: top right;
     right: 12px;
-    padding: 0 6px;
+    padding: 2px 8px;
     color: #2563eb;
     background-color: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
 }
 
 /* --- 6. List Widgets (Course & Saved Combos) --- */
 QListWidget {
     background-color: #ffffff;
+    alternate-background-color: #f8fafc;
     border: 1px solid #e2e8f0;
     border-radius: 8px;
     padding: 4px;
-    alternate-background-color: #f8fafc;
+    color: #0f172a;
 }
 
 QListWidget::item {
-    border-bottom: 1px solid #f1f5f9;
+    background-color: #f1f5f9;
+    border: 1px solid #e2e8f0;
     border-radius: 6px;
-    padding: 6px 8px;
-    color: #1e293b;
-    margin-bottom: 2px;
+    padding: 8px 10px;
+    color: #0f172a;
+    margin-bottom: 4px;
 }
 
 QListWidget::item:hover {
-    background-color: #f1f5f9;
+    background-color: #e2e8f0;
+    border-color: #cbd5e1;
+    color: #0f172a;
 }
 
 QListWidget::item:selected {
-    background-color: #eff6ff;
-    border: 1px solid #93c5fd;
-    color: #1e40af;
+    background-color: #2563eb;
+    border: 1px solid #1d4ed8;
+    color: #ffffff;
     font-weight: bold;
 }
 
 /* --- 7. Schedule Table Widget --- */
 QTableWidget {
     background-color: #ffffff;
+    alternate-background-color: #ffffff;
     border: 1px solid #e2e8f0;
     border-radius: 8px;
-    gridline-color: #f1f5f9;
+    gridline-color: #e2e8f0;
     selection-background-color: #eff6ff;
     selection-color: #1d4ed8;
+    color: #0f172a;
     font-size: 11px;
 }
 
 QTableWidget::item {
     padding: 1px;
     border: none;
+    background: transparent;
+    color: #0f172a;
+}
+
+QTableWidget QTableCornerButton::section {
+    background-color: #f1f5f9;
+    border: 1px solid #e2e8f0;
 }
 
 /* Table Horizontal Headers (Days) */
-QHeaderView::section:horizontal {
-    background-color: #1e293b;
-    color: #ffffff;
-    padding: 8px 4px;
+QHeaderView {
+    background-color: transparent;
     border: none;
-    border-left: 1px solid #334155;
+}
+
+QHeaderView::section {
+    background-color: #f1f5f9;
+    color: #0f172a;
+    border: 1px solid #e2e8f0;
+    font-weight: bold;
+    font-size: 12px;
+    text-align: center;
+}
+
+QHeaderView::section:horizontal {
+    background-color: #f1f5f9;
+    color: #0f172a;
+    padding: 8px 4px;
+    border-top: none;
+    border-right: none;
+    border-bottom: 1px solid #e2e8f0;
+    border-left: 1px solid #e2e8f0;
     font-weight: bold;
     font-size: 12px;
 }
 
 /* Table Vertical Headers (Time Slots) */
 QHeaderView::section:vertical {
-    background-color: #f8fafc;
-    color: #64748b;
+    background-color: #f1f5f9;
+    color: #0f172a;
     padding: 2px 6px;
-    border: none;
+    border-top: none;
+    border-right: none;
+    border-left: 1px solid #e2e8f0;
     border-bottom: 1px solid #e2e8f0;
     font-weight: bold;
-    font-size: 11px;
+    font-size: 12px;
     text-align: center;
 }
 
@@ -263,7 +329,7 @@ QTabWidget::pane {
 
 QTabBar::tab {
     background-color: #f1f5f9;
-    color: #64748b;
+    color: #475569;
     padding: 8px 16px;
     margin-left: 3px;
     border-top-left-radius: 8px;
@@ -286,16 +352,18 @@ QTabBar::tab:selected {
 /* --- 9. Menu Bar & Dropdown Menus --- */
 QMenuBar {
     background-color: #ffffff;
-    color: #1e293b;
+    color: #0f172a;
     border-bottom: 1px solid #e2e8f0;
     padding: 3px 6px;
     font-size: 12px;
+    font-weight: 500;
 }
 
 QMenuBar::item {
     background: transparent;
     padding: 6px 10px;
     border-radius: 6px;
+    color: #0f172a;
 }
 
 QMenuBar::item:selected {
@@ -305,7 +373,7 @@ QMenuBar::item:selected {
 
 QMenu {
     background-color: #ffffff;
-    color: #1e293b;
+    color: #0f172a;
     border: 1px solid #cbd5e1;
     border-radius: 8px;
     padding: 6px;
@@ -314,6 +382,7 @@ QMenu {
 QMenu::item {
     padding: 6px 20px 6px 24px;
     border-radius: 6px;
+    color: #0f172a;
 }
 
 QMenu::item:selected {
@@ -330,7 +399,7 @@ QMenu::separator {
 /* --- 10. Status Bar --- */
 QStatusBar {
     background-color: #ffffff;
-    color: #475569;
+    color: #334155;
     border-top: 1px solid #e2e8f0;
     padding: 4px 10px;
     font-size: 11.5px;
@@ -382,10 +451,7 @@ QScrollBar::add-line:horizontal, QScrollBar::sub-line:horizontal {
     border: none;
 }
 
-/* --- 9. Schedule Grid Course Cells (weekly plan blocks) --- */
-
-/* Cell container: background & border come from per-course inline styles
-   (hash-based colors); QSS here only handles typography & children. */
+/* --- 12. Schedule Grid Course Cells (weekly plan blocks) --- */
 QWidget#course-cell {
     border-radius: 8px;
 }
@@ -435,25 +501,58 @@ QLabel#parity-label-odd { color: #d97706; }
 QLabel#parity-label-even { color: #0284c7; }
 QLabel#parity-label-all { color: #64748b; }
 
-/* Vertical time header — reference style: dark column with bold centered
-   Persian hour numerals; fixed colors (identical in light & dark themes) */
-QTableWidget QHeaderView::section:vertical {
-    background-color: #1f2937;
-    color: #f1f5f9;
-    font-size: 13px;
-    font-weight: bold;
-    border: none;
-    border-top: 1px solid #374151;
-    padding: 0px 3px;
+/* --- 13. Dialogs, Alerts & Message Boxes --- */
+QDialog {
+    background-color: #f8fafc;
+    color: #0f172a;
 }
 
-/* Horizontal day header — match the dark hour column */
-QTableWidget QHeaderView::section:horizontal {
-    background-color: #1f2937;
-    color: #f1f5f9;
-    font-size: 12px;
-    font-weight: bold;
-    border: none;
-    border-left: 1px solid #374151;
-    padding: 8px 4px;
+QMessageBox {
+    background-color: #ffffff;
+    color: #0f172a;
+    border: 1px solid #e2e8f0;
+    border-radius: 10px;
 }
+
+QMessageBox QLabel {
+    color: #0f172a;
+    background: transparent;
+    font-size: 12px;
+}
+
+QMessageBox QPushButton {
+    min-width: 80px;
+    padding: 6px 14px;
+}
+
+QToolTip {
+    background-color: #1e293b;
+    color: #f8fafc;
+    border: 1px solid #334155;
+    border-radius: 6px;
+    padding: 6px 8px;
+    font-size: 11px;
+}
+
+QTextEdit, QPlainTextEdit {
+    background-color: #ffffff;
+    color: #0f172a;
+    border: 1px solid #cbd5e1;
+    border-radius: 8px;
+    padding: 6px;
+}
+
+QProgressBar {
+    background-color: #f1f5f9;
+    border: 1px solid #e2e8f0;
+    border-radius: 6px;
+    text-align: center;
+    color: #0f172a;
+    font-weight: bold;
+}
+
+QProgressBar::chunk {
+    background-color: #2563eb;
+    border-radius: 5px;
+}
+
