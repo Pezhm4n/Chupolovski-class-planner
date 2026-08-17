@@ -1,12 +1,24 @@
-# Core PyQt5 requirements (already installed)
+# Core PyQt5 requirements
 PyQt5>=5.15.0
 
-# Web scraping requirements
+# Network & REST API client
 requests>=2.28.0
+
+# Web scraping requirements
 beautifulsoup4>=4.11.0
 python-dotenv>=0.21.0
 
-# Captcha solving requirements
+# OS keychain storage for cloud JWT tokens (TokenManager;
+# falls back to in-memory storage when unavailable)
+keyring>=23.0.0
+
+# Credential encryption for local Golestan credentials
+# (Fernet cipher in app/core/credentials.py)
+cryptography>=3.4.8
+
+# Captcha solving — heavy optional dependency.
+# Imported lazily by app/captcha_solver/predict.py; the app
+# runs fine without it (captcha is solved server-side).
 tensorflow>=2.10.0
 numpy>=1.21.0
 
@@ -16,7 +28,3 @@ numpy>=1.21.0
 # For development and testing
 pytest>=7.0.0
 pytest-qt>=4.0.0
-
-# Optional: Cryptography for credential encryption (not required by default)
-# Uncomment the following line if you want to enable credential encryption
-# cryptography>=3.4.8
