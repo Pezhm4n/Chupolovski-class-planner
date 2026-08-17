@@ -148,6 +148,13 @@ class ProfessorClient(BaseClient):
                 stat = self.get_stats(department=dept, instructor=inst)
                 if stat:
                     results.append(stat)
+                else:
+                    results.append(ProfessorStats(
+                        department_name=dept,
+                        instructor_name=inst,
+                        total_reviews=0,
+                        total_voters=0,
+                    ))
         return results
 
     # ── My review (write-path) ───────────────────────────────
@@ -261,8 +268,15 @@ class ProfessorClient(BaseClient):
     def track_view(self, department: str, instructor: str) -> None:
         """Fire-and-forget view counter increment (errors swallowed)."""
         try:
-            self._post(self.routes.PROFESSORS.TRACK_VIEW,
-                       data={"department_name": department, "instructor_name": instructor})
+            self._post(
+                self.routes.PROFESSORS.TRACK_VIEW,
+                data={
+                    "department": department,
+                    "instructor": instructor,
+                    "department_name": department,
+                    "instructor_name": instructor,
+                },
+            )
         except Exception as err:  # noqa: BLE001 — analytics must never break UI
             logger.debug("track_view failed silently: %s", err)
 

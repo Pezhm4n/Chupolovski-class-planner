@@ -31,38 +31,48 @@ from app.core.professor_manager import (
     get_inverse_score_color_hex,
 )
 from app.core.theme_manager import theme_manager
+from app.core.language_manager import language_manager
 
 logger = logging.getLogger("golestoon.ui.professor_dialog")
 
-ATTENDANCE_LABELS = {  # server enum → Persian
-    "very": "خیلی حساس",
-    "normal": "معمولی",
-    "not_important": "مهم نیست",
-}
+def get_attendance_labels() -> Dict[str, str]:
+    if language_manager.get_current_language() == "en":
+        return {
+            "very": "Strict",
+            "normal": "Regular",
+            "not_important": "Lenient / Optional",
+        }
+    return {
+        "very": "خیلی حساس",
+        "normal": "معمولی",
+        "not_important": "مهم نیست",
+    }
+
 ATTENDANCE_VALUES = ("very", "normal", "not_important")
 
 # Web-parity preset labels for each slider (value → (label, is_inverse))
 def _preset_for(kind: str, value: int) -> str:
+    is_en = (language_manager.get_current_language() == "en")
     if kind == "teaching":
-        if value >= 80: return "عالی"
-        if value >= 60: return "خوب"
-        if value >= 40: return "متوسط"
-        return "ضعیف"
+        if value >= 80: return "Excellent" if is_en else "عالی"
+        if value >= 60: return "Good" if is_en else "خوب"
+        if value >= 40: return "Average" if is_en else "متوسط"
+        return "Weak" if is_en else "ضعیف"
     if kind == "assignments":
-        if value >= 80: return "خیلی سنگین"
-        if value >= 60: return "سنگین"
-        if value >= 40: return "متوسط"
-        return "سبک"
+        if value >= 80: return "Very Heavy" if is_en else "خیلی سنگین"
+        if value >= 60: return "Heavy" if is_en else "سنگین"
+        if value >= 40: return "Moderate" if is_en else "متوسط"
+        return "Light" if is_en else "سبک"
     if kind == "grading":
-        if value >= 80: return "خیلی آسان‌گیر"
-        if value >= 60: return "منصف"
-        if value >= 40: return "کمی سخت‌گیر"
-        return "سخت‌گیر"
+        if value >= 80: return "Very Lenient" if is_en else "خیلی آسان‌گیر"
+        if value >= 60: return "Fair" if is_en else "منصف"
+        if value >= 40: return "Strict" if is_en else "کمی سخت‌گیر"
+        return "Very Strict" if is_en else "سخت‌گیر"
     if kind == "exam":
-        if value >= 80: return "خیلی سخت"
-        if value >= 60: return "سخت"
-        if value >= 40: return "متوسط"
-        return "آسان"
+        if value >= 80: return "Very Hard" if is_en else "خیلی سخت"
+        if value >= 60: return "Hard" if is_en else "سخت"
+        if value >= 40: return "Moderate" if is_en else "متوسط"
+        return "Easy" if is_en else "آسان"
     return ""
 
 
@@ -110,8 +120,10 @@ class ScoreBar(QtWidgets.QFrame):
         lay.addWidget(bar)
 
 
-class ProfessorReviewDialog(QtWidgets.QDialog):
-    """Professor Review, Stats, Compare & Popular dialog (web parity, v2 UX)."""
+class ProfessorReviewDialog(QtWidgets.QWidget):
+    """Professor Review, Stats, Compare & Popular widget (embedded in main window, web parity, v2 UX)."""
+
+    back_requested = QtCore.pyqtSignal()
 
     def __init__(
         self,
@@ -125,19 +137,19 @@ class ProfessorReviewDialog(QtWidgets.QDialog):
         self._token_manager = token_manager
         self._auth_client = auth_client
 
-        # Give-to-Get state (from /summary); None = unknown/open access
-        self._has_contributed: Optional[bool] = None
+        # Track gate status locally (updated on summary)
         self._user_review_count: int = 0
 
         # Caches
         self._departments: List[str] = []
         self._directory: List[Dict[str, Any]] = []  # full approved directory
         self._last_stats: Optional[ProfessorStats] = None
+        self._is_fa = (language_manager.get_current_language() == "fa")
 
-        self.setWindowTitle("👨‍🏫 نظرسنجی و مقایسه اساتید")
-        self.resize(1020, 740)
-        self.setMinimumSize(880, 620)
-        self.setLayoutDirection(Qt.RightToLeft)
+        self.setWindowTitle("👨‍🏫 نظرسنجی و مقایسه اساتید" if self._is_fa else "👨‍🏫 Professor Reviews & Comparison")
+        self.resize(1100, 750)
+        self.setMinimumSize(940, 620)
+        self.setLayoutDirection(Qt.RightToLeft if self._is_fa else Qt.LeftToRight)
 
         self._setup_ui()
         self._apply_styles()
@@ -153,17 +165,37 @@ class ProfessorReviewDialog(QtWidgets.QDialog):
 
         # ── Header ──
         header = QtWidgets.QHBoxLayout()
-        title = QtWidgets.QLabel("👨‍🏫 نظرسنجی و مقایسه اساتید")
+        header.setSpacing(12)
+
+        # Back Button (Header)
+        btn_back_text = "🔙 بازگشت به برنامه هفتگی" if self._is_fa else "🔙 Back to Weekly Schedule"
+        self.btn_back_header = QtWidgets.QPushButton(btn_back_text)
+        self.btn_back_header.setObjectName("btnBackHeader")
+        self.btn_back_header.setCursor(Qt.PointingHandCursor)
+        self.btn_back_header.setToolTip("بازگشت به صفحه جدول برنامه کلاسی (Esc)" if self._is_fa else "Return to schedule table (Esc)")
+        self.btn_back_header.clicked.connect(self.back_requested.emit)
+        header.addWidget(self.btn_back_header)
+
+        header_title = "👨‍🏫 نظرسنجی و مقایسه اساتید" if self._is_fa else "👨‍🏫 Professor Reviews & Comparison"
+        title = QtWidgets.QLabel(header_title)
         title.setObjectName("dialogTitle")
         header.addWidget(title)
         header.addStretch()
-        self.lbl_summary_badge = QtWidgets.QLabel("در حال دریافت وضعیت…")
+        badge_initial = "در حال دریافت وضعیت…" if self._is_fa else "Fetching status..."
+        self.lbl_summary_badge = QtWidgets.QLabel(badge_initial)
         self.lbl_summary_badge.setObjectName("summaryBadge")
         header.addWidget(self.lbl_summary_badge)
         root.addLayout(header)
 
         self.tab_widget = QtWidgets.QTabWidget()
-        self.tab_widget.setLayoutDirection(Qt.RightToLeft)
+        self.tab_widget.setLayoutDirection(Qt.RightToLeft if self._is_fa else Qt.LeftToRight)
+        
+        # Configure tab bar for full horizontal expansion so titles never clip
+        tab_bar = self.tab_widget.tabBar()
+        tab_bar.setElideMode(Qt.ElideNone)
+        tab_bar.setUsesScrollButtons(True)
+        tab_bar.setExpanding(True)
+        tab_bar.setCursor(Qt.PointingHandCursor)
 
         self.tab_stats = QtWidgets.QWidget(); self._setup_stats_tab()
         self.tab_submit = QtWidgets.QWidget(); self._setup_submit_tab()
@@ -171,20 +203,61 @@ class ProfessorReviewDialog(QtWidgets.QDialog):
         self.tab_popular = QtWidgets.QWidget(); self._setup_popular_tab()
         self.tab_suggest = QtWidgets.QWidget(); self._setup_suggest_tab()
 
-        self.tab_widget.addTab(self.tab_stats, "🔍 جستجو و آمار")
-        self.tab_widget.addTab(self.tab_submit, "✍️ ثبت نظر من")
-        self.tab_widget.addTab(self.tab_compare, "⚔️ مقایسه")
-        self.tab_widget.addTab(self.tab_popular, "🔥 محبوب‌ها")
-        self.tab_widget.addTab(self.tab_suggest, "💡 پیشنهاد استاد")
+        tab1_t = "🔍 جستجو و آمار اساتید" if self._is_fa else "🔍 Search & Stats"
+        tab2_t = "✍️ ثبت نظر و نمره‌دهی" if self._is_fa else "✍️ Submit Review"
+        tab3_t = "⚔️ مقایسه اساتید" if self._is_fa else "⚔️ Compare Professors"
+        tab4_t = "🔥 برترین اساتید" if self._is_fa else "🔥 Top Rated"
+        tab5_t = "💡 پیشنهاد استاد جدید" if self._is_fa else "💡 Suggest New Professor"
+
+        self.tab_widget.addTab(self.tab_stats, tab1_t)
+        self.tab_widget.addTab(self.tab_submit, tab2_t)
+        self.tab_widget.addTab(self.tab_compare, tab3_t)
+        self.tab_widget.addTab(self.tab_popular, tab4_t)
+        self.tab_widget.addTab(self.tab_suggest, tab5_t)
+
+        tt1 = "جستجو، مشخصات و آمار تفصیلی عملکرد اساتید" if self._is_fa else "Search and view detailed professor stats"
+        tt2 = "ثبت یا ویرایش نظر و نمره‌دهی به استاد" if self._is_fa else "Rate professor and submit review"
+        tt3 = "مقایسه همزمان اساتید در شاخص‌های مختلف" if self._is_fa else "Compare multiple professors side-by-side"
+        tt4 = "رتبه‌بندی برترین و محبوب‌ترین اساتید دانشگاه" if self._is_fa else "Rankings of top professors"
+        tt5 = "پیشنهاد ثبت استاد جدید در سامانه" if self._is_fa else "Suggest a new professor to be added"
+
+        self.tab_widget.setTabToolTip(0, tt1)
+        self.tab_widget.setTabToolTip(1, tt2)
+        self.tab_widget.setTabToolTip(2, tt3)
+        self.tab_widget.setTabToolTip(3, tt4)
+        self.tab_widget.setTabToolTip(4, tt5)
+
         self.tab_widget.currentChanged.connect(self._on_tab_changed)
         root.addWidget(self.tab_widget)
+
+        # ── Footer Bar ──
+        footer = QtWidgets.QHBoxLayout()
+        footer.setContentsMargins(4, 4, 4, 0)
+        footer.setSpacing(10)
+        
+        btn_footer_text = "🔙 بازگشت به صفحه اصلی (برنامه هفتگی)" if self._is_fa else "🔙 Back to Schedule Planner"
+        self.btn_back_footer = QtWidgets.QPushButton(btn_footer_text)
+        self.btn_back_footer.setObjectName("btnBackFooter")
+        self.btn_back_footer.setCursor(Qt.PointingHandCursor)
+        self.btn_back_footer.clicked.connect(self.back_requested.emit)
+        footer.addStretch()
+        footer.addWidget(self.btn_back_footer)
+        root.addLayout(footer)
+
+    def keyPressEvent(self, event) -> None:
+        """Handle Escape key to return to main schedule table."""
+        if event.key() == Qt.Key_Escape:
+            self.back_requested.emit()
+            event.accept()
+            return
+        super().keyPressEvent(event)
 
     # ── helper: department selector (non-editable) ──
     def _make_dept_combo(self, with_all: bool = False) -> QtWidgets.QComboBox:
         combo = QtWidgets.QComboBox()
         combo.setMinimumWidth(240)
         if with_all:
-            combo.addItem("همه گروه‌ها", "")
+            combo.addItem("همه گروه‌ها" if self._is_fa else "All Departments", "")
         for dept in self._departments:
             combo.addItem(dept, dept)
         combo.currentIndexChanged.connect(lambda _i, c=combo: self._on_dept_combo_changed(c))
@@ -208,16 +281,19 @@ class ProfessorReviewDialog(QtWidgets.QDialog):
         lay.setContentsMargins(14, 14, 14, 14)
         lay.setSpacing(10)
 
-        selector_group = QtWidgets.QGroupBox("۱) استاد موردنظر را انتخاب کنید")
+        grp_t = "۱) استاد موردنظر را انتخاب کنید" if self._is_fa else "1) Select Instructor"
+        selector_group = QtWidgets.QGroupBox(grp_t)
         grid = QtWidgets.QGridLayout(selector_group)
         grid.setHorizontalSpacing(12)
         grid.setVerticalSpacing(8)
 
-        grid.addWidget(QtWidgets.QLabel("گروه آموزشی:"), 0, 0)
+        dept_lbl = "گروه آموزشی:" if self._is_fa else "Department:"
+        grid.addWidget(QtWidgets.QLabel(dept_lbl), 0, 0)
         self.cmb_stats_dept = self._make_dept_combo()
         grid.addWidget(self.cmb_stats_dept, 0, 1)
 
-        grid.addWidget(QtWidgets.QLabel("نام استاد:"), 1, 0)
+        inst_lbl = "نام استاد:" if self._is_fa else "Instructor:"
+        grid.addWidget(QtWidgets.QLabel(inst_lbl), 1, 0)
         inst_row = QtWidgets.QHBoxLayout()
         self.stats_picker = self._make_inst_picker()
         inst_row.addWidget(self.stats_picker["filter"])
@@ -225,7 +301,8 @@ class ProfessorReviewDialog(QtWidgets.QDialog):
         grid.addLayout(inst_row, 1, 1)
         lay.addWidget(selector_group)
 
-        self.lbl_stats_status = QtWidgets.QLabel("برای شروع، یک گروه و سپس یک استاد انتخاب کنید.")
+        init_status = "برای شروع، یک گروه و سپس یک استاد انتخاب کنید." if self._is_fa else "Select a department and instructor to begin."
+        self.lbl_stats_status = QtWidgets.QLabel(init_status)
         self.lbl_stats_status.setObjectName("statusLabel")
         self.lbl_stats_status.setWordWrap(True)
         lay.addWidget(self.lbl_stats_status)
@@ -234,18 +311,23 @@ class ProfessorReviewDialog(QtWidgets.QDialog):
         self.gate_card = QtWidgets.QFrame()
         self.gate_card.setObjectName("gateCard")
         gate_lay = QtWidgets.QVBoxLayout(self.gate_card)
-        gate_title = QtWidgets.QLabel("🔒 این بخش قفل است — «نظر بده تا ببینی»")
+        gate_title_t = "🔒 این بخش قفل است — «نظر بده تا ببینی»" if self._is_fa else "🔒 Locked — Give-to-Get"
+        gate_title = QtWidgets.QLabel(gate_title_t)
         gate_title.setObjectName("gateTitle")
         gate_lay.addWidget(gate_title)
-        gate_text = QtWidgets.QLabel(
+        gate_desc_t = (
             "برای باز شدن آمار و مقایسه اساتید، ابتدا برای یک استاد نظر ثبت کنید. "
             "نظرات کاملاً ناشناس است و فقط چند ثانیه زمان می‌برد."
+            if self._is_fa else
+            "Submit an anonymous review for an instructor to unlock full statistics and comparisons."
         )
+        gate_text = QtWidgets.QLabel(gate_desc_t)
         gate_text.setWordWrap(True)
         gate_lay.addWidget(gate_text)
         gate_btn_row = QtWidgets.QHBoxLayout()
         gate_btn_row.addStretch()
-        gate_btn = QtWidgets.QPushButton("➕ می‌خواهم نظر بدهم")
+        gate_btn_t = "➕ می‌خواهم نظر بدهم" if self._is_fa else "➕ Submit a Review"
+        gate_btn = QtWidgets.QPushButton(gate_btn_t)
         gate_btn.setObjectName("primaryButton")
         gate_btn.setMinimumWidth(200)
         gate_btn.clicked.connect(lambda: self.tab_widget.setCurrentWidget(self.tab_submit))
@@ -275,13 +357,16 @@ class ProfessorReviewDialog(QtWidgets.QDialog):
         lay.setContentsMargins(14, 14, 14, 14)
         lay.setSpacing(10)
 
-        sel_group = QtWidgets.QGroupBox("۱) استاد موردنظر را انتخاب کنید")
+        grp1_t = "۱) استاد موردنظر را انتخاب کنید" if self._is_fa else "1) Select Instructor"
+        sel_group = QtWidgets.QGroupBox(grp1_t)
         grid = QtWidgets.QGridLayout(sel_group)
-        grid.addWidget(QtWidgets.QLabel("گروه آموزشی:"), 0, 0)
+        dept_lbl = "گروه آموزشی:" if self._is_fa else "Department:"
+        grid.addWidget(QtWidgets.QLabel(dept_lbl), 0, 0)
         self.cmb_submit_dept = self._make_dept_combo()
         grid.addWidget(self.cmb_submit_dept, 0, 1)
 
-        grid.addWidget(QtWidgets.QLabel("نام استاد:"), 1, 0)
+        inst_lbl = "نام استاد:" if self._is_fa else "Instructor:"
+        grid.addWidget(QtWidgets.QLabel(inst_lbl), 1, 0)
         submit_row = QtWidgets.QHBoxLayout()
         self.submit_picker = self._make_inst_picker()
         submit_row.addWidget(self.submit_picker["filter"])
@@ -289,20 +374,27 @@ class ProfessorReviewDialog(QtWidgets.QDialog):
         grid.addLayout(submit_row, 1, 1)
         lay.addWidget(sel_group)
 
-        scores_group = QtWidgets.QGroupBox("۲) امتیازها (۰ تا ۱۰۰)")
+        grp2_t = "۲) امتیازها (۰ تا ۱۰۰)" if self._is_fa else "2) Ratings (0 - 100)"
+        scores_group = QtWidgets.QGroupBox(grp2_t)
         scores_lay = QtWidgets.QVBoxLayout(scores_group)
         scores_lay.setSpacing(4)
-        self.slider_teaching = self._add_slider_row(scores_lay, "کیفیت تدریس:", "teaching", 75)
-        self.slider_grading = self._add_slider_row(scores_lay, "نمره‌دهی و ارفاق:", "grading", 70)
-        self.slider_assign = self._add_slider_row(scores_lay, "حجم تکالیف و پروژه:", "assignments", 60)
-        self.slider_exam = self._add_slider_row(scores_lay, "سختی امتحان:", "exam", 50)
+        s1_t = "کیفیت تدریس:" if self._is_fa else "Teaching Quality:"
+        s2_t = "نمره‌دهی و ارفاق:" if self._is_fa else "Grading & Leniency:"
+        s3_t = "حجم تکالیف و پروژه:" if self._is_fa else "Assignments & Projects:"
+        s4_t = "سختی امتحان:" if self._is_fa else "Exam Difficulty:"
+        self.slider_teaching = self._add_slider_row(scores_lay, s1_t, "teaching", 75)
+        self.slider_grading = self._add_slider_row(scores_lay, s2_t, "grading", 70)
+        self.slider_assign = self._add_slider_row(scores_lay, s3_t, "assignments", 60)
+        self.slider_exam = self._add_slider_row(scores_lay, s4_t, "exam", 50)
         lay.addWidget(scores_group)
 
-        att_group = QtWidgets.QGroupBox("۳) حساسیت حضور و غیاب")
+        grp3_t = "۳) حساسیت حضور و غیاب" if self._is_fa else "3) Attendance Policy"
+        att_group = QtWidgets.QGroupBox(grp3_t)
         att_lay = QtWidgets.QHBoxLayout(att_group)
         self.radio_att: Dict[str, QtWidgets.QRadioButton] = {}
+        att_labels = get_attendance_labels()
         for value in ATTENDANCE_VALUES:
-            radio = QtWidgets.QRadioButton(ATTENDANCE_LABELS[value])
+            radio = QtWidgets.QRadioButton(att_labels.get(value, value))
             if value == "normal":
                 radio.setChecked(True)
             self.radio_att[value] = radio
@@ -316,11 +408,13 @@ class ProfessorReviewDialog(QtWidgets.QDialog):
         lay.addWidget(self.lbl_myreview_state)
 
         btn_row = QtWidgets.QHBoxLayout()
-        btn_load = QtWidgets.QPushButton("📥 بارگذاری نظر قبلی من")
+        load_t = "📥 بارگذاری نظر قبلی من" if self._is_fa else "📥 Load Previous Review"
+        btn_load = QtWidgets.QPushButton(load_t)
         btn_load.setObjectName("secondaryButton")
         btn_load.setMinimumWidth(190)
         btn_load.clicked.connect(self._on_load_my_review_clicked)
-        btn_delete = QtWidgets.QPushButton("🗑️ حذف نظر من")
+        del_t = "🗑️ حذف نظر من" if self._is_fa else "🗑️ Delete Review"
+        btn_delete = QtWidgets.QPushButton(del_t)
         btn_delete.setObjectName("secondaryButton")
         btn_delete.setMinimumWidth(160)
         btn_delete.clicked.connect(self._on_delete_my_review_clicked)
@@ -329,7 +423,8 @@ class ProfessorReviewDialog(QtWidgets.QDialog):
         btn_row.addStretch()
         lay.addLayout(btn_row)
 
-        btn_submit = QtWidgets.QPushButton("🚀 ثبت نظر (کاملاً ناشناس)")
+        submit_t = "🚀 ثبت نظر (کاملاً ناشناس)" if self._is_fa else "🚀 Submit Review (Anonymous)"
+        btn_submit = QtWidgets.QPushButton(submit_t)
         btn_submit.setObjectName("primaryButton")
         btn_submit.setMinimumHeight(44)
         btn_submit.setCursor(Qt.PointingHandCursor)
@@ -379,14 +474,16 @@ class ProfessorReviewDialog(QtWidgets.QDialog):
         lay.setContentsMargins(14, 14, 14, 14)
         lay.setSpacing(10)
 
-        hint = QtWidgets.QLabel("برای مقایسه، در دو یا سه ردیف زیر گروه و استاد انتخاب کنید:")
+        hint_t = "برای مقایسه، در دو یا سه ردیف زیر گروه و استاد انتخاب کنید:" if self._is_fa else "Select 2 or 3 instructors below to compare side-by-side:"
+        hint = QtWidgets.QLabel(hint_t)
         hint.setObjectName("statusLabel")
         lay.addWidget(hint)
 
         self.cmp_rows: List[Dict[str, Any]] = []
         for i in range(3):
             row = QtWidgets.QHBoxLayout()
-            num_lbl = QtWidgets.QLabel(f"استاد {i + 1}:")
+            prof_lbl = f"استاد {i + 1}:" if self._is_fa else f"Prof {i + 1}:"
+            num_lbl = QtWidgets.QLabel(prof_lbl)
             num_lbl.setFixedWidth(60)
             dept = self._make_dept_combo()
             picker = self._make_inst_picker()
@@ -397,7 +494,8 @@ class ProfessorReviewDialog(QtWidgets.QDialog):
             lay.addLayout(row)
             self.cmp_rows.append({"dept": dept, "picker": picker})
 
-        btn_cmp = QtWidgets.QPushButton("⚔️ مقایسه کن")
+        cmp_btn_t = "⚔️ مقایسه کن" if self._is_fa else "⚔️ Compare"
+        btn_cmp = QtWidgets.QPushButton(cmp_btn_t)
         btn_cmp.setObjectName("primaryButton")
         btn_cmp.setMinimumHeight(40)
         btn_cmp.clicked.connect(self._on_compare_clicked)
@@ -409,7 +507,8 @@ class ProfessorReviewDialog(QtWidgets.QDialog):
 
         self.cmp_table = QtWidgets.QTableWidget()
         self.cmp_table.setColumnCount(4)
-        self.cmp_table.setHorizontalHeaderLabels(["معیار", "استاد ۱", "استاد ۲", "استاد ۳"])
+        cmp_headers = ["معیار", "استاد ۱", "استاد ۲", "استاد ۳"] if self._is_fa else ["Metric", "Professor 1", "Professor 2", "Professor 3"]
+        self.cmp_table.setHorizontalHeaderLabels(cmp_headers)
         self.cmp_table.horizontalHeader().setSectionResizeMode(QtWidgets.QHeaderView.Stretch)
         self.cmp_table.verticalHeader().setVisible(False)
         self.cmp_table.setAlternatingRowColors(True)
@@ -424,16 +523,22 @@ class ProfessorReviewDialog(QtWidgets.QDialog):
         lay.setSpacing(10)
 
         filter_row = QtWidgets.QHBoxLayout()
-        filter_row.addWidget(QtWidgets.QLabel("مرتب‌سازی بر اساس:"))
+        sort_lbl = "مرتب‌سازی بر اساس:" if self._is_fa else "Sort by:"
+        filter_row.addWidget(QtWidgets.QLabel(sort_lbl))
         self.cmb_popular_kind = QtWidgets.QComboBox()
-        self.cmb_popular_kind.addItem("⭐ بیشترین امتیاز", "score")
-        self.cmb_popular_kind.addItem("👁️ بیشترین بازدید", "views")
-        self.cmb_popular_kind.addItem("🗳️ بیشترین رأی", "voters")
+        s1 = "⭐ بیشترین امتیاز" if self._is_fa else "⭐ Highest Rating"
+        s2 = "👁️ بیشترین بازدید" if self._is_fa else "👁️ Most Viewed"
+        s3 = "🗳️ بیشترین رأی" if self._is_fa else "🗳️ Most Votes"
+        self.cmb_popular_kind.addItem(s1, "score")
+        self.cmb_popular_kind.addItem(s2, "views")
+        self.cmb_popular_kind.addItem(s3, "voters")
         filter_row.addWidget(self.cmb_popular_kind)
-        filter_row.addWidget(QtWidgets.QLabel("گروه:"))
+        dept_lbl = "گروه:" if self._is_fa else "Department:"
+        filter_row.addWidget(QtWidgets.QLabel(dept_lbl))
         self.cmb_popular_dept = self._make_dept_combo(with_all=True)
         filter_row.addWidget(self.cmb_popular_dept)
-        btn_load = QtWidgets.QPushButton("🔄 بارگذاری")
+        load_t = "🔄 بارگذاری" if self._is_fa else "🔄 Load"
+        btn_load = QtWidgets.QPushButton(load_t)
         btn_load.setObjectName("primaryButton")
         btn_load.setMinimumWidth(120)
         btn_load.clicked.connect(self._on_load_popular_clicked)
@@ -441,13 +546,15 @@ class ProfessorReviewDialog(QtWidgets.QDialog):
         filter_row.addStretch()
         lay.addLayout(filter_row)
 
-        hint = QtWidgets.QLabel("💡 روی هر ردیف دوبار کلیک کنید تا آمار همان استاد باز شود.")
+        hint_t = "💡 روی هر ردیف دوبار کلیک کنید تا آمار همان استاد باز شود." if self._is_fa else "💡 Double-click any row to view full stats."
+        hint = QtWidgets.QLabel(hint_t)
         hint.setObjectName("statusLabel")
         lay.addWidget(hint)
 
         self.popular_table = QtWidgets.QTableWidget()
         self.popular_table.setColumnCount(5)
-        self.popular_table.setHorizontalHeaderLabels(["رتبه", "استاد", "گروه", "امتیاز", "تعداد رأی"])
+        pop_headers = ["رتبه", "استاد", "گروه", "امتیاز", "تعداد رأی"] if self._is_fa else ["Rank", "Professor", "Department", "Rating", "Votes"]
+        self.popular_table.setHorizontalHeaderLabels(pop_headers)
         self.popular_table.horizontalHeader().setSectionResizeMode(QtWidgets.QHeaderView.Stretch)
         self.popular_table.verticalHeader().setVisible(False)
         self.popular_table.setAlternatingRowColors(True)
@@ -464,25 +571,28 @@ class ProfessorReviewDialog(QtWidgets.QDialog):
         lay.setContentsMargins(14, 14, 14, 14)
         lay.setSpacing(10)
 
-        group = QtWidgets.QGroupBox("استاد موردنظر در فهرست نیست؟")
+        grp_t = "استاد موردنظر در فهرست نیست؟" if self._is_fa else "Professor not listed?"
+        group = QtWidgets.QGroupBox(grp_t)
         grid = QtWidgets.QGridLayout(group)
-        grid.addWidget(QtWidgets.QLabel("گروه آموزشی:"), 0, 0)
+        dept_lbl = "گروه آموزشی:" if self._is_fa else "Department:"
+        grid.addWidget(QtWidgets.QLabel(dept_lbl), 0, 0)
         self.cmb_suggest_dept = self._make_dept_combo()
         grid.addWidget(self.cmb_suggest_dept, 0, 1)
-        grid.addWidget(QtWidgets.QLabel("نام استاد:"), 1, 0)
+        inst_lbl = "نام استاد:" if self._is_fa else "Professor Name:"
+        grid.addWidget(QtWidgets.QLabel(inst_lbl), 1, 0)
         self.txt_suggest_inst = QtWidgets.QLineEdit()
-        self.txt_suggest_inst.setPlaceholderText("مثال: دکتر مریم حسینی")
+        self.txt_suggest_inst.setPlaceholderText("مثال: دکتر مریم حسینی" if self._is_fa else "e.g. Dr. John Smith")
         grid.addWidget(self.txt_suggest_inst, 1, 1)
         lay.addWidget(group)
 
-        note = QtWidgets.QLabel(
-            "پیشنهاد شما پس از بررسی مسئولین به فهرست اضافه می‌شود. با تشکر از کمک شما 🌸"
-        )
+        note_t = "پیشنهاد شما پس از بررسی مسئولین به فهرست اضافه می‌شود. با تشکر از کمک شما 🌸" if self._is_fa else "Your suggestion will be reviewed and added to the directory. Thank you! 🌸"
+        note = QtWidgets.QLabel(note_t)
         note.setObjectName("statusLabel")
         note.setWordWrap(True)
         lay.addWidget(note)
 
-        btn = QtWidgets.QPushButton("💡 ارسال پیشنهاد")
+        sug_btn_t = "💡 ارسال پیشنهاد" if self._is_fa else "💡 Submit Suggestion"
+        btn = QtWidgets.QPushButton(sug_btn_t)
         btn.setObjectName("primaryButton")
         btn.setMinimumHeight(40)
         btn.clicked.connect(self._on_suggest_clicked)
@@ -716,7 +826,8 @@ class ProfessorReviewDialog(QtWidgets.QDialog):
         color = get_score_color_hex(score)
         score_lbl = QtWidgets.QLabel(f"{score:.1f}")
         score_lbl.setStyleSheet(f"font-size: 30pt; font-weight: bold; color: {color}; border: none;")
-        score_cap = QtWidgets.QLabel("امتیاز کلی")
+        score_cap_t = "امتیاز کلی" if self._is_fa else "Overall Rating"
+        score_cap = QtWidgets.QLabel(score_cap_t)
         score_cap.setStyleSheet(f"color: {p['muted']}; font-size: 8.5pt; border: none;")
         score_col = QtWidgets.QVBoxLayout()
         score_col.addWidget(score_lbl, alignment=Qt.AlignCenter)
@@ -725,17 +836,22 @@ class ProfessorReviewDialog(QtWidgets.QDialog):
         self.stats_lay.addWidget(head)
 
         # Score bars
-        self.stats_lay.addWidget(ScoreBar("🎙️ کیفیت تدریس", stats.teaching_avg))
-        self.stats_lay.addWidget(ScoreBar("📝 نمره‌دهی و ارفاق", stats.grading_avg))
-        self.stats_lay.addWidget(ScoreBar("📚 حجم تکالیف", stats.assignments_avg))
-        self.stats_lay.addWidget(ScoreBar("🔥 سختی امتحان", stats.exam_difficulty_avg, inverse=True))
+        sb1 = "🎙️ کیفیت تدریس" if self._is_fa else "🎙️ Teaching Quality"
+        sb2 = "📝 نمره‌دهی و ارفاق" if self._is_fa else "📝 Grading & Leniency"
+        sb3 = "📚 حجم تکالیف" if self._is_fa else "📚 Assignments"
+        sb4 = "🔥 سختی امتحان" if self._is_fa else "🔥 Exam Difficulty"
+        self.stats_lay.addWidget(ScoreBar(sb1, stats.teaching_avg))
+        self.stats_lay.addWidget(ScoreBar(sb2, stats.grading_avg))
+        self.stats_lay.addWidget(ScoreBar(sb3, stats.assignments_avg))
+        self.stats_lay.addWidget(ScoreBar(sb4, stats.exam_difficulty_avg, inverse=True))
 
         # Meta info line
-        meta_parts = [f"🗳️ {stats.total_voters} رأی", f"👁️ {stats.view_count} بازدید"]
+        votes_lbl = f"🗳️ {stats.total_voters} رأی" if self._is_fa else f"🗳️ {stats.total_voters} votes"
+        views_lbl = f"👁️ {stats.view_count} بازدید" if self._is_fa else f"👁️ {stats.view_count} views"
+        meta_parts = [votes_lbl, views_lbl]
         if stats.telegram_has_data and stats.telegram_effective_voters:
-            meta_parts.append(
-                f"📊 شامل {stats.telegram_effective_voters} رأی تلگرام (وزن ۰٫۴)"
-            )
+            tg_lbl = f"📊 شامل {stats.telegram_effective_voters} رأی تلگرام (وزن ۰٫۴)" if self._is_fa else f"📊 Includes {stats.telegram_effective_voters} Telegram votes"
+            meta_parts.append(tg_lbl)
         meta = QtWidgets.QLabel("   ·   ".join(meta_parts))
         meta.setStyleSheet(f"color: {p['muted']}; font-size: 9.5pt; border: none;")
         self.stats_lay.addWidget(meta)
@@ -743,7 +859,8 @@ class ProfessorReviewDialog(QtWidgets.QDialog):
         # Jump to review button
         review_row = QtWidgets.QHBoxLayout()
         review_row.addStretch()
-        btn_review = QtWidgets.QPushButton(f"✍️ ثبت / ویرایش نظر من برای «{inst}»")
+        btn_rev_t = f"✍️ ثبت / ویرایش نظر من برای «{inst}»" if self._is_fa else f"✍️ Review '{inst}'"
+        btn_review = QtWidgets.QPushButton(btn_rev_t)
         btn_review.setObjectName("primaryButton")
         btn_review.setMinimumWidth(300)
         btn_review.setMinimumHeight(38)
@@ -918,15 +1035,7 @@ class ProfessorReviewDialog(QtWidgets.QDialog):
         def _err(err: str):
             self.lbl_cmp_status.setText(f"⚠️ مقایسه ناموفق بود: {err}")
 
-        def _job():
-            return self._manager.client.compare_professors(targets)
-
-        from app.core.professor_manager import _Worker
-        worker = _Worker(_job)
-        worker.finished_signal.connect(_ok)
-        worker.error_signal.connect(_err)
-        worker.finished.connect(worker.deleteLater)
-        worker.start()
+        self._manager.compare_professors(targets, on_success=_ok, on_error=_err)
 
     def _render_compare_table(self, results: List[ProfessorStats]) -> None:
         if not results:
@@ -946,10 +1055,12 @@ class ProfessorReviewDialog(QtWidgets.QDialog):
         self.cmp_table.setRowCount(len(rows))
         for r, (criteria, vals) in enumerate(rows):
             c0 = QtWidgets.QTableWidgetItem(criteria)
-            c0.setFont(QtWidgets.QApplication.font())
+            c0.setTextAlignment(Qt.AlignCenter)
             self.cmp_table.setItem(r, 0, c0)
             for c, val in enumerate(vals):
-                self.cmp_table.setItem(r, c + 1, QtWidgets.QTableWidgetItem(val))
+                item = QtWidgets.QTableWidgetItem(val)
+                item.setTextAlignment(Qt.AlignCenter)
+                self.cmp_table.setItem(r, c + 1, item)
 
     # ═════════════════════════════════════════════════════════
     # Popular
@@ -1048,11 +1159,38 @@ class ProfessorReviewDialog(QtWidgets.QDialog):
     def _apply_styles(self) -> None:
         p = theme_manager.palette()
         self.setStyleSheet(f"""
-            QDialog {{
+            ProfessorReviewDialog, QWidget {{
                 background-color: {p['bg']};
                 color: {p['text']};
                 font-family: "Vazirmatn", "Segoe UI", sans-serif;
                 font-size: 10pt;
+            }}
+            QPushButton#btnBackHeader {{
+                background-color: {p['tint']};
+                color: {p['primary']};
+                border: 1.5px solid {p['primary']};
+                border-radius: 8px;
+                padding: 6px 14px;
+                font-weight: bold;
+                font-size: 9.5pt;
+            }}
+            QPushButton#btnBackHeader:hover {{
+                background-color: {p['primary']};
+                color: #ffffff;
+            }}
+            QPushButton#btnBackFooter {{
+                background-color: {p['surface']};
+                color: {p['text']};
+                border: 1px solid {p['border']};
+                border-radius: 8px;
+                padding: 8px 18px;
+                font-weight: bold;
+                font-size: 10pt;
+            }}
+            QPushButton#btnBackFooter:hover {{
+                background-color: {p['tint']};
+                color: {p['primary']};
+                border-color: {p['primary']};
             }}
             QLabel#dialogTitle {{ font-size: 15pt; font-weight: bold; color: {p['text']}; }}
             QLabel#statusLabel {{ color: {p['muted']}; font-size: 9.5pt; }}
@@ -1143,20 +1281,37 @@ class ProfessorReviewDialog(QtWidgets.QDialog):
                 border: 1px solid {p['border']};
                 background-color: {p['surface']};
                 border-radius: 10px;
+                margin-top: -1px;
+            }}
+            QTabBar {{
+                qproperty-drawBase: 0;
             }}
             QTabBar::tab {{
                 background: {p['bg']};
-                color: {p['muted']};
-                padding: 10px 20px;
-                margin-right: 4px;
+                color: {p['text_mid']};
+                padding: 9px 18px;
+                margin-left: 3px;
+                margin-right: 3px;
+                min-width: 140px;
                 border-top-left-radius: 8px;
                 border-top-right-radius: 8px;
-                font-size: 10.5pt;
+                border: 1px solid {p['border']};
+                border-bottom: none;
+                font-size: 9.5pt;
                 font-weight: bold;
+                min-height: 24px;
+            }}
+            QTabBar::tab:hover:!selected {{
+                background: {p['surface']};
+                color: {p['text']};
             }}
             QTabBar::tab:selected {{
                 background: {p['primary']};
                 color: {p['primary_text']};
+                border-color: {p['primary']};
+            }}
+            QTabBar::scroller {{
+                width: 24px;
             }}
             QSlider::groove:horizontal {{
                 height: 8px; border-radius: 4px; background: {p['border']};
@@ -1204,5 +1359,8 @@ class ProfessorReviewDialog(QtWidgets.QDialog):
                 border: 1px solid {p['border']};
                 border-radius: 12px;
             }}
-            QScrollArea {{ background: transparent; border: none; }}
+            QScrollArea, QScrollArea > QWidget, QScrollArea > QWidget > QWidget {{
+                background: transparent;
+                border: none;
+            }}
         """)

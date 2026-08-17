@@ -214,6 +214,13 @@ class ProfessorManager(QObject):
             on_success, on_error, self,
         )
 
+    def compare_professors(self, instructors: List[Dict[str, str]], on_success: Any, on_error: Any) -> None:
+        """Fetch stats for multiple instructors side-by-side."""
+        _run_worker(
+            _Worker(lambda: self._client.compare_professors(instructors)),
+            on_success, on_error, self,
+        )
+
     # ── My review lifecycle ──────────────────────────────────
     def fetch_my_review(self, department: str, instructor: str, on_success: Any, on_error: Any) -> None:
         _run_worker(

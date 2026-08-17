@@ -115,14 +115,14 @@ class GpaTrendChart(QtWidgets.QWidget):
 
         painter.setPen(QPen(QColor(line_color), 2))
         fill_alpha = 30 if is_dark else 40
-        painter.setBrush(QBrush(QColor(line_color).darker(100)))
         fill_color = QColor(line_color)
         fill_color.setAlpha(fill_alpha)
-        painter.setBrush(QBrush(fill_color))
         fill = QPolygonF(polygon)
-        fill.append(QPointF(margin_l, margin_t + plot_h))
         fill.append(QPointF(margin_l + step_x * (n - 1), margin_t + plot_h))
+        fill.append(QPointF(margin_l, margin_t + plot_h))
+        painter.setBrush(QBrush(fill_color))
         painter.drawPolygon(fill)
+        painter.setBrush(Qt.NoBrush)
         painter.drawPolyline(polygon)
 
         # Points + first/last labels
@@ -146,11 +146,13 @@ class GpaTrendChart(QtWidgets.QWidget):
         painter.end()
 
 
-class UnifiedStudentDashboard(QtWidgets.QDialog):
+class UnifiedStudentDashboard(QtWidgets.QWidget):
     """
-    Unified Student Dashboard dialog: real transcript sync, GPA analytics,
-    and Report 272 degree progress — equivalent to the golestan-web view.
+    Unified Student Dashboard widget embedded directly in the main window:
+    real transcript sync, GPA analytics, and Report 272 degree progress.
     """
+
+    back_requested = QtCore.pyqtSignal()
 
     def __init__(
         self,
@@ -163,7 +165,6 @@ class UnifiedStudentDashboard(QtWidgets.QDialog):
         self.student_data = None  # app.scrapers...models.Student | None
 
         self.setWindowTitle(translator.t("dashboard.title"))
-        self.resize(920, 660)
         self.setMinimumSize(760, 540)
 
         current_lang = language_manager.get_current_language()
@@ -185,6 +186,13 @@ class UnifiedStudentDashboard(QtWidgets.QDialog):
         """Live theme switch: re-apply dialog styles and rebuild data widgets."""
         self._apply_styles()
         self._refresh_all()
+
+    def keyPressEvent(self, event: QtGui.QKeyEvent) -> None:  # noqa: N802
+        if event.key() == Qt.Key_Escape:
+            self.back_requested.emit()
+            event.accept()
+        else:
+            super().keyPressEvent(event)
 
     # ─────────────────────────────────────────────────────────
     # Networking setup (reuses the main window session when provided)
@@ -237,6 +245,15 @@ class UnifiedStudentDashboard(QtWidgets.QDialog):
         header_layout = QtWidgets.QHBoxLayout(header_widget)
         header_layout.setContentsMargins(14, 12, 14, 12)
 
+        # Back to Main Schedule Button in Header
+        is_fa = (language_manager.get_current_language() == 'fa')
+        back_header_t = "🔙 بازگشت به برنامه هفتگی" if is_fa else "🔙 Back to Schedule"
+        self.btn_back_header = QtWidgets.QPushButton(back_header_t)
+        self.btn_back_header.setObjectName("secondaryButton")
+        self.btn_back_header.setCursor(Qt.PointingHandCursor)
+        self.btn_back_header.clicked.connect(self.back_requested.emit)
+        header_layout.addWidget(self.btn_back_header)
+
         avatar_lbl = QtWidgets.QLabel("🎓")
         avatar_lbl.setStyleSheet("font-size: 28pt; padding: 4px;")
         header_layout.addWidget(avatar_lbl)
@@ -279,9 +296,13 @@ class UnifiedStudentDashboard(QtWidgets.QDialog):
         self.lbl_sync_status.setStyleSheet("font-size: 9pt;")
         footer_layout.addWidget(self.lbl_sync_status)
         footer_layout.addStretch()
-        btn_close = QtWidgets.QPushButton(translator.t("dashboard.close"))
-        btn_close.clicked.connect(self.accept)
-        footer_layout.addWidget(btn_close)
+        
+        back_footer_t = "🔙 بازگشت به صفحه اصلی" if is_fa else "🔙 Back to Main View"
+        btn_back_footer = QtWidgets.QPushButton(back_footer_t)
+        btn_back_footer.setObjectName("secondaryButton")
+        btn_back_footer.setCursor(Qt.PointingHandCursor)
+        btn_back_footer.clicked.connect(self.back_requested.emit)
+        footer_layout.addWidget(btn_back_footer)
         main_layout.addLayout(footer_layout)
 
     # ─────────────────────────────────────────────────────────
@@ -451,7 +472,7 @@ class UnifiedStudentDashboard(QtWidgets.QDialog):
         card = QtWidgets.QFrame()
         card.setStyleSheet(f"""
             QFrame {{
-                background-color: {p['bg']};
+                background-color: {p['surface']};
                 border: 1px solid {p['border']};
                 border-right: 4px solid {color};
                 border-radius: 8px;
@@ -459,11 +480,11 @@ class UnifiedStudentDashboard(QtWidgets.QDialog):
             QLabel {{ background: transparent; border: none; }}
         """)
         c_lay = QtWidgets.QVBoxLayout(card)
-        c_lay.setContentsMargins(10, 8, 10, 8)
+        c_lay.setContentsMargins(14, 10, 14, 10)
         t_lbl = QtWidgets.QLabel(title)
         t_lbl.setStyleSheet(f"color: {p['muted']}; font-size: 9.5pt; border: none;")
         v_lbl = QtWidgets.QLabel(value)
-        v_lbl.setStyleSheet(f"color: {color}; font-size: 13pt; font-weight: bold; border: none;")
+        v_lbl.setStyleSheet(f"color: {color}; font-size: 14pt; font-weight: bold; border: none;")
         c_lay.addWidget(t_lbl)
         c_lay.addWidget(v_lbl)
         return card
@@ -803,7 +824,7 @@ class UnifiedStudentDashboard(QtWidgets.QDialog):
     def _apply_styles(self) -> None:
         p = theme_manager.palette()
         self.setStyleSheet(f"""
-            QDialog {{
+            UnifiedStudentDashboard {{
                 background-color: {p['bg']};
                 color: {p['text']};
                 font-family: "Vazirmatn", "Segoe UI", sans-serif;
@@ -822,26 +843,32 @@ class UnifiedStudentDashboard(QtWidgets.QDialog):
             QTabBar::tab {{
                 background: {p['bg']};
                 color: {p['muted']};
-                padding: 8px 16px;
-                margin-left: 3px;
+                padding: 10px 20px;
+                margin-left: 4px;
                 border-top-left-radius: 6px;
                 border-top-right-radius: 6px;
-                font-size: 9.5pt;
+                font-size: 10pt;
                 font-weight: bold;
             }}
             QTabBar::tab:selected {{
                 background: {p['surface']};
                 color: {p['primary']};
-                border-bottom: 2px solid {p['primary']};
+                border-bottom: 3px solid {p['primary']};
             }}
             QGroupBox {{
                 background-color: {p['surface']};
                 border: 1px solid {p['border']};
                 border-radius: 8px;
-                margin-top: 10px;
-                padding-top: 10px;
+                margin-top: 14px;
+                padding-top: 14px;
                 font-weight: bold;
                 color: {p['text_mid']};
+            }}
+            QGroupBox::title {{
+                subcontrol-origin: margin;
+                subcontrol-position: top right;
+                padding: 0 8px;
+                color: {p['primary']};
             }}
             QTableWidget {{
                 background-color: {p['surface']};
@@ -856,7 +883,7 @@ class UnifiedStudentDashboard(QtWidgets.QDialog):
                 color: {p['muted']};
                 border: none;
                 border-bottom: 1px solid {p['border']};
-                padding: 6px;
+                padding: 8px;
                 font-weight: bold;
             }}
             QComboBox {{
@@ -864,7 +891,7 @@ class UnifiedStudentDashboard(QtWidgets.QDialog):
                 color: {p['text']};
                 border: 1px solid {p['border']};
                 border-radius: 6px;
-                padding: 5px 10px;
+                padding: 6px 12px;
             }}
             QComboBox QAbstractItemView {{
                 background-color: {p['surface']};
@@ -877,15 +904,32 @@ class UnifiedStudentDashboard(QtWidgets.QDialog):
                 color: {p['text']};
                 border: 1px solid {p['border']};
                 border-radius: 6px;
-                padding: 7px 14px;
+                padding: 7px 16px;
+                font-size: 9.5pt;
             }}
-            QPushButton:hover {{ border-color: {p['primary']}; }}
+            QPushButton:hover {{ 
+                border-color: {p['primary']}; 
+                background-color: {p['tint']};
+            }}
+            QPushButton#secondaryButton {{
+                background-color: {p['surface']};
+                color: {p['text']};
+                border: 1px solid {p['border']};
+                border-radius: 6px;
+                padding: 7px 16px;
+                font-weight: bold;
+            }}
+            QPushButton#secondaryButton:hover {{
+                border-color: {p['primary']};
+                background-color: {p['tint']};
+                color: {p['primary']};
+            }}
             QPushButton#primaryButton {{
                 background-color: {p['primary']};
                 color: {p['primary_text']};
                 border: none;
                 border-radius: 6px;
-                padding: 7px 14px;
+                padding: 8px 18px;
                 font-weight: bold;
             }}
             QPushButton#primaryButton:hover {{
