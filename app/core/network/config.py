@@ -11,9 +11,36 @@ Dependencies: Python Standard Library ONLY (`os`, `dataclasses`, `typing`).
 
 import os
 from dataclasses import dataclass, field
-from typing import Dict, Tuple
+from typing import Dict, Tuple, Optional
 
-DEFAULT_PRODUCTION_BASE_URL: str = "https://api.example.com"
+def get_configured_api_base_url() -> Optional[str]:
+    """Return configured API URL from environment variables or .env files, or None if empty."""
+    val = os.environ.get("GOLESTOON_API_BASE_URL") or os.environ.get("API_URL")
+    if not val:
+        try:
+            from pathlib import Path
+            from dotenv import load_dotenv
+            candidates = [
+                Path(".env"),
+                Path("app/.env"),
+                Path(__file__).resolve().parent.parent.parent / ".env",
+                Path(__file__).resolve().parent.parent.parent / "scrapers" / ".env",
+            ]
+            for p in candidates:
+                if p.exists():
+                    load_dotenv(dotenv_path=p)
+            val = os.environ.get("GOLESTOON_API_BASE_URL") or os.environ.get("API_URL")
+        except Exception:
+            pass
+
+    if val and str(val).strip():
+        return str(val).strip().rstrip("/")
+    return None
+
+
+def is_api_configured() -> bool:
+    """Return True if remote cloud REST API is enabled in environment."""
+    return get_configured_api_base_url() is not None
 
 
 @dataclass(frozen=True)
@@ -34,11 +61,7 @@ class NetworkConfig:
     """
 
     base_url: str = field(
-        default_factory=lambda: (
-            os.environ.get("GOLESTOON_API_BASE_URL")
-            or os.environ.get("API_URL")
-            or DEFAULT_PRODUCTION_BASE_URL
-        ).rstrip("/")
+        default_factory=lambda: (get_configured_api_base_url() or "")
     )
     connect_timeout: int = 5
     read_timeout: int = 15

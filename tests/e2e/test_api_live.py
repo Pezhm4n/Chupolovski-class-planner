@@ -2,7 +2,7 @@
 """
 Live End-to-End API tests for the Golestoon desktop client.
 
-Runs against the PRODUCTION backend (https://api.example.com) using the
+Runs against the configured backend (GOLESTOON_API_BASE_URL / API_URL) using the
 desktop app's own network layer (NetworkSession + domain clients), so the
 exact request/response contracts exercised by the GUI are what gets tested.
 
@@ -37,7 +37,7 @@ from app.core.auth.token_manager import TokenManager  # noqa: E402
 from app.core.network.converters import student_from_api  # noqa: E402
 from app.scrapers.requests_scraper.models import Student  # noqa: E402
 
-BASE_URL = os.environ.get("GOLESTOON_API_BASE_URL", "https://api.example.com")
+BASE_URL = os.environ.get("GOLESTOON_API_BASE_URL") or os.environ.get("API_URL")
 WRITE_TESTS = os.environ.get("E2E_WRITE_TESTS") == "1"
 
 
@@ -70,6 +70,11 @@ def _gmail_normalize(email: str) -> str:
 # ─────────────────────────────────────────────────────────────
 # Fixtures
 # ─────────────────────────────────────────────────────────────
+
+@pytest.fixture(scope="module", autouse=True)
+def require_api_base_url():
+    if not BASE_URL or not str(BASE_URL).strip():
+        pytest.skip("No GOLESTOON_API_BASE_URL or API_URL configured; skipping live E2E cloud tests.")
 
 @pytest.fixture(scope="module")
 def token_manager():

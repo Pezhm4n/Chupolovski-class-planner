@@ -5,8 +5,6 @@ import warnings
 
 # ⚡ LAZY IMPORT: TensorFlow is only imported when actually needed
 # This prevents slow startup time when TensorFlow is not required
-# Import preprocessing functions
-from app.captcha_solver.preprocess import preprocess_image, decode_predictions, get_vocab_info
 from app.core.logger import setup_logging
 
 logger = setup_logging()
@@ -69,6 +67,7 @@ class CaptchaPredictor:
         self.model_path = model_path
         self.model = None
         self.prediction_model = None
+        from app.captcha_solver.preprocess import get_vocab_info
         self.vocab_info = get_vocab_info()
         self._load_model()
     
@@ -125,6 +124,7 @@ class CaptchaPredictor:
             if not image_content:
                 raise ValueError("Image content is empty or None")
 
+            from app.captcha_solver.preprocess import preprocess_image, decode_predictions
             preprocessed_image = preprocess_image(image_content)
             predictions = self.prediction_model.predict(preprocessed_image, verbose=0)
             decoded_texts = decode_predictions(predictions)
@@ -137,8 +137,39 @@ class CaptchaPredictor:
             logger.error(f"Error during captcha prediction: {e}")
             return ""
 
+_cached_predictor = None
+
+def _predict_via_api(image_content: bytes, api_url: str) -> str:
+    """Predict captcha text via remote REST API endpoint."""
+    try:
+        import requests
+        files = {"file": ("captcha.png", image_content, "image/png")}
+        resp = requests.post(api_url, files=files, timeout=8)
+        if resp.status_code == 200:
+            data = resp.json()
+            text = data.get("captcha_text") or data.get("text") or data.get("prediction") or ""
+            if text:
+                logger.info(f"Captcha solved via remote API successfully: {text}")
+                return str(text).strip()
+        logger.warning(f"Captcha API returned status {resp.status_code}: {resp.text[:120]}")
+    except Exception as e:
+        logger.warning(f"Failed to solve captcha via remote API ({e}), falling back to local solver.")
+    return ""
+
 def predict(image_content):
-    """Predict captcha text from image content"""
-    predictor = CaptchaPredictor()
-    result = predictor.predict(image_content)
-    return result
+    """
+    Predict captcha text from image content.
+    If CAPTCHA_API_URL environment variable is set, delegates to remote API.
+    Otherwise (or if API request fails), falls back to local TensorFlow model.
+    """
+    global _cached_predictor
+    api_url = os.getenv("CAPTCHA_API_URL", "").strip()
+    if api_url:
+        result = _predict_via_api(image_content, api_url)
+        if result:
+            return result
+
+    # Fallback to local TensorFlow model
+    if _cached_predictor is None:
+        _cached_predictor = CaptchaPredictor()
+    return _cached_predictor.predict(image_content)

@@ -22,6 +22,14 @@ def humanize_error(exception_or_msg, default_message: str = "برنامه با �
 
     lower_str = raw_str.lower()
 
+    # Offline Mode / Unconfigured API Server
+    if "حالت ابری غیرفعال" in raw_str or "آدرس سرور تنظیم نشده" in raw_str or "no base_url" in lower_str:
+        return (
+            "حالت ابری در حال حاضر غیرفعال است چون آدرس سرور (API_URL) در فایل تنظیمات (.env) مشخص نشده است.\n\n"
+            "• برای استفاده از برنامه به صورت آفلاین، دکمه «ورود به عنوان مهمان (آفلاین)» را انتخاب کنید.\n"
+            "• برای اتصال به سرور ابری، متغیر API_URL یا GOLESTOON_API_BASE_URL را در فایل app/.env مقداردهی فرمایید."
+        )
+
     # Network & Connection Errors
     if "connection" in lower_str or "failed to connect" in lower_str or "unreachable" in lower_str or "name or service not known" in lower_str:
         return "ارتباط با اینترنت یا سرور برقرار نشد. لطفاً اتصال اینترنت خود را بررسی کنید."

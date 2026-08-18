@@ -141,7 +141,10 @@ class NetworkSession:
         timeout: Optional[Tuple[int, int]] = None,
         is_proxy: bool = False,
     ) -> Dict[str, Any]:
-        """Single-attempt HTTP execution (see `request`)."""
+        if not self.config.base_url or not str(self.config.base_url).strip():
+            logger.info("[OFFLINE MODE] Skipping network request to '%s' (no base_url configured)", endpoint)
+            raise GolestoonNetworkError("حالت ابری غیرفعال است (آدرس سرور تنظیم نشده است).")
+
         url = f"{self.config.base_url}/{endpoint.lstrip('/')}"
         req_headers = dict(self._session.headers)
         if headers:
