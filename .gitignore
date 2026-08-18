@@ -45,8 +45,9 @@ app/output.txt
 
 app/data/user_added_courses.json
 
-# Local credentials file (gitignored for security)
+# Local credentials and rate limit files (gitignored for security)
 app/data/local_credentials.json
+app/data/rate_limit.json
 
 app/data/courses_data.json
  
