@@ -131,8 +131,47 @@ class _Worker(QThread):
         except GolestoonNetworkError as err:
             self.error_signal.emit(err.message)
         except Exception as err:  # noqa: BLE001 — worker boundary
+            from app.core.network.config import is_api_configured
             logger.exception("Professor worker failed")
             self.error_signal.emit(str(err))
+
+
+def get_local_departments() -> List[str]:
+    """Extract unique departments from locally loaded courses."""
+    from app.core.config import COURSES
+    depts = set()
+    for c in COURSES.values():
+        dept = c.get('department') or c.get('faculty') or c.get('major')
+        if dept and str(dept).strip():
+            depts.add(str(dept).strip())
+    return sorted(list(depts))
+
+
+def get_local_instructors(department: str = "") -> List[Dict[str, Any]]:
+    """Extract unique approved instructors from locally loaded courses (web parity)."""
+    from app.core.config import COURSES
+    seen = set()
+    result = []
+    ignored = {"نامشخص", "اساتید گروه", "گروه آموزشی", "گروه معارف", "استاد گروه", "—", "-", "", "None"}
+    for c in COURSES.values():
+        inst = c.get('instructor') or c.get('professor') or c.get('instructor_name')
+        dept = c.get('department') or c.get('faculty') or c.get('major') or ""
+        if not inst or not str(inst).strip() or str(inst).strip() in ignored:
+            continue
+        inst_name = str(inst).strip()
+        dept_name = str(dept).strip()
+        if department and department != dept_name:
+            continue
+        key = (dept_name, inst_name)
+        if key not in seen:
+            seen.add(key)
+            result.append({
+                "instructor_name": inst_name,
+                "department_name": dept_name,
+                "total_reviews": 0,
+                "overall_score": 0.0,
+            })
+    return sorted(result, key=lambda x: x["instructor_name"])
 
 
 # ─────────────────────────────────────────────────────────────
@@ -141,12 +180,12 @@ class _Worker(QThread):
 
 class ProfessorManager(QObject):
     """
-    Manager bridging PyQt5 UI views with ProfessorClient:
-    caching, async thread execution, and score math.
+    Manages professor directory, statistics, reviews and background workers.
+    Ensures safe asynchronous operations without blocking the PyQt UI thread.
     """
 
-    def __init__(self, client: ProfessorClient, parent: Optional[QObject] = None) -> None:
-        super().__init__(parent)
+    def __init__(self, client: ProfessorClient) -> None:
+        super().__init__()
         self._client: ProfessorClient = client
         self._cache_stats: Dict[str, ProfessorStats] = {}
         self._active_workers: Set["_Worker"] = set()
@@ -166,13 +205,25 @@ class ProfessorManager(QObject):
         force_refresh: bool = False,
     ) -> None:
         """Fetch professor aggregated stats asynchronously (cached)."""
+        from app.core.network.config import is_api_configured
         cache_key = f"{department.strip()}:::{instructor.strip()}"
         if not force_refresh and cache_key in self._cache_stats:
             on_success(self._cache_stats[cache_key])
             return
 
         def _job() -> Optional[ProfessorStats]:
-            return self._client.get_stats(department=department, instructor=instructor)
+            if is_api_configured():
+                try:
+                    return self._client.get_stats(department=department, instructor=instructor)
+                except Exception as e:
+                    logger.warning(f"API get_stats failed ({e}), falling back to local placeholder.")
+            return ProfessorStats(
+                department_name=department,
+                instructor_name=instructor,
+                total_reviews=0,
+                total_voters=0,
+                view_count=0,
+            )
 
         def _handle_success(stats: Optional[ProfessorStats]):
             if stats:
@@ -183,36 +234,76 @@ class ProfessorManager(QObject):
 
     def search_directory(self, query: str, department: str, on_success: Any, on_error: Any) -> None:
         """
-        Search instructors through the approved directory (web InstructorSearch parity):
-        fetches the (optionally department-filtered) directory and filters by name locally.
-        The full directory (~hundreds of rows) is cached client-side so switching
-        departments is instant.
+        Search instructors through approved directory / local courses (web InstructorSearch parity):
+        fetches the directory and filters by name locally.
         """
+        from app.core.network.config import is_api_configured
         def _job() -> List[Dict[str, Any]]:
-            rows = self._client.get_approved_instructors(department=department)
+            if is_api_configured():
+                try:
+                    rows = self._client.get_approved_instructors(department=department)
+                    if not rows:
+                        rows = get_local_instructors(department=department)
+                except Exception as e:
+                    logger.warning(f"API get_approved_instructors failed ({e}), falling back to local.")
+                    rows = get_local_instructors(department=department)
+            else:
+                rows = get_local_instructors(department=department)
+
             q = (query or "").strip()
             if not q:
-                return rows[:1000]  # effectively the whole directory
-            # Normalize Persian variants (ي→ی, ك→ک) for tolerant matching
+                return rows[:1000]
+
             def norm(s: str) -> str:
                 return (s or "").replace("ي", "ی").replace("ك", "ک").replace("‌", " ").strip()
+
             qn = norm(q)
-            return [r for r in rows if qn in norm(str(r.get("instructor_name", "")))][:1000]
+            return [
+                r for r in rows
+                if qn in norm(str(r.get("instructor_name", ""))) or qn in norm(str(r.get("department_name", "")))
+            ][:1000]
 
         _run_worker(_Worker(_job), on_success, on_error, self)
 
     # ── Lists & leaderboards ─────────────────────────────────
     def fetch_departments(self, on_success: Any, on_error: Any) -> None:
-        _run_worker(_Worker(lambda: self._client.get_departments()), on_success, on_error, self)
+        from app.core.network.config import is_api_configured
+        def _job() -> List[str]:
+            if is_api_configured():
+                try:
+                    depts = self._client.get_departments()
+                    if depts:
+                        return depts
+                except Exception as e:
+                    logger.warning(f"API get_departments failed ({e}), falling back to local.")
+            return get_local_departments()
+
+        _run_worker(_Worker(_job), on_success, on_error, self)
 
     def fetch_summary(self, on_success: Any, on_error: Any) -> None:
-        _run_worker(_Worker(lambda: self._client.get_summary()), on_success, on_error, self)
+        from app.core.network.config import is_api_configured
+        def _job() -> Dict[str, Any]:
+            if is_api_configured():
+                try:
+                    return self._client.get_summary()
+                except Exception as e:
+                    logger.warning(f"API get_summary failed ({e}), falling back to local summary.")
+            local_inst = get_local_instructors()
+            return {"total_reviews": 0, "total_professors": len(local_inst), "user_review_count": 0}
+
+        _run_worker(_Worker(_job), on_success, on_error, self)
 
     def fetch_popular(self, kind: str, department: str, on_success: Any, on_error: Any, limit: int = 6) -> None:
-        _run_worker(
-            _Worker(lambda: self._client.get_popular(kind=kind, department=department, limit=limit)),
-            on_success, on_error, self,
-        )
+        from app.core.network.config import is_api_configured
+        def _job() -> List[Dict[str, Any]]:
+            if is_api_configured():
+                try:
+                    return self._client.get_popular(kind=kind, department=department, limit=limit)
+                except Exception:
+                    pass
+            return get_local_instructors(department=department)[:limit]
+
+        _run_worker(_Worker(_job), on_success, on_error, self)
 
     def compare_professors(self, instructors: List[Dict[str, str]], on_success: Any, on_error: Any) -> None:
         """Fetch stats for multiple instructors side-by-side."""

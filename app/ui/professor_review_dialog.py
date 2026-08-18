@@ -153,6 +153,11 @@ class ProfessorReviewDialog(QtWidgets.QWidget):
 
         self._setup_ui()
         self._apply_styles()
+        try:
+            theme_manager.theme_changed.connect(self._on_theme_changed)
+            language_manager.language_changed.connect(self._on_language_changed)
+        except Exception as err:
+            logger.warning("Could not subscribe to theme or language changes: %s", err)
         self._bootstrap_data()
 
     # ═════════════════════════════════════════════════════════
@@ -177,9 +182,9 @@ class ProfessorReviewDialog(QtWidgets.QWidget):
         header.addWidget(self.btn_back_header)
 
         header_title = "👨‍🏫 نظرسنجی و مقایسه اساتید" if self._is_fa else "👨‍🏫 Professor Reviews & Comparison"
-        title = QtWidgets.QLabel(header_title)
-        title.setObjectName("dialogTitle")
-        header.addWidget(title)
+        self.lbl_title = QtWidgets.QLabel(header_title)
+        self.lbl_title.setObjectName("dialogTitle")
+        header.addWidget(self.lbl_title)
         header.addStretch()
         badge_initial = "در حال دریافت وضعیت…" if self._is_fa else "Fetching status..."
         self.lbl_summary_badge = QtWidgets.QLabel(badge_initial)
@@ -1364,3 +1369,61 @@ class ProfessorReviewDialog(QtWidgets.QWidget):
                 border: none;
             }}
         """)
+
+    def _retranslate_ui(self) -> None:
+        """Retranslate dialog title, buttons, tabs and tooltips to match current language."""
+        self._is_fa = (language_manager.get_current_language() == "fa")
+        self.setLayoutDirection(Qt.RightToLeft if self._is_fa else Qt.LeftToRight)
+        self.setWindowTitle("👨‍🏫 نظرسنجی و مقایسه اساتید" if self._is_fa else "👨‍🏫 Professor Reviews & Comparison")
+
+        if hasattr(self, "btn_back_header") and self.btn_back_header:
+            self.btn_back_header.setText("🔙 بازگشت به برنامه هفتگی" if self._is_fa else "🔙 Back to Weekly Schedule")
+            self.btn_back_header.setToolTip("بازگشت به صفحه جدول برنامه کلاسی (Esc)" if self._is_fa else "Return to schedule table (Esc)")
+
+        if hasattr(self, "btn_back_footer") and self.btn_back_footer:
+            self.btn_back_footer.setText("🔙 بازگشت به صفحه اصلی (برنامه هفتگی)" if self._is_fa else "🔙 Back to Schedule Planner")
+
+        if hasattr(self, "lbl_title") and self.lbl_title:
+            self.lbl_title.setText("👨‍🏫 نظرسنجی و مقایسه اساتید" if self._is_fa else "👨‍🏫 Professor Reviews & Comparison")
+
+        if hasattr(self, "tab_widget") and self.tab_widget:
+            self.tab_widget.setLayoutDirection(Qt.RightToLeft if self._is_fa else Qt.LeftToRight)
+            tab1_t = "🔍 جستجو و آمار اساتید" if self._is_fa else "🔍 Search & Stats"
+            tab2_t = "✍️ ثبت نظر و نمره‌دهی" if self._is_fa else "✍️ Submit Review"
+            tab3_t = "⚔️ مقایسه اساتید" if self._is_fa else "⚔️ Compare Professors"
+            tab4_t = "🔥 برترین اساتید" if self._is_fa else "🔥 Top Rated"
+            tab5_t = "💡 پیشنهاد استاد جدید" if self._is_fa else "💡 Suggest New Professor"
+
+            self.tab_widget.setTabText(0, tab1_t)
+            self.tab_widget.setTabText(1, tab2_t)
+            self.tab_widget.setTabText(2, tab3_t)
+            self.tab_widget.setTabText(3, tab4_t)
+            self.tab_widget.setTabText(4, tab5_t)
+
+            tt1 = "جستجو، مشخصات و آمار تفصیلی عملکرد اساتید" if self._is_fa else "Search and view detailed professor stats"
+            tt2 = "ثبت یا ویرایش نظر و نمره‌دهی به استاد" if self._is_fa else "Rate professor and submit review"
+            tt3 = "مقایسه همزمان اساتید در شاخص‌های مختلف" if self._is_fa else "Compare multiple professors side-by-side"
+            tt4 = "رتبه‌بندی برترین و محبوب‌ترین اساتید دانشگاه" if self._is_fa else "Rankings of top professors"
+            tt5 = "پیشنهاد ثبت استاد جدید در سامانه" if self._is_fa else "Suggest a new professor to be added"
+
+            self.tab_widget.setTabToolTip(0, tt1)
+            self.tab_widget.setTabToolTip(1, tt2)
+            self.tab_widget.setTabToolTip(2, tt3)
+            self.tab_widget.setTabToolTip(3, tt4)
+            self.tab_widget.setTabToolTip(4, tt5)
+
+        self._apply_styles()
+
+    def _on_language_changed(self, lang_code: Optional[str] = None) -> None:
+        """Live language switch: re-apply widget translations and refresh views."""
+        self._retranslate_ui()
+        if hasattr(self, "_on_tab_changed") and hasattr(self, "tab_widget"):
+            self._on_tab_changed(self.tab_widget.currentIndex())
+
+    def _on_theme_changed(self, theme_name: Optional[str] = None) -> None:
+        """Live theme switch: re-apply widget styles and refresh views."""
+        self._apply_styles()
+        if hasattr(self, "_on_tab_changed") and hasattr(self, "tab_widget"):
+            self._on_tab_changed(self.tab_widget.currentIndex())
+
+

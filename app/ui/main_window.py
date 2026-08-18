@@ -499,20 +499,71 @@ class SchedulerWindow(QtWidgets.QMainWindow):
             logger.error(f"Error handling version check result: {e}")
 
     def show_cloud_account_dialog(self):
-        """Show Cloud Account Auth dialog."""
+        """Show Cloud Account Auth dialog and handle login/logout state transitions."""
         try:
             dialog = AccountAuthDialog(auth_client=self.auth_client, token_manager=self.token_manager, parent=self)
+            
+            def _on_account_changed():
+                has_token_now = self.token_manager.has_token() if hasattr(self, 'token_manager') else False
+                if not has_token_now:
+                    # User logged out: completely wipe schedule grid, placed courses, and saved combinations
+                    self.on_clear_schedule()
+                    if hasattr(self, 'user_data') and isinstance(self.user_data, dict):
+                        self.user_data['saved_combos'] = []
+                        self.save_user_data()
+                    if hasattr(self, 'saved_combos_list') and self.saved_combos_list:
+                        self.saved_combos_list.clear()
+                    if hasattr(self, 'load_saved_combos_ui'):
+                        self.load_saved_combos_ui()
+                    self.update_stats_panel()
+                    self.update_status()
+                    if hasattr(self, 'main_stacked_widget'):
+                        self.main_stacked_widget.setCurrentIndex(0)
+                    # Redirect user back to auth dialog (Login / Sign up / Guest)
+                    QtCore.QTimer.singleShot(150, self.show_cloud_account_dialog)
+                else:
+                    if hasattr(self, 'sync_cloud_schedules'):
+                        self.sync_cloud_schedules()
+
+            dialog.account_changed.connect(_on_account_changed)
             dialog.exec_()
-            # Resync cloud schedules upon auth dialog close
-            self.sync_cloud_schedules()
+            if hasattr(self, 'token_manager') and self.token_manager.has_token():
+                if hasattr(self, 'sync_cloud_schedules'):
+                    self.sync_cloud_schedules()
         except Exception as e:
             logger.error(f"Error showing account auth dialog: {e}")
             QtWidgets.QMessageBox.critical(self, "خطا", humanize_error(e, "خطا در نمایش دیالوگ حساب ابری:\n"))
 
     def show_professor_review_dialog(self):
-        """Switch to the embedded Professor Review & Compare page on the main window."""
+        """Switch to the embedded Professor Review & Compare page with login gate."""
         try:
+            from app.core.language_manager import language_manager
+            is_fa = (language_manager.get_current_language() == 'fa')
+
+            # Gate: Guest mode requires account login/signup to access professor reviews
+            if hasattr(self, 'token_manager') and not self.token_manager.has_token():
+                title_t = "ورود به حساب کاربری" if is_fa else "Sign In Required"
+                msg_t = (
+                    "برای مشاهده و استفاده از بخش نظرسنجی و مقایسه اساتید، ابتدا باید وارد حساب کاربری گلستون خود شوید یا ثبت‌نام کنید.\n\n"
+                    "آیا مایلید هم‌اکنون وارد حساب شوید؟"
+                    if is_fa else
+                    "To access Professor Reviews & Comparison, please sign in or create a Golestoon account.\n\nWould you like to sign in now?"
+                )
+                reply = QtWidgets.QMessageBox.question(
+                    self, title_t, msg_t,
+                    QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
+                    QtWidgets.QMessageBox.Yes
+                )
+                if reply == QtWidgets.QMessageBox.Yes:
+                    self.show_cloud_account_dialog()
+                    if not self.token_manager.has_token():
+                        return
+                else:
+                    return
+
             if hasattr(self, 'professor_reviews_page') and hasattr(self, 'main_stacked_widget'):
+                if hasattr(self.professor_reviews_page, '_retranslate_ui'):
+                    self.professor_reviews_page._retranslate_ui()
                 if hasattr(self.professor_reviews_page, '_apply_styles'):
                     self.professor_reviews_page._apply_styles()
                 if hasattr(self.professor_reviews_page, '_bootstrap_data'):
@@ -1592,6 +1643,14 @@ class SchedulerWindow(QtWidgets.QMainWindow):
             self.create_menu_bar()
             self.update_status()
             self.update_stats_panel()
+
+            # Ensure embedded pages re-translate their contents
+            if hasattr(self, 'student_dashboard_page') and self.student_dashboard_page:
+                if hasattr(self.student_dashboard_page, '_on_language_changed'):
+                    self.student_dashboard_page._on_language_changed(lang_code)
+            if hasattr(self, 'professor_reviews_page') and self.professor_reviews_page:
+                if hasattr(self.professor_reviews_page, '_on_language_changed'):
+                    self.professor_reviews_page._on_language_changed(lang_code)
             
             lang_name = "فارسی" if lang_code == 'fa' else "English"
             if os.environ.get('QT_QPA_PLATFORM') != 'offscreen':
@@ -1604,9 +1663,37 @@ class SchedulerWindow(QtWidgets.QMainWindow):
             logger.error(f"Error switching language: {e}")
 
     def show_student_profile(self):
-        """Switch to the embedded student academic & transcript dashboard page."""
+        """Switch to the embedded student academic & transcript dashboard page with login gate."""
         try:
+            from app.core.language_manager import language_manager
+            is_fa = (language_manager.get_current_language() == 'fa')
+
+            # Gate: Guest mode requires account login/signup to access transcript dashboard
+            if hasattr(self, 'token_manager') and not self.token_manager.has_token():
+                title_t = "ورود به حساب کاربری" if is_fa else "Sign In Required"
+                msg_t = (
+                    "برای مشاهده کارنامه تحصیلی، سوابق و وضعیت دروس، ابتدا باید وارد حساب کاربری گلستون خود شوید یا ثبت‌نام کنید.\n\n"
+                    "آیا مایلید هم‌اکنون وارد شوید؟"
+                    if is_fa else
+                    "To access the Student Academic Dashboard & Transcript, please sign in or create a Golestoon account.\n\nWould you like to sign in now?"
+                )
+                reply = QtWidgets.QMessageBox.question(
+                    self, title_t, msg_t,
+                    QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
+                    QtWidgets.QMessageBox.Yes
+                )
+                if reply == QtWidgets.QMessageBox.Yes:
+                    self.show_cloud_account_dialog()
+                    if not self.token_manager.has_token():
+                        return
+                else:
+                    return
+
             if hasattr(self, 'student_dashboard_page') and hasattr(self, 'main_stacked_widget'):
+                if hasattr(self.student_dashboard_page, '_on_language_changed'):
+                    self.student_dashboard_page._on_language_changed()
+                if hasattr(self.student_dashboard_page, '_apply_styles'):
+                    self.student_dashboard_page._apply_styles()
                 self.student_dashboard_page._load_cached_student_data()
                 self.student_dashboard_page._refresh_all()
                 self.main_stacked_widget.setCurrentIndex(1)
@@ -3828,15 +3915,19 @@ class SchedulerWindow(QtWidgets.QMainWindow):
         """Manual asynchronous fetch from Golestan with HCI loading dialog."""
         try:
             from app.core.language_manager import language_manager
+            from app.core.network.config import is_api_configured
             is_fa = language_manager.get_current_language() == 'fa'
 
-            # Check credentials
-            creds_res = self.golestan_service.check_local_credentials()
-            if not creds_res.success:
-                from app.ui.credentials_dialog import CredentialsDialog
-                dialog = CredentialsDialog(self)
-                if dialog.exec_() != QtWidgets.QDialog.Accepted:
-                    return
+            # If cloud API is not configured, we require Golestan student credentials to scrape:
+            if not is_api_configured():
+                creds_res = self.golestan_service.check_local_credentials()
+                env_user = os.environ.get("USERNAME", "").strip()
+                env_pass = os.environ.get("PASSWORD", "").strip()
+                if not creds_res.success and (not env_user or not env_pass):
+                    from app.ui.credentials_dialog import GolestanCredentialsDialog
+                    dialog = GolestanCredentialsDialog(self)
+                    if dialog.exec_() != QtWidgets.QDialog.Accepted:
+                        return
 
             # Prepare modern progress dialog
             title = "دریافت دروس" if is_fa else "Fetch Courses"

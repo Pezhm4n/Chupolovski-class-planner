@@ -15,22 +15,33 @@ from PyQt5.QtCore import Qt
 from app.core.credentials import save_local_credentials
 from app.core.translator import translator
 from app.core.language_manager import language_manager
+from app.core.theme_manager import theme_manager
 from app.core.credential_validator import validate_student_number, validate_password
 
 class GolestanCredentialsDialog(QDialog):
-    """Dialog for entering Golestan credentials securely."""
+    """Dialog for entering Golestan credentials securely with full theme and i18n support."""
     
     def __init__(self, parent=None):
         super().__init__(parent)
+        self.setWindowModality(Qt.ApplicationModal)
+        self.setFixedSize(600, 470)
         self._language_connected = False
+        
+        # Initialize UI components first
+        self.init_ui()
         self._connect_language_signal()
         self._apply_translations()
-        self.setWindowModality(Qt.ApplicationModal)
-        self.setFixedSize(600, 450)
+        self._apply_theme()
         
-        # Initialize UI components
-        self.init_ui()
-        
+        try:
+            theme_manager.theme_changed.connect(self._on_theme_changed)
+        except Exception:
+            pass
+
+    def _on_theme_changed(self, theme_name=None):
+        """Handle live theme switch."""
+        self._apply_theme()
+
     def _connect_language_signal(self):
         """Connect to language change signal."""
         if not self._language_connected:
@@ -60,52 +71,91 @@ class GolestanCredentialsDialog(QDialog):
     def _t(self, key, **kwargs):
         """Shortcut for translating credentials dialog strings."""
         return translator.t(f"credentials_dialog.{key}", **kwargs)
+
+    def _is_dark(self) -> bool:
+        return theme_manager.get_current_theme() == 'dark'
+
+    def _apply_theme(self):
+        """Apply full theme palette to dialog and all child widgets."""
+        is_dark = self._is_dark()
+        bg_col = "#0f172a" if is_dark else "#ffffff"
+        text_col = "#f8fafc" if is_dark else "#0f172a"
+        muted_col = "#94a3b8" if is_dark else "#64748b"
+        border_col = "#334155" if is_dark else "#cbd5e1"
+        check_bg = "#1e293b" if is_dark else "#ffffff"
+
+        self.setStyleSheet(f"""
+            QDialog {{
+                background-color: {bg_col};
+                color: {text_col};
+                font-family: "Vazirmatn", "Segoe UI", sans-serif;
+            }}
+            QLabel {{
+                color: {text_col};
+                font-size: 13px;
+            }}
+            QCheckBox {{
+                color: {text_col};
+                font-size: 12px;
+                spacing: 8px;
+            }}
+            QCheckBox::indicator {{
+                width: 18px;
+                height: 18px;
+                border: 2px solid {border_col};
+                border-radius: 4px;
+                background-color: {check_bg};
+            }}
+            QCheckBox::indicator:checked {{
+                background-color: #3b82f6;
+                border: 2px solid #2563eb;
+            }}
+            QCheckBox::indicator:hover {{
+                border: 2px solid #3b82f6;
+            }}
+        """)
+
+        if hasattr(self, 'title_label'):
+            self.title_label.setStyleSheet(f"font-size: 18px; font-weight: bold; color: {text_col};")
+        if hasattr(self, 'desc_label'):
+            self.desc_label.setStyleSheet(f"font-size: 11px; color: {muted_col};")
+        if hasattr(self, 'student_label'):
+            self.student_label.setStyleSheet(f"font-weight: 600; font-size: 12px; color: {text_col};")
+        if hasattr(self, 'password_label'):
+            self.password_label.setStyleSheet(f"font-weight: 600; font-size: 12px; color: {text_col};")
+        if hasattr(self, 'student_input'):
+            self._update_input_style(self.student_input, not self.student_error_label.isVisible())
+        if hasattr(self, 'password_input'):
+            self._update_input_style(self.password_input, not self.password_error_label.isVisible())
+        if hasattr(self, 'cancel_button'):
+            btn_bg = "#1e293b" if is_dark else "#f1f5f9"
+            btn_border = "#475569" if is_dark else "#cbd5e1"
+            self.cancel_button.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: {btn_bg};
+                    color: {text_col};
+                    border: 1px solid {btn_border};
+                    border-radius: 6px;
+                    padding: 8px 20px;
+                    font-size: 12px;
+                    font-weight: 600;
+                }}
+                QPushButton:hover {{
+                    border: 1px solid #3b82f6;
+                }}
+            """)
+        if hasattr(self, '_update_ok_button_state'):
+            self._update_ok_button_state()
         
     def init_ui(self):
         """Initialize the user interface."""
-        # Apply improved light theme to dialog
-        self.setStyleSheet("""
-            QDialog {
-            }
-            QLabel {
-                
-                font-size: 13px;
-            }
-            QCheckBox {
-                
-                font-size: 12px;
-                spacing: 8px;
-            }
-            QCheckBox::indicator {
-                width: 18px;
-                height: 18px;
-                border: 2px solid #ccc;
-                border-radius: 4px;
-                background-color: white;
-            }
-            QCheckBox::indicator:checked {
-                background-color: #3498db;
-                border: 2px solid #2980b9;
-            }
-            QCheckBox::indicator:hover {
-                border: 2px solid #3498db;
-            }
-        """)
-        
-        layout = QVBoxLayout()
-        layout.setSpacing(16)
-        layout.setContentsMargins(20, 20, 20, 20)
+        layout = QVBoxLayout(self)
+        layout.setSpacing(14)
+        layout.setContentsMargins(24, 20, 24, 20)
         
         # Title
         title_label = QLabel()
         title_label.setAlignment(Qt.AlignCenter)
-        title_label.setStyleSheet("""
-            font-size: 18px; 
-            font-weight: bold; 
-            
-            padding: 0px;
-            margin: 0px;
-        """)
         self.title_label = title_label
         layout.addWidget(title_label)
         
@@ -113,52 +163,21 @@ class GolestanCredentialsDialog(QDialog):
         desc_label = QLabel()
         desc_label.setAlignment(Qt.AlignCenter)
         desc_label.setWordWrap(True)
-        desc_label.setStyleSheet("""
-             
-            font-size: 11px;
-            padding: 0px;
-            margin: 0px;
-        """)
         self.desc_label = desc_label
         layout.addWidget(desc_label)
         
         # Add spacing
-        layout.addSpacing(12)
+        layout.addSpacing(6)
         
         student_container = QVBoxLayout()
         student_container.setSpacing(6)
-        student_container.setContentsMargins(0, 0, 0, 0)
         student_label = QLabel()
-        student_label.setStyleSheet("""
-             
-            font-weight: 600; 
-            font-size: 12px;
-            padding: 0px;
-            margin: 0px;
-        """)
         self.student_label = student_label
         student_container.addWidget(student_label)
         
         self.student_input = QLineEdit()
         self.student_input.setMinimumHeight(40)
         self.student_input.setMinimumWidth(400)
-        self.student_input.setStyleSheet("""
-            QLineEdit {
-                font-size: 13px;
-                padding: 10px 14px;
-                border: 2px solid #e1e8ed;
-                border-radius: 6px;
-                background-color: white;
-                
-            }
-            QLineEdit:focus {
-                border: 2px solid #3498db;
-                background-color: #fefefe;
-            }
-            QLineEdit:hover {
-                
-            }
-        """)
         student_container.addWidget(self.student_input)
         
         # Error label for student number
@@ -467,42 +486,50 @@ class GolestanCredentialsDialog(QDialog):
         self._update_ok_button_state()
     
     def _update_input_style(self, input_widget, is_valid):
-        """Update input widget style based on validation state."""
+        """Update input widget style based on validation state with explicit text colors."""
+        is_dark = self._is_dark()
         if is_valid:
-            input_widget.setStyleSheet("""
-                QLineEdit {
+            bg_col = "#1e293b" if is_dark else "#ffffff"
+            text_col = "#f8fafc" if is_dark else "#0f172a"
+            border_col = "#475569" if is_dark else "#cbd5e1"
+            focus_bg = "#0f172a" if is_dark else "#ffffff"
+
+            input_widget.setStyleSheet(f"""
+                QLineEdit {{
                     font-size: 13px;
                     padding: 10px 14px;
-                    border: 2px solid #e1e8ed;
+                    border: 1.5px solid {border_col};
                     border-radius: 6px;
-                    background-color: white;
-                    
-                }
-                QLineEdit:focus {
-                    border: 2px solid #3498db;
-                    background-color: #fefefe;
-                }
-                QLineEdit:hover {
-                    
-                }
+                    background-color: {bg_col};
+                    color: {text_col};
+                    selection-background-color: #3b82f6;
+                    selection-color: #ffffff;
+                }}
+                QLineEdit:focus {{
+                    border: 2px solid #3b82f6;
+                    background-color: {focus_bg};
+                    color: {text_col};
+                }}
             """)
         else:
-            input_widget.setStyleSheet("""
-                QLineEdit {
+            bg_col = "#3a1d28" if is_dark else "#fff5f5"
+            text_col = "#f8fafc" if is_dark else "#0f172a"
+            input_widget.setStyleSheet(f"""
+                QLineEdit {{
                     font-size: 13px;
                     padding: 10px 14px;
-                    border: 2px solid #e74c3c;
+                    border: 2px solid #ef4444;
                     border-radius: 6px;
-                    background-color: #fff5f5;
-                    
-                }
-                QLineEdit:focus {
-                    border: 2px solid #e74c3c;
-                    background-color: #fff5f5;
-                }
-                QLineEdit:hover {
-                    border: 2px solid #c0392b;
-                }
+                    background-color: {bg_col};
+                    color: {text_col};
+                    selection-background-color: #ef4444;
+                    selection-color: #ffffff;
+                }}
+                QLineEdit:focus {{
+                    border: 2px solid #dc2626;
+                    background-color: {bg_col};
+                    color: {text_col};
+                }}
             """)
     
     def _update_ok_button_state(self):
@@ -513,42 +540,39 @@ class GolestanCredentialsDialog(QDialog):
         student_valid, _ = validate_student_number(student_number)
         password_valid, _ = validate_password(password)
         
+        is_dark = self._is_dark()
         self.ok_button.setEnabled(student_valid and password_valid)
         
         if not (student_valid and password_valid):
-            self.ok_button.setStyleSheet("""
-                QPushButton {
-                    background-color: #bdc3c7;
-                    color: white;
+            disabled_bg = "#334155" if is_dark else "#cbd5e1"
+            disabled_text = "#64748b" if is_dark else "#94a3b8"
+            self.ok_button.setStyleSheet(f"""
+                QPushButton {{
+                    background-color: {disabled_bg};
+                    color: {disabled_text};
                     border: none;
                     border-radius: 6px;
                     padding: 8px 20px;
                     font-size: 12px;
                     font-weight: bold;
-                }
-                QPushButton:hover {
-                    background-
-                }
+                }}
             """)
         else:
             self.ok_button.setStyleSheet("""
                 QPushButton {
-                    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                        stop:0 #3498db, stop:1 #2980b9);
-                    color: white;
+                    background-color: #3b82f6;
+                    color: #ffffff;
                     border: none;
                     border-radius: 6px;
                     padding: 8px 20px;
                     font-size: 12px;
                     font-weight: bold;
-                }
+                }}
                 QPushButton:hover {
-                    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                        stop:0 #2980b9, stop:1 #1f618d);
+                    background-color: #2563eb;
                 }
                 QPushButton:pressed {
-                    background: qlineargradient(x1:0, y1:0, x2:0, y2:1,
-                        stop:0 #1f618d, stop:1 #154360);
+                    background-color: #1d4ed8;
                 }
             """)
         

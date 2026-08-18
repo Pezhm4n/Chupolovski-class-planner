@@ -18,6 +18,7 @@ from app.core.network.clients.auth_client import AuthClient
 from app.core.auth.token_manager import TokenManager
 from app.core.network.models import AuthResponseModel, UserModel
 from app.core.network.exceptions import GolestoonNetworkError
+from app.core.network.config import is_api_configured
 from app.core.error_humanizer import humanize_error
 from app.core.language_manager import language_manager
 
@@ -120,6 +121,17 @@ class AccountAuthDialog(QtWidgets.QDialog):
         desc_lbl.setWordWrap(True)
         desc_lbl.setStyleSheet("color: #94a3b8; font-size: 9.5pt;")
         main_layout.addWidget(desc_lbl)
+
+        if not is_api_configured():
+            offline_msg = (
+                "💡 برنامه در حالت آفلاین (بدون سرور ابری) است. برای استفاده از برنامه، گزینه «ورود به عنوان مهمان (آفلاین)» را انتخاب کنید."
+                if self._is_fa else
+                "💡 Running in offline mode (no cloud server). Click 'Continue as Guest (Offline)' below to use the app."
+            )
+            self.lbl_offline_banner = QtWidgets.QLabel(offline_msg)
+            self.lbl_offline_banner.setWordWrap(True)
+            self.lbl_offline_banner.setStyleSheet("background-color: #1e293b; color: #fbbf24; border: 1px dashed #d97706; border-radius: 6px; padding: 7px 10px; font-size: 9pt;")
+            main_layout.addWidget(self.lbl_offline_banner)
 
         # Tabs for Login / Signup / Profile
         self.tab_widget = QtWidgets.QTabWidget()
@@ -271,6 +283,20 @@ class AccountAuthDialog(QtWidgets.QDialog):
             self.btn_logout.hide()
 
     def _on_login_clicked(self) -> None:
+        if not is_api_configured():
+            title_t = "حالت آفلاین" if self._is_fa else "Offline Mode"
+            msg_t = (
+                "آدرس سرور ابری (API_URL) در فایل تنظیمات (.env) مشخص نشده است، بنابراین امکان ورود به حساب ابری وجود ندارد.\n\n"
+                "• برای استفاده از برنامه، دکمه «ورود به عنوان مهمان (آفلاین)» را انتخاب کنید.\n"
+                "• یا آدرس سرور ابری را در فایل app/.env مقداردهی فرمایید."
+                if self._is_fa else
+                "Cloud server URL (API_URL) is not configured in .env.\n\n"
+                "• Click 'Continue as Guest (Offline)' below to use the app.\n"
+                "• Or configure API_URL in app/.env to enable cloud sign-in."
+            )
+            QtWidgets.QMessageBox.information(self, title_t, msg_t)
+            return
+
         email = self.txt_login_email.text().strip()
         password = self.txt_login_pass.text().strip()
         if not email or not password:
@@ -306,6 +332,20 @@ class AccountAuthDialog(QtWidgets.QDialog):
         self._active_worker = worker
 
     def _on_signup_clicked(self) -> None:
+        if not is_api_configured():
+            title_t = "حالت آفلاین" if self._is_fa else "Offline Mode"
+            msg_t = (
+                "آدرس سرور ابری (API_URL) در فایل تنظیمات (.env) مشخص نشده است، بنابراین امکان ثبت‌نام حساب ابری وجود ندارد.\n\n"
+                "• برای استفاده از برنامه، دکمه «ورود به عنوان مهمان (آفلاین)» را انتخاب کنید.\n"
+                "• یا آدرس سرور ابری را در فایل app/.env مقداردهی فرمایید."
+                if self._is_fa else
+                "Cloud server URL (API_URL) is not configured in .env.\n\n"
+                "• Click 'Continue as Guest (Offline)' below to use the app.\n"
+                "• Or configure API_URL in app/.env to enable cloud registration."
+            )
+            QtWidgets.QMessageBox.information(self, title_t, msg_t)
+            return
+
         name = self.txt_signup_name.text().strip()
         email = self.txt_signup_email.text().strip()
         password = self.txt_signup_pass.text().strip()
@@ -353,6 +393,10 @@ class AccountAuthDialog(QtWidgets.QDialog):
                 color: #f8fafc;
                 font-family: "Vazirmatn", "Segoe UI", sans-serif;
             }
+            QLabel {
+                color: #e2e8f0;
+                font-size: 10pt;
+            }
             QTabWidget::pane {
                 border: 1px solid #334155;
                 background-color: #1e293b;
@@ -373,12 +417,19 @@ class AccountAuthDialog(QtWidgets.QDialog):
                 color: #ffffff;
             }
             QLineEdit {
-                background-color: #0f172a;
+                background-color: #1e293b;
                 color: #f8fafc;
-                border: 1px solid #334155;
+                border: 1px solid #475569;
                 border-radius: 6px;
                 padding: 8px 12px;
-                font-size: 9.5pt;
+                font-size: 10pt;
+                selection-background-color: #3b82f6;
+                selection-color: #ffffff;
+            }
+            QLineEdit:focus {
+                border: 2px solid #3b82f6;
+                background-color: #0f172a;
+                color: #f8fafc;
             }
             QPushButton#primaryButton {
                 background-color: #3b82f6;
@@ -386,6 +437,7 @@ class AccountAuthDialog(QtWidgets.QDialog):
                 border-radius: 6px;
                 padding: 8px 14px;
                 font-weight: bold;
+                font-size: 10pt;
             }
             QPushButton#primaryButton:hover {
                 background-color: #2563eb;

@@ -25,6 +25,8 @@ from app.core.translator import translator
 from app.core.language_manager import language_manager
 from app.core.theme_manager import theme_manager
 from app.core.logger import setup_logging
+from app.core.rate_limiter import rate_limiter
+from app.core.time_utils import format_iran_datetime, get_elapsed_minutes, to_iran_datetime
 
 logger = setup_logging()
 
@@ -179,11 +181,50 @@ class UnifiedStudentDashboard(QtWidgets.QWidget):
         # Re-style everything when the global theme changes while open
         try:
             theme_manager.theme_changed.connect(self._on_theme_changed)
+            language_manager.language_changed.connect(self._on_language_changed)
         except Exception as err:  # noqa: BLE001 — defensive UI boundary
-            logger.warning("Could not subscribe to theme changes: %s", err)
+            logger.warning("Could not subscribe to theme or language changes: %s", err)
 
     def _on_theme_changed(self) -> None:
         """Live theme switch: re-apply dialog styles and rebuild data widgets."""
+        self._apply_styles()
+        self._refresh_all()
+
+    def _on_language_changed(self, lang_code: Optional[str] = None) -> None:
+        """Live language switch: re-apply translations, layout direction, and refresh."""
+        is_fa = (language_manager.get_current_language() == "fa")
+        self.setLayoutDirection(Qt.RightToLeft if is_fa else Qt.LeftToRight)
+        self.setWindowTitle(translator.t("dashboard.title"))
+
+        if hasattr(self, "btn_back_header") and self.btn_back_header:
+            back_header_t = "🔙 بازگشت به برنامه هفتگی" if is_fa else "🔙 Back to Schedule"
+            self.btn_back_header.setText(back_header_t)
+
+        if hasattr(self, "btn_back_footer") and self.btn_back_footer:
+            back_footer_t = "🔙 بازگشت به صفحه اصلی" if is_fa else "🔙 Back to Main View"
+            self.btn_back_footer.setText(back_footer_t)
+
+        if hasattr(self, "btn_sync_golestan") and self.btn_sync_golestan:
+            self.btn_sync_golestan.setText(translator.t("dashboard.sync.button"))
+
+        if hasattr(self, "btn_logout_golestan") and self.btn_logout_golestan:
+            self.btn_logout_golestan.setText("🚪 خروج از گلستان" if is_fa else "🚪 Logout from Golestan")
+
+        if hasattr(self, "tab_widget") and self.tab_widget:
+            self.tab_widget.setLayoutDirection(Qt.RightToLeft if is_fa else Qt.LeftToRight)
+            self.tab_widget.setTabText(0, translator.t("dashboard.tab.profile"))
+            self.tab_widget.setTabText(1, translator.t("dashboard.tab.transcript"))
+            self.tab_widget.setTabText(2, translator.t("dashboard.tab.report272"))
+
+        if hasattr(self, "transcript_table") and self.transcript_table:
+            self.transcript_table.setHorizontalHeaderLabels([
+                translator.t("dashboard.course.code"),
+                translator.t("dashboard.course.name"),
+                translator.t("dashboard.course.units"),
+                translator.t("dashboard.course.grade"),
+                translator.t("dashboard.course.status"),
+            ])
+
         self._apply_styles()
         self._refresh_all()
 
@@ -274,7 +315,21 @@ class UnifiedStudentDashboard(QtWidgets.QWidget):
         self.btn_sync_golestan.clicked.connect(self._on_sync_clicked)
         header_layout.addWidget(self.btn_sync_golestan)
 
+        logout_golestan_t = "🚪 خروج از گلستان" if is_fa else "🚪 Logout from Golestan"
+        self.btn_logout_golestan = QtWidgets.QPushButton(logout_golestan_t)
+        self.btn_logout_golestan.setObjectName("dangerButton")
+        self.btn_logout_golestan.setCursor(Qt.PointingHandCursor)
+        self.btn_logout_golestan.setToolTip("حذف اطلاعات ذخیره‌شده و خروج از سامانه گلستان" if is_fa else "Remove saved credentials and log out of Golestan")
+        self.btn_logout_golestan.clicked.connect(self._on_logout_golestan_clicked)
+        header_layout.addWidget(self.btn_logout_golestan)
+
         main_layout.addWidget(header_widget)
+
+        # Stale Transcript Warning Banner (shown when data is >= 30 minutes old)
+        self.stale_warning_banner = QtWidgets.QLabel()
+        self.stale_warning_banner.setWordWrap(True)
+        self.stale_warning_banner.hide()
+        main_layout.addWidget(self.stale_warning_banner)
 
         # 2. Main Tabbed Content
         self.tab_widget = QtWidgets.QTabWidget()
@@ -427,6 +482,8 @@ class UnifiedStudentDashboard(QtWidgets.QWidget):
     def _refresh_profile(self) -> None:
         student = self.student_data
         p = theme_manager.palette()
+        is_dark = theme_manager.is_dark()
+        is_fa = (language_manager.get_current_language() == 'fa')
         grid = self.profile_grid
         self._clear_layout(grid)
 
@@ -434,9 +491,11 @@ class UnifiedStudentDashboard(QtWidgets.QWidget):
             items: List[Tuple[str, str]] = []
             self.conn_status_lbl.setText(translator.t("dashboard.profile.empty"))
             self.conn_status_lbl.setStyleSheet(f"color: {p['muted']}; font-size: 10pt;")
+            if hasattr(self, 'stale_warning_banner'):
+                self.stale_warning_banner.hide()
         else:
             updated = getattr(student, 'updated_at', None)
-            updated_str = updated.strftime('%Y-%m-%d %H:%M') if isinstance(updated, datetime) else '—'
+            updated_str = format_iran_datetime(updated, is_persian=is_fa) if updated else '—'
             probation = int(getattr(student, 'total_probation', 0) or 0)
             items = [
                 (translator.t("dashboard.profile.faculty"), getattr(student, 'faculty', '') or '—'),
@@ -452,6 +511,31 @@ class UnifiedStudentDashboard(QtWidgets.QWidget):
                 translator.t("dashboard.profile.synced_ok", date=updated_str)
             )
             self.conn_status_lbl.setStyleSheet(f"color: {p['success']}; font-size: 10pt;")
+
+            # Check for stale transcript data (>= 30 minutes)
+            if hasattr(self, 'stale_warning_banner'):
+                elapsed_min = get_elapsed_minutes(updated)
+                if elapsed_min >= 30:
+                    min_int = int(elapsed_min)
+                    time_desc = f"{min_int} دقیقه پیش" if is_fa else f"{min_int} minutes ago"
+                    stale_msg = (
+                        f"⚠️ <b>اطلاعات کارنامه قدیمی و مربوط به {time_desc} است.</b><br/>"
+                        f"پیشنهاد می‌شود جهت دریافت آخرین وضعیت و نمرات، روی دکمه <b>«🔄 به‌روزرسانی از گلستان»</b> در بالای صفحه کلیک کنید."
+                        if is_fa else
+                        f"⚠️ <b>Transcript data is outdated (from {time_desc}).</b><br/>"
+                        f"It is recommended to click <b>'🔄 Update from Golestan'</b> above to fetch latest grades."
+                    )
+                    banner_bg = "#2a1c06" if is_dark else "#fffbeb"
+                    banner_border = "#f59e0b"
+                    banner_text = "#fde68a" if is_dark else "#92400e"
+                    self.stale_warning_banner.setText(stale_msg)
+                    self.stale_warning_banner.setStyleSheet(
+                        f"background-color: {banner_bg}; color: {banner_text}; border: 1.5px solid {banner_border}; "
+                        f"border-radius: 8px; padding: 10px 14px; font-size: 9.5pt;"
+                    )
+                    self.stale_warning_banner.show()
+                else:
+                    self.stale_warning_banner.hide()
 
         row, col = 0, 0
         for title, value in items:
@@ -689,6 +773,39 @@ class UnifiedStudentDashboard(QtWidgets.QWidget):
         if creds is None:
             return
         username, password = creds
+        is_fa = (language_manager.get_current_language() == 'fa')
+
+        # 1. Check Distinct Accounts Rate Limiter (Max 3 distinct accounts per 10-minute window)
+        allowed_acc, wait_acc_sec = rate_limiter.check_distinct_account_allowed(username)
+        if not allowed_acc:
+            mins = int(wait_acc_sec // 60)
+            secs = int(wait_acc_sec % 60)
+            title_t = "محدودیت تعداد اکانت" if is_fa else "Account Limit Exceeded"
+            msg_t = (
+                f"شما در ۱۰ دقیقه گذشته با ۳ اکانت مجزای گلستان وارد شده‌اید.\n\n"
+                f"برای دریافت کارنامه با اکانت جدید، لطفاً {mins} دقیقه و {secs} ثانیه دیگر صبر کنید."
+                if is_fa else
+                f"You have accessed 3 distinct Golestan accounts in the last 10 minutes.\n\n"
+                f"To sync a new account, please wait {mins}m {secs}s."
+            )
+            QtWidgets.QMessageBox.warning(self, title_t, msg_t)
+            return
+
+        # 2. Check Per-Account Refresh Cooldown (Minimum 10 minutes between syncs for the same account)
+        allowed_ref, wait_ref_sec = rate_limiter.check_student_refresh_allowed(username)
+        if not allowed_ref:
+            mins = int(wait_ref_sec // 60)
+            secs = int(wait_ref_sec % 60)
+            title_t = "محدودیت زمانی به‌روزرسانی" if is_fa else "Refresh Rate Limit"
+            msg_t = (
+                f"برای جلوگیری از مسدود شدن درخواست‌ها توسط سامانه گلستان، فاصله هر دو به‌روزرسانی باید حداقل ۱۰ دقیقه باشد.\n\n"
+                f"زمان باقی‌مانده تا امکان به‌روزرسانی مجدد: {mins} دقیقه و {secs} ثانیه"
+                if is_fa else
+                f"To prevent request limits on Golestan, updates must be at least 10 minutes apart.\n\n"
+                f"Time remaining until next refresh: {mins}m {secs}s"
+            )
+            QtWidgets.QMessageBox.information(self, title_t, msg_t)
+            return
 
         self._sync_running = True
         self.btn_sync_golestan.setEnabled(False)
@@ -700,7 +817,7 @@ class UnifiedStudentDashboard(QtWidgets.QWidget):
             self.academic_manager.sync_transcript(
                 golestan_username=username,
                 golestan_password=password,
-                on_success=self._on_sync_success,
+                on_success=lambda s: self._on_sync_success(s, username),
                 on_error=self._on_sync_error,
                 on_status=self._on_sync_status,
                 mode="full",
@@ -767,13 +884,18 @@ class UnifiedStudentDashboard(QtWidgets.QWidget):
         self.btn_sync_golestan.setEnabled(True)
         self.btn_sync_golestan.setText(translator.t("dashboard.sync.button"))
 
-    def _on_sync_success(self, student) -> None:
+    def _on_sync_success(self, student, requested_username: str = "") -> None:
         """Worker success callback (main thread via signal)."""
+        sid = getattr(student, 'student_id', None) or requested_username
+        if sid:
+            rate_limiter.record_account_sync(sid)
+
         self.student_data = student
         self._refresh_all()
         self._sync_finished()
+        is_fa = (language_manager.get_current_language() == 'fa')
         updated = getattr(student, 'updated_at', None)
-        date_str = updated.strftime('%Y-%m-%d %H:%M') if isinstance(updated, datetime) else ''
+        date_str = format_iran_datetime(updated, is_persian=is_fa) if updated else '—'
         self.lbl_sync_status.setText(
             translator.t("dashboard.sync.status_done", date=date_str or '—'))
         QtWidgets.QMessageBox.information(
@@ -817,6 +939,31 @@ class UnifiedStudentDashboard(QtWidgets.QWidget):
 
         QtWidgets.QMessageBox.critical(
             self, translator.t("dashboard.sync.error_title"), message)
+
+    def _on_logout_golestan_clicked(self) -> None:
+        """Clear saved Golestan student credentials and reset dashboard."""
+        is_fa = (language_manager.get_current_language() == 'fa')
+        reply = QtWidgets.QMessageBox.question(
+            self,
+            "خروج از سامانه گلستان" if is_fa else "Logout from Golestan",
+            "آیا مایلید اطلاعات ورود گلستان ذخیره‌شده از روی این سیستم پاک شده و از سامانه خارج شوید؟"
+            if is_fa else
+            "Are you sure you want to remove stored Golestan credentials and log out?",
+            QtWidgets.QMessageBox.Yes | QtWidgets.QMessageBox.No,
+            QtWidgets.QMessageBox.No
+        )
+        if reply == QtWidgets.QMessageBox.Yes:
+            try:
+                from app.core.credentials import delete_local_credentials
+                delete_local_credentials()
+            except Exception as e:
+                logger.warning("Error deleting local credentials: %s", e)
+
+            self.student_data = None
+            self._refresh_all()
+            title_t = "موفقیت" if is_fa else "Success"
+            msg_t = "اطلاعات ورود گلستان با موفقیت حذف شد و از سامانه خارج شدید." if is_fa else "Golestan credentials removed successfully."
+            QtWidgets.QMessageBox.information(self, title_t, msg_t)
 
     # ─────────────────────────────────────────────────────────
     # Styling

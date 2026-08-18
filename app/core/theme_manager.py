@@ -221,6 +221,14 @@ class ThemeManager(QObject):
         """Semantic color palette for the current effective theme."""
         return PALETTES[self.effective_theme()]
 
+    def get_current_theme(self) -> str:
+        """Return 'light' or 'dark' for the active effective theme."""
+        return self.effective_theme()
+
+    def is_dark(self) -> bool:
+        """Return True if the current effective theme is dark."""
+        return self.effective_theme() == MODE_DARK
+
     def toggle(self) -> None:
         """Switch between light and dark modes."""
         self.set_mode(MODE_LIGHT if self.effective_theme() == MODE_DARK else MODE_DARK)

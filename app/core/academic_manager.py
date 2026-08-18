@@ -55,25 +55,43 @@ class SyncTranscriptWorker(QThread):
         self._force: bool = force
 
     def run(self) -> None:
+        from app.core.network.config import is_api_configured
+        if is_api_configured():
+            try:
+                result: TranscriptSyncStatusModel = self._client.trigger_sync(
+                    golestan_username=self._username,
+                    golestan_password=self._password,
+                    mode=self._mode,
+                    wait=True,
+                    force=self._force,
+                )
+                self._handle_status(result)
+                return
+            except (GolestoonNetworkError, ValidationApiError) as err:
+                logger.warning("API transcript sync failed (%s), falling back to local scraper.", err)
+
+        # ── Standalone / Offline Scraper Mode ──
         try:
-            result: TranscriptSyncStatusModel = self._client.trigger_sync(
-                golestan_username=self._username,
-                golestan_password=self._password,
-                mode=self._mode,
-                wait=True,
-                force=self._force,
+            self.status_signal.emit("syncing", "در حال دریافت مستقیم کارنامه از سامانه گلستان (حالت آفلاین/محلی)...")
+            from app.scrapers.requests_scraper.fetch_data import get_student_record
+            from app.data.student_db import StudentDatabase
+
+            db = StudentDatabase(self._username)
+            student = get_student_record(
+                username=self._username,
+                password=self._password,
+                db=db
             )
-            self._handle_status(result)
-        except ValidationApiError as err:
-            # Backend rejects with 400: LOGIN_FAILED / bad captcha / bad creds.
-            self.error_signal.emit(err.message or "LOGIN_FAILED")
-        except AuthenticationError as err:
-            self.error_signal.emit(f"AUTH_REQUIRED:{err.message}")
-        except GolestoonNetworkError as err:
-            self.error_signal.emit(err.message)
-        except Exception as err:  # noqa: BLE001 — worker boundary
-            logger.exception("Transcript sync worker crashed")
-            self.error_signal.emit(str(err))
+            if student:
+                self.finished_signal.emit(student)
+            else:
+                self.error_signal.emit("خطا در دریافت کارنامه از گلستان. لطفاً اطلاعات ورود را بررسی فرمایید.")
+        except Exception as err:
+            logger.exception("Local scraper transcript sync failed")
+            err_msg = str(err)
+            if "Authentication failed" in err_msg:
+                err_msg = "نام کاربری یا رمز عبور گلستان نادرست است."
+            self.error_signal.emit(f"خطا در دریافت کارنامه: {err_msg}")
 
     def _handle_status(self, result: TranscriptSyncStatusModel) -> None:
         status = result.status
